@@ -1,0 +1,16 @@
+{
+  "name": "V5 Técnico Campo",
+  "short_name": "V5 Técnico",
+  "description": "Aplicativo de campo para instalações e geolocalização V5",
+  "start_url": "/tecnico",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

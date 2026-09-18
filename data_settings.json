@@ -1,0 +1,40 @@
+{
+  "nomeProvedor": "empresa fantasma",
+  "logoUrl": "",
+  "telefone": "",
+  "emailEmpresa": "123@gmail.com",
+  "nomeUsuario": "gerente para teste",
+  "cidadeEmpresa": "Rua Rio Verde, Parque Barragem Setor 08, Águas Lindas de Goiás, Goiás, Região Centro-Oeste, 72910-000, Brasil",
+  "latEmpresa": -15.743353808409257,
+  "lonEmpresa": -48.28268051147462,
+  "planoAtivo": "essencial",
+  "ctos": [
+    {
+      "id": "5971ed78-83db-4e21-be1a-57a970f7d0d5",
+      "identificacao": "CTO-TESTE-01",
+      "cep": "",
+      "endereco": "EQNN 1/3, Setor N Norte, Ceilândia Centro, Ceilândia, Distrito Federal, Região Centro-Oeste, 72225-971, Brasil",
+      "raio": 300,
+      "lat": -15.7553,
+      "lon": -48.2778
+    },
+    {
+      "id": "0efedabe-16c1-4644-a30f-daa469f4d79a",
+      "identificacao": "CTO-TESTE-02",
+      "cep": "",
+      "endereco": "EQNN 1/3, Setor N Norte, Ceilândia Centro, Ceilândia, Distrito Federal, Região Centro-Oeste, 72225-971, Brasil",
+      "raio": 300,
+      "lat": -15.76,
+      "lon": -48.28
+    }
+  ],
+  "planos": [],
+  "funcionarios": [
+    {
+      "id": "8409bdb4-55f0-425c-bf22-ef37520e0e5e",
+      "nome": "gerente para teste",
+      "cargo": "Gerente / Dono",
+      "email": "123@gmail.com"
+    }
+  ]
+}
