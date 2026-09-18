@@ -37,8 +37,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ sucesso: false, mensagem: `Erro no Banco: ${erroDb.message}` }, { status: 500 });
     }
 
-    // 2. Disparo do e-mail via Resend
-    const linkCadastro = `http://localhost:3000/register?email=${encodeURIComponent(emailLimpo)}`; 
+    // 2. Disparo do e-mail via Resend (Link corrigido para a Vercel)
+    const linkCadastro = `https://v5-cloud.vercel.app/register?email=${encodeURIComponent(emailLimpo)}`; 
 
     const { error: erroEmail } = await resend.emails.send({
       from: 'V5 Fibra Enterprise <onboarding@resend.dev>',

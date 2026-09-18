@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
     console.log(`🛒 [API CHECKOUT] Empresa ID: ${empresaId} | Plano Nome: ${nomePlano} | Chave Plano: ${planoNormalizado}`);
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://v5-cloud.vercel.app';
 
     // 🚀 Monta a URL de sucesso injetando tanto o ID da empresa quanto a chave exata do plano
     const params = new URLSearchParams({
