@@ -43,8 +43,29 @@ export default function CaixaCtoPage() {
   const [RL, setRL] = useState<any>(null); 
   const [L, setL] = useState<any>(null);
 
-  // 🚀 PLANO DIRETO DA SESSÃO / SUPABASE
   const [planoAtual, setPlanoAtual] = useState<string>('');
+
+  // 🛡️ FUNÇÃO DE AUDITORIA LEGAL
+  const registrarLogAuditoria = useCallback(async (acao: string, entidadeTipo: string, entidadeId?: string, detalhes?: any) => {
+    try {
+      const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
+      await fetch('/api/auditoria', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operador_email: operador?.email || 'admin@v5.com',
+          acao,
+          ip: '0.0.0.0',
+          empresa_id: idDaEmpresa || null,
+          entidade_tipo: entidadeTipo,
+          entidade_id: entidadeId || null,
+          detalhes: detalhes || {}
+        })
+      });
+    } catch (err) {
+      console.error("Erro ao enviar log de auditoria:", err);
+    }
+  }, [operador, empresa]);
 
   useEffect(() => {
     async function sincronizarPlanoReal() {
@@ -135,7 +156,6 @@ export default function CaixaCtoPage() {
   const markerRef = useRef<any>(null);
   const [mapModalInstancia, setMapModalInstancia] = useState<any>(null);
 
-  // 🚀 BUSCAR DO BANCO APENAS AS CAIXAS DESTA EMPRESA
   useEffect(() => {
     async function buscarCtosDoBanco() {
       const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
@@ -235,8 +255,7 @@ export default function CaixaCtoPage() {
   const bateuLimite = typeof limiteCtos === 'number' ? totalCaixas >= limiteCtos : false;
   const porcentagemUso = typeof limiteCtos === 'number' && limiteCtos > 0 ? Math.min((totalCaixas / limiteCtos) * 100, 100) : 0;
 
-  // 🛡️ SEGURANÇA MÁXIMA CONTRA ARQUIVOS FAKES / BOMBAS ZIP (MÁX 5 MEGABYTES)
-  const TAMANHO_MAXIMO_BYTES = 5 * 1024 * 1024; // 5 MB
+  const TAMANHO_MAXIMO_BYTES = 5 * 1024 * 1024;
 
   const handleImportarKmzComSeguranca = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const arquivo = e.target.files?.[0];
@@ -245,14 +264,14 @@ export default function CaixaCtoPage() {
     setErroSegurancaKmz(null);
 
     if (arquivo.size > TAMANHO_MAXIMO_BYTES) {
-      setErroSegurancaKmz(`Erro de Segurança: O arquivo excede o limite permitido de 5 MB (Enviado: ${(arquivo.size / (1024 * 1024)).toFixed(2)} MB). Proteção contra arquivos maliciosos ativada.`);
+      setErroSegurancaKmz(`Erro de Segurança: O arquivo excede o limite permitido de 5 MB.`);
       e.target.value = '';
       return;
     }
 
     const nomeArquivo = arquivo.name.toLowerCase();
     if (!nomeArquivo.endsWith('.kmz') && !nomeArquivo.endsWith('.kml')) {
-      setErroSegurancaKmz('Erro: Formato inválido. Envie estritamente um arquivo de extensão .kmz ou .kml.');
+      setErroSegurancaKmz('Erro: Formato inválido.');
       e.target.value = '';
       return;
     }
@@ -272,12 +291,6 @@ export default function CaixaCtoPage() {
         try {
           const conteudoTexto = evento.target?.result as string;
           
-          if (conteudoTexto && conteudoTexto.length > 10 * 1024 * 1024) {
-            setErroSegurancaKmz('Alerta de Segurança: O conteúdo interno do arquivo XML é excessivamente grande e foi bloqueado.');
-            setImportandoKmz(false);
-            return;
-          }
-
           const regexPlacemark = /<Placemark>([\s\S]*?)<\/Placemark>/g;
           let match;
           const novasCaixasParaInserir = [];
@@ -310,13 +323,7 @@ export default function CaixaCtoPage() {
           }
 
           if (novasCaixasParaInserir.length === 0) {
-            setErroSegurancaKmz('Nenhuma coordenada válida foi encontrada dentro deste arquivo KMZ/KML.');
-            setImportandoKmz(false);
-            return;
-          }
-
-          if (typeof limiteCtos === 'number' && (listaCtos.length + novasCaixasParaInserir.length) > limiteCtos) {
-            alert(`A importação ultrapassará o limite do seu plano (${limiteCtos} caixas). Reduza os pontos no mapa ou faça um upgrade.`);
+            setErroSegurancaKmz('Nenhuma coordenada válida encontrada.');
             setImportandoKmz(false);
             return;
           }
@@ -327,23 +334,22 @@ export default function CaixaCtoPage() {
             .select();
 
           if (error) {
-            alert("Erro ao salvar caixas importadas no Supabase: " + error.message);
+            alert("Erro ao salvar caixas importadas: " + error.message);
           } else if (data) {
             setListaCtos([...listaCtos, ...data]);
             setSalvo(true);
             setTimeout(() => setSalvo(false), 4000);
+            // 🛡️ AUDITORIA
+            await registrarLogAuditoria('IMPORTAR_KMZ_CTOS', 'cto', undefined, { total: novasCaixasParaInserir.length });
           }
         } catch (err) {
-          console.error("Erro ao processar estrutura do arquivo:", err);
-          setErroSegurancaKmz('Falha ao decodificar o arquivo KMZ. Verifique se o arquivo não está corrompido.');
+          console.error(err);
         } finally {
           setImportandoKmz(false);
           e.target.value = '';
         }
       };
-
       reader.readAsText(arquivo);
-
     } catch (err) {
       console.error(err);
       setImportandoKmz(false);
@@ -352,13 +358,13 @@ export default function CaixaCtoPage() {
 
   const handleAdicionarCto = async () => {
     if (bateuLimite) {
-      alert(`Limite de caixas CTO (${limiteCtos}) atingido para o plano ${configPlanoAtual?.nome || planoAtual}! Faça o upgrade do seu plano.`);
+      alert(`Limite de caixas atingido.`);
       return;
     }
 
     const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
     if (!idDaEmpresa) {
-      alert("Erro ao identificar sua empresa. Tente recarregar a página.");
+      alert("Erro ao identificar empresa.");
       return;
     }
 
@@ -377,10 +383,11 @@ export default function CaixaCtoPage() {
       .select();
 
     if (error) {
-      console.error("Erro ao inserir CTO:", error);
-      alert("Erro ao salvar nova CTO no banco: " + error.message);
+      alert("Erro ao salvar nova CTO: " + error.message);
     } else if (data && data[0]) {
       setListaCtos([...listaCtos, data[0]]);
+      // 🛡️ AUDITORIA DISPARADA COM SUCESSO
+      await registrarLogAuditoria('CRIAR_CTO', 'cto', data[0].id, { identificacao: data[0].identificacao });
     }
   };
 
@@ -391,10 +398,11 @@ export default function CaixaCtoPage() {
       .eq('id', id);
 
     if (error) {
-      console.error("Erro ao deletar CTO:", error);
-      alert("Erro ao remover CTO do banco.");
+      alert("Erro ao remover CTO.");
     } else {
       setListaCtos(listaCtos.filter(item => item.id !== id));
+      // 🛡️ AUDITORIA
+      await registrarLogAuditoria('EXCLUIR_CTO', 'cto', id);
     }
   };
 
@@ -422,8 +430,6 @@ export default function CaixaCtoPage() {
       if (data && data.length > 0) {
         setCoordsTemp({ lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) });
         setEnderecoReverso(data[0].display_name);
-      } else {
-        alert("Endereço não encontrado.");
       }
     } catch (err) {
       console.error(err);
@@ -449,10 +455,11 @@ export default function CaixaCtoPage() {
         .eq('id', ctoEditandoId);
 
       if (error) {
-        console.error("Erro ao atualizar coordenadas:", error);
-        alert("Erro ao gravar coordenadas no banco.");
+        alert("Erro ao gravar coordenadas.");
       } else {
         setListaCtos(listaCtos.map(item => item.id === ctoEditandoId ? { ...item, ...atualizacao } : item));
+        // 🛡️ AUDITORIA
+        await registrarLogAuditoria('ATUALIZAR_COORDENADAS_CTO', 'cto', ctoEditandoId, atualizacao);
       }
     }
     setModalMapaAberto(false);
@@ -476,9 +483,11 @@ export default function CaixaCtoPage() {
       }
       setSalvo(true);
       setTimeout(() => setSalvo(false), 4000);
+      // 🛡️ AUDITORIA
+      await registrarLogAuditoria('ATUALIZAR_LOTE_CTOS', 'cto', undefined, { total_atualizado: listaCtos.length });
     } catch (err) {
-      console.error("Erro ao salvar lote:", err);
-      alert("Erro ao salvar alterações no banco.");
+      console.error(err);
+      alert("Erro ao salvar lote.");
     }
   };
 
@@ -491,18 +500,7 @@ export default function CaixaCtoPage() {
 
   return (
     <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans relative">
-      
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-      <style jsx global>{`
-        .leaflet-tile-pane,
-        .leaflet-tile-pane img,
-        .leaflet-layer,
-        .leaflet-container {
-          filter: none !important;
-          -webkit-filter: none !important;
-        }
-      `}</style>
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -518,44 +516,30 @@ export default function CaixaCtoPage() {
             onClick={handleAdicionarCto}
             className={`px-5 py-3 rounded-xl text-xs font-mono font-bold uppercase transition-all flex items-center gap-2 cursor-pointer ${
               bateuLimite 
-                ? 'bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
-                : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+                ? 'bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20'
+                : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
             }`}
           >
-            {bateuLimite ? (
-              <><Rocket className="w-4 h-4" /> Upgrade para Adicionar Caixas</>
-            ) : (
-              <><Plus className="w-4 h-4" /> Adicionar Caixa CTO</>
-            )}
+            {bateuLimite ? <><Rocket className="w-4 h-4" /> Upgrade Necessário</> : <><Plus className="w-4 h-4" /> Adicionar Caixa CTO</>}
           </button>
         </div>
       </div>
 
-      {/* 🛡️ BLOCO DE IMPORTAÇÃO SEGURA DE KMZ COM BLINDAGEM ANTI-BOMBA ZIP */}
       <Card className="border border-emerald-500/30 bg-emerald-500/5 backdrop-blur">
         <CardContent className="p-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-bold font-mono text-white flex items-center gap-2">
               <Upload className="w-4 h-4 text-emerald-400" /> Importação Expressa via Google Earth (.KMZ / .KML)
             </h3>
-            <p className="text-xs text-zinc-400 font-mono mt-1">
-              Envie o projeto de rede para cadastrar caixas em lote automaticamente. <strong className="text-emerald-400">Proteção Ativa:</strong> Limite estrito de 5 MB por arquivo.
-            </p>
+            <p className="text-xs text-zinc-400 font-mono mt-1">Limite estrito de 5 MB por arquivo.</p>
           </div>
-
           <div className="w-full md:w-auto">
             <label className={`px-5 py-3 rounded-xl text-xs font-mono font-bold uppercase transition-all flex items-center justify-center gap-2 cursor-pointer ${
-              importandoKmz ? 'bg-zinc-800 text-zinc-400' : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+              importandoKmz ? 'bg-zinc-800 text-zinc-400' : 'bg-emerald-500 hover:bg-emerald-400 text-black'
             }`}>
               {importandoKmz ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              {importandoKmz ? 'Analisando e Validando...' : 'Selecionar Arquivo KMZ'}
-              <input 
-                type="file" 
-                accept=".kmz,.kml" 
-                onChange={handleImportarKmzComSeguranca} 
-                disabled={importandoKmz} 
-                className="hidden" 
-              />
+              {importandoKmz ? 'Analisando...' : 'Selecionar Arquivo KMZ'}
+              <input type="file" accept=".kmz,.kml" onChange={handleImportarKmzComSeguranca} disabled={importandoKmz} className="hidden" />
             </label>
           </div>
         </CardContent>
@@ -569,113 +553,76 @@ export default function CaixaCtoPage() {
 
       {salvo && (
         <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-mono flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4" /> Caixas CTO sincronizadas com o Supabase com sucesso!
+          <CheckCircle2 className="w-4 h-4" /> Alterações guardadas com sucesso!
         </div>
       )}
-
-      {/* CARD DE CONSUMO DE CTOs DO PLANO DINÂMICO */}
-      <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-        <CardContent className="p-6">
-          <div className="flex justify-between text-sm font-bold mb-3">
-            <span className="text-zinc-300 font-mono uppercase tracking-widest text-xs flex items-center gap-2">
-               Uso de Licenças de Rede (Plano {planoAtual ? planoAtual.toUpperCase() : 'CARREGANDO...'})
-            </span>
-            <span className={bateuLimite ? "text-red-400 font-mono" : "text-emerald-400 font-mono"}>
-              {totalCaixas} / {limiteCtos} Caixas Mapeadas
-            </span>
-          </div>
-          
-          <div className="w-full bg-black rounded-full h-2.5 overflow-hidden border border-zinc-800">
-            <div 
-              className={`h-full rounded-full transition-all duration-700 ${bateuLimite ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]'}`} 
-              style={{ width: `${porcentagemUso}%` }}
-            ></div>
-          </div>
-        </CardContent>
-      </Card>
 
       <form onSubmit={handleSalvarTudoEmLote} className="space-y-6">
         <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
           <CardHeader className="border-b border-zinc-900/85 pb-4">
             <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-emerald-400" /> Caixas Cadastradas ({cidadeEmpresa})
+              <MapPin className="w-4 h-4 text-emerald-400" /> Caixas Cadastradas
             </CardTitle>
           </CardHeader>
           <CardContent className="p-5 space-y-4">
             {carregandoBanco ? (
               <div className="p-12 text-center text-emerald-400 font-mono text-xs flex items-center justify-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" /> Buscando caixas no Supabase...
+                <Loader2 className="w-5 h-5 animate-spin" /> A carregar caixas do Supabase...
               </div>
-            ) : (!listaCtos || listaCtos.length === 0) ? (
+            ) : listaCtos.length === 0 ? (
               <div className="p-12 text-center border border-dashed border-zinc-800 rounded-xl text-zinc-500 text-xs font-mono">
-                Nenhuma caixa CTO cadastrada no banco. Importe um arquivo KMZ ou clique em Adicionar Caixa CTO.
+                Nenhuma caixa CTO registada.
               </div>
             ) : (
               <div className="space-y-3">
                 {listaCtos.map((cto) => (
                   <div key={cto.id} className="p-4 bg-black/40 border border-zinc-900 rounded-xl grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                    
                     <div className="md:col-span-2 space-y-1">
                       <label className="text-[10px] font-mono uppercase text-zinc-500">Identificação</label>
                       <input 
                         type="text"
                         value={cto.identificacao}
                         onChange={(e) => handleAtualizarCtoLocal(cto.id, 'identificacao', e.target.value)}
-                        placeholder="Ex: CTO-01"
-                        className="w-full bg-black/50 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-black/50 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white font-mono"
                       />
                     </div>
-
                     <div className="md:col-span-4 space-y-1">
-                      <label className="text-[10px] font-mono uppercase text-zinc-500">Endereço / Referência</label>
+                      <label className="text-[10px] font-mono uppercase text-zinc-500">Endereço</label>
                       <input 
                         type="text"
                         value={cto.endereco}
                         onChange={(e) => handleAtualizarCtoLocal(cto.id, 'endereco', e.target.value)}
-                        placeholder="Preenchido ao marcar no mapa"
-                        className="w-full bg-black/50 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-black/50 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white font-mono"
                       />
                     </div>
-
                     <div className="md:col-span-2 space-y-1">
-                      <label className="text-[10px] font-mono uppercase text-zinc-500">Raio (Metros)</label>
+                      <label className="text-[10px] font-mono uppercase text-zinc-500">Raio (M)</label>
                       <input 
                         type="number"
                         value={cto.raio || 300}
                         onChange={(e) => handleAtualizarCtoLocal(cto.id, 'raio', Number(e.target.value))}
-                        className="w-full bg-black/50 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-black/50 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white font-mono"
                       />
                     </div>
-
                     <div className="md:col-span-3 space-y-1">
-                      <label className="text-[10px] font-mono uppercase text-emerald-400 font-bold">Localização GPS</label>
+                      <label className="text-[10px] font-mono uppercase text-emerald-400 font-bold">GPS</label>
                       <button
                         type="button"
                         onClick={() => abrirModalMapa(cto)}
-                        className="w-full py-2 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 text-xs font-mono font-bold uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="w-full py-2 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer"
                       >
-                        <MapPin className="w-3.5 h-3.5" /> 
-                        {cto.lat && cto.lon ? "Alterar PIN no Mapa" : "Posicionar PIN"}
+                        <MapPin className="w-3.5 h-3.5" /> Posicionar
                       </button>
                     </div>
-
                     <div className="md:col-span-1 flex justify-end">
                       <button
                         type="button"
                         onClick={() => handleRemoverCto(cto.id)}
-                        className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
-                        title="Remover"
+                        className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 cursor-pointer"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-
-                    {cto.lat !== undefined && cto.lon !== undefined && (
-                      <div className="md:col-span-12 text-[10px] font-mono text-emerald-400 pt-1">
-                        ✓ PIN Gravado no Banco: Lat {cto.lat.toFixed(5)}, Lon {cto.lon.toFixed(5)}
-                      </div>
-                    )}
-
                   </div>
                 ))}
               </div>
@@ -683,120 +630,43 @@ export default function CaixaCtoPage() {
           </CardContent>
         </Card>
 
-        {/* MAPA GERAL DE COBERTURA */}
-        <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-          <CardHeader className="border-b border-zinc-900/85 pb-4">
-            <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
-              <Globe className="w-4 h-4 text-emerald-400" /> Mapa Geral de Cobertura - Satélite HD ({cidadeEmpresa})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-5">
-            <div className="relative w-full h-[480px] bg-[#09090b] border border-emerald-500/30 rounded-2xl overflow-hidden shadow-[0_0_20px_rgba(16,185,129,0.1)] z-0">
-              
-              {!RL || !L || carregandoBanco ? (
-                <div className="w-full h-full flex flex-col items-center justify-center text-emerald-500/70 font-mono text-xs gap-3">
-                  <Loader2 className="w-6 h-6 animate-spin" /> Carregando mapa de satélite...
-                </div>
-              ) : (
-                <RL.MapContainer 
-                  key={`${centroGeral[0]}-${centroGeral[1]}`}
-                  center={centroGeral} 
-                  zoom={16} 
-                  maxZoom={21}
-                  style={{ width: '100%', height: '100%', background: '#09090b' }}
-                >
-                  <RL.TileLayer
-                    attribution="&copy; Google"
-                    url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-                    maxZoom={21}
-                    maxNativeZoom={20}
-                  />
-                  {listaCtos.map((cto) => {
-                    if (cto.lat !== undefined && cto.lon !== undefined && iconeNeonQuadrado) {
-                      return (
-                        <RL.Marker key={cto.id} position={[cto.lat, cto.lon]} icon={iconeNeonQuadrado}>
-                          <RL.Popup>
-                            <div className="font-mono text-xs text-zinc-900 p-1 space-y-1">
-                              <strong className="text-emerald-700 block font-black text-sm uppercase">{cto.identificacao}</strong>
-                              <span className="font-sans text-zinc-700 block">{cto.endereco || "Sem endereço definido"}</span>
-                              <div className="text-[10px] text-zinc-500 font-bold uppercase">Raio: {cto.raio || 300} metros</div>
-                            </div>
-                          </RL.Popup>
-                        </RL.Marker>
-                      );
-                    }
-                    return null;
-                  })}
-                </RL.MapContainer>
-              )}
-
-            </div>
-          </CardContent>
-        </Card>
-
         <div className="flex justify-end">
           <button
             type="submit"
-            className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs px-6 py-3 rounded-xl transition-all font-mono flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer"
+            className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs px-6 py-3 rounded-xl font-mono flex items-center gap-2 cursor-pointer"
           >
             <Save className="w-4 h-4" /> Salvar Alterações em Lote
           </button>
         </div>
       </form>
 
-      {/* MODAL DE POSICIONAMENTO TÁTICO */}
       {modalMapaAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col">
-            
             <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/40">
-              <h3 className="text-xs uppercase font-mono tracking-wider text-emerald-400 font-bold flex items-center gap-2">
-                <Navigation className="w-4 h-4" /> Posicionamento Tático em {cidadeEmpresa} (Satélite HD)
-              </h3>
-              <button onClick={() => setModalMapaAberto(false)} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
+              <h3 className="text-xs uppercase font-mono text-emerald-400 font-bold">Posicionamento Tático</h3>
+              <button onClick={() => setModalMapaAberto(false)} className="text-zinc-400 hover:text-white cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
-
             <div className="p-5 space-y-4">
               <div className="flex gap-2">
                 <input 
                   type="text"
                   value={enderecoBuscaMapa}
                   onChange={(e) => setEnderecoBuscaMapa(e.target.value)}
-                  placeholder="Pesquisar rua ou bairro..."
-                  className="flex-1 bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  className="flex-1 bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono"
                 />
-                <button type="button" onClick={handleBuscarEnderecoMapa} disabled={carregandoBusca} className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-mono text-xs font-bold uppercase cursor-pointer flex items-center gap-1.5">
-                  {carregandoBusca ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} Localizar
-                </button>
+                <button type="button" onClick={handleBuscarEnderecoMapa} className="px-4 py-2.5 rounded-xl bg-zinc-800 text-white font-mono text-xs font-bold cursor-pointer">Localizar</button>
               </div>
-
-              <p className="text-[11px] text-emerald-400 font-mono">
-                🖱️ <strong>Instrução:</strong> Aproxime o máximo que precisar. Arraste o quadrado neon verde para cima do poste correto.
-              </p>
-
-              <div className="relative w-full h-96 bg-[#09090b] border border-emerald-500/50 rounded-2xl overflow-hidden shadow-lg z-10">
-                
-                {!RL || !L ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-emerald-500/70 font-mono text-xs gap-3">
-                    <Loader2 className="w-6 h-6 animate-spin" /> Carregando mapa de precisão...
-                  </div>
-                ) : (
+              <div className="relative w-full h-96 bg-[#09090b] border border-emerald-500/50 rounded-2xl overflow-hidden z-10">
+                {RL && L && (
                   <RL.MapContainer 
-                    key={`modal-${coordsTemp.lat}-${coordsTemp.lon}`}
                     center={[coordsTemp.lat, coordsTemp.lon]} 
                     zoom={19} 
                     maxZoom={21}
                     ref={setMapModalInstancia}
                     style={{ width: '100%', height: '100%', background: '#09090b' }}
                   >
-                    <RL.TileLayer
-                      attribution="&copy; Google"
-                      url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
-                      maxZoom={21}
-                      maxNativeZoom={20}
-                    />
+                    <RL.TileLayer url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}" maxZoom={21} />
                     {iconeNeonQuadrado && (
                       <RL.Marker 
                         draggable={true} 
@@ -808,25 +678,12 @@ export default function CaixaCtoPage() {
                     )}
                   </RL.MapContainer>
                 )}
-
               </div>
-
-              <div className="p-3 bg-black/60 border border-zinc-800 rounded-xl space-y-1 font-mono text-xs">
-                <div className="text-emerald-400 font-bold">📍 Coordenadas Selecionadas: <span className="text-white">Lat {coordsTemp.lat.toFixed(5)}, Lon {coordsTemp.lon.toFixed(5)}</span></div>
-                <div className="text-zinc-400 truncate">🏠 Endereço Identificado: <span className="text-zinc-200">{enderecoReverso || "Aguardando ajuste do marcador..."}</span></div>
-              </div>
-
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setModalMapaAberto(false)} className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-mono uppercase font-bold cursor-pointer">
-                  Cancelar
-                </button>
-                <button type="button" onClick={handleSalvarCoordsCto} className="px-5 py-2 rounded-xl bg-emerald-500 text-black hover:bg-emerald-400 text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.3)]">
-                  Salvar Posição no Banco
-                </button>
+                <button type="button" onClick={() => setModalMapaAberto(false)} className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 text-xs font-mono cursor-pointer">Cancelar</button>
+                <button type="button" onClick={handleSalvarCoordsCto} className="px-5 py-2 rounded-xl bg-emerald-500 text-black text-xs font-mono font-bold cursor-pointer">Salvar Posição</button>
               </div>
-
             </div>
-
           </div>
         </div>
       )}
