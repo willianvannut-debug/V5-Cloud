@@ -10,13 +10,6 @@ import L from 'leaflet';
 import { useApp, AppProvider } from '@/context/AppContext'; 
 import { useSettings, SettingsProvider } from '@/context/SettingsContext'; 
 
-const customPin = L.divIcon({
-  className: 'custom-pin',
-  html: `<div style="background-color: #62c073; width: 28px; height: 28px; border-radius: 50%; border: 3px solid #000; box-shadow: 0 0 20px #62c073;"></div>`,
-  iconSize: [28, 28],
-  iconAnchor: [14, 14]
-});
-
 function RecenterMap({ coords }: { coords: [number, number] }) {
   const map = useMap();
   useEffect(() => {
@@ -36,6 +29,14 @@ function ClickHandler({ setCoords }: { setCoords: (c: [number, number]) => void 
 
 function MapaInterno({ coords, setCoords }: { coords: [number, number], setCoords: (c: [number, number]) => void }) {
   const [tipoCamada, setTipoCamada] = useState<'satelite' | 'ruas'>('satelite');
+
+  // Criamos o ícone aqui dentro para garantir que só roda no browser (evita erro de SSR do window)
+  const customPin = L.divIcon({
+    className: 'custom-pin',
+    html: `<div style="background-color: #62c073; width: 28px; height: 28px; border-radius: 50%; border: 3px solid #000; box-shadow: 0 0 20px #62c073;"></div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+  });
 
   return (
     <div className="relative w-full h-full">
@@ -115,7 +116,6 @@ const calcularDistanciaEmMetros = (lat1: number, lon1: number, lat2: number, lon
   return R * c;
 };
 
-// 🚀 Renomeamos de 'export default function' para apenas 'function'
 function DemoClienteContent() {
   const { adicionarLead } = useApp(); 
   const settings = useSettings(); 
@@ -259,12 +259,6 @@ function DemoClienteContent() {
     } else {
       setTela('expansao');
     }
-  };
-
-  const formatarTempoTimer = () => {
-    const min = Math.floor(timer / 60);
-    const sec = timer % 60;
-    return `${min < 10 ? '0' : ''}${min}:${sec < 10 ? '0' : ''}${sec}`;
   };
 
   if (!isMounted) return null;
@@ -423,7 +417,7 @@ function DemoClienteContent() {
               </div>
 
               <a 
-                href={`https://api.whatsapp.com/send/?phone=556194193617&text=${encodeURIComponent(`Olá! Fiz o teste no site e garanti meus bônus.\n\nNome: ${nome}\nEndereço: ${dadosEndereco.logradouro}, Nº ${numero} - ${dadosEndereco.bairro} (${dadosEndereco.localidade}/${dadosEndereco.uf})\nMetragem Calculada: ${distanciaDrop.toFixed(0)}m\n\nGostaria de usar meu benefício Fura-Fila!`)}`} 
+                href={`https://api.whatsapp.com/send/?phone=556194193617&text=${encodeURIComponent(`Olá! Fiz o teste no site e garanti meus bônus.\n\nNome: ${nome}\nEndereço: ${dadosEndereco.logradouro}, Nº ${numero} - ${dadosEndereco.bairro} (${dadosEndereco.localidade}/${dadosEndereco.uf})\nMetragem Calculada:${distanciaDrop.toFixed(0)}m\n\nGostaria de usar meu benefício Fura-Fila!`)}`} 
                 target="_blank" 
                 rel="noreferrer"
                 className="w-full bg-[#62c073] hover:bg-white text-black font-black py-4 px-6 rounded-lg uppercase tracking-wider text-xs transition-all flex items-center justify-center gap-2 shadow-[0_10px_25px_rgba(98,192,115,0.3)] text-center cursor-pointer"
@@ -460,7 +454,7 @@ function DemoClienteContent() {
               </div>
 
               <a 
-                href={`https://api.whatsapp.com/send/?phone=556194193617&text=${encodeURIComponent(`Olá! Fiz o teste no site e vi que minha região (${dadosEndereco.bairro}/${dadosEndereco.localidade}) está na lista de expansão.\n\nNome: ${nome}\nCEP: ${cep}\n\nGostaria de avisar meu interesse quando a rede chegar no meu bairro!`)}`} 
+                href={`https://api.whatsapp.com/send/?phone=556194193617&text=${encodeURIComponent(`Olá! Fiz o teste no site e vi que minha região (${dadosEndereco.bairro}/${dadosEndereco.localidade}) está na lista de expansão.\n\nNome: ${nome}\nCEP:${cep}\n\nGostaria de avisar meu interesse quando a rede chegar no meu bairro!`)}`} 
                 target="_blank" 
                 rel="noreferrer"
                 className="w-full bg-orange-500 hover:bg-orange-400 text-black font-black py-4 px-6 rounded-lg uppercase tracking-wider text-xs transition-all flex items-center justify-center gap-2 text-center cursor-pointer"
@@ -512,7 +506,6 @@ function DemoClienteContent() {
   );
 }
 
-// 🚀 AQUI É O SEGREDO: Envelopamos a tela com os Provedores!
 export default function DemoClientePage() {
   return (
     <SettingsProvider>
