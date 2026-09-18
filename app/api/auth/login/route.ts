@@ -29,7 +29,6 @@ export async function POST(request: Request) {
 
     // 1. Verificação Rigorosa de Rate Limiting
     if (registroIp) {
-      // Se ainda estiver dentro do tempo de bloqueio, retorna o tempo restante SEM estender o cronômetro
       if (registroIp.bloqueadoAte > agora) {
         const segundosRestantes = Math.ceil((registroIp.bloqueadoAte - agora) / 1000);
         const minutosRestantes = Math.ceil(segundosRestantes / 60);
@@ -43,7 +42,6 @@ export async function POST(request: Request) {
         );
       }
       
-      // Se o tempo de bloqueio já passou, limpa o registro para permitir novas tentativas
       if (registroIp.bloqueadoAte > 0 && registroIp.bloqueadoAte <= agora) {
         tentativasLogin.delete(ip);
       }
@@ -75,7 +73,7 @@ export async function POST(request: Request) {
       .single();
 
     if (error || !operador) {
-      await registrarAuditoria(emailLimpo, 'TENTATIVA_LOGIN_FALHA', ip, 'E-mail não encontrado');
+      await registrarAuditoria(emailLimpo, 'TENTATIVA_LOGIN_FALHA', ip, 'E-mail não encontrado', null, 'autenticacao', null);
       registrarFalhaIp(ip);
       return NextResponse.json({ sucesso: false, mensagem: mensagemErroGenerica }, { status: 400 });
     }
@@ -83,7 +81,7 @@ export async function POST(request: Request) {
     const senhaCorreta = await bcrypt.compare(senha, operador.senha_hash);
 
     if (!senhaCorreta) {
-      await registrarAuditoria(emailLimpo, 'TENTATIVA_LOGIN_FALHA', ip, 'Senha incorreta');
+      await registrarAuditoria(emailLimpo, 'TENTATIVA_LOGIN_FALHA', ip, 'Senha incorreta', operador.empresa_id || null, 'autenticacao', operador.id);
       registrarFalhaIp(ip);
       return NextResponse.json({ sucesso: false, mensagem: mensagemErroGenerica }, { status: 400 });
     }
@@ -115,8 +113,16 @@ export async function POST(request: Request) {
       maxAge: 60 * 60 * 8, // 8 horas
     });
 
-    // 5. Registra auditoria de sucesso
-    await registrarAuditoria(operador.email, 'LOGIN_SUCESSO', ip, 'Login efetuado com sucesso');
+    // 5. Registra auditoria de sucesso estruturada com empresa_id e entidade
+    await registrarAuditoria(
+      operador.email, 
+      'LOGIN_SUCESSO', 
+      ip, 
+      'Login efetuado com sucesso', 
+      operador.empresa_id || null, 
+      'operador', 
+      operador.id
+    );
 
     // 6. Busca os dados da empresa vinculada (se houver)
     let empresaNome = 'V5 Fibra Enterprise';
@@ -149,7 +155,7 @@ export async function POST(request: Request) {
 
   } catch (err: any) {
     console.error("ERRO NO LOGIN:", err);
-    await registrarAuditoria('desconhecido', 'ERRO_SERVIDOR', ip, err.message);
+    await registrarAuditoria('desconhecido', 'ERRO_SERVIDOR', ip, err.message, null, 'sistema', null);
     return NextResponse.json({ sucesso: false, mensagem: 'Erro interno no servidor.' }, { status: 500 });
   }
 }
@@ -168,11 +174,27 @@ function registrarFalhaIp(ip: string) {
   }
 }
 
-// Função auxiliar para gravar Logs de Auditoria no Supabase
-async function registrarAuditoria(email: string, acao: string, ip: string, detalhes: string) {
+// Função auxiliar aprimorada para gravar Logs de Auditoria no Supabase
+async function registrarAuditoria(
+  email: string, 
+  acao: string, 
+  ip: string, 
+  detalhesTexto: string, 
+  empresaId: string | null = null,
+  entidadeTipo: string = 'autenticacao',
+  entidadeId: string | null = null
+) {
   try {
     await supabaseAdmin.from('auditoria_logs').insert([
-      { operador_email: email, acao, ip, detalhes }
+      { 
+        operador_email: email, 
+        acao: acao.toUpperCase(), 
+        ip, 
+        detalhes: { mensagem: detalhesTexto }, 
+        empresa_id: empresaId,
+        entidade_tipo: entidadeTipo,
+        entidade_id: entidadeId
+      }
     ]);
   } catch (e) {
     console.error("Erro ao gravar log de auditoria:", e);

@@ -1,38 +1,46 @@
-import { SignJWT, jwtVerify } from 'jose';
-import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET_KEY || 'v5_cloud_secret_key_super_segura_2026'
+// Inicializa o cliente do Supabase com a chave de serviço (Admin)
+// Isso é essencial para rodar no backend (app/api/...) com segurança total
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
-export async function gerarTokenSessao(payload: { email: string; role: string; empresaId?: string }) {
-  const token = await new SignJWT(payload)
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('8h') // Sessão expira em 8 horas
-    .sign(JWT_SECRET);
-
-  return token;
+interface AuditLogParams {
+  empresaId?: string | null;
+  operadorEmail: string;
+  acao: string;
+  entidadeTipo: string;
+  entidadeId?: string | null;
+  detalhes?: Record<string, any>;
+  ip?: string;
 }
 
-export async function definirCookieSessao(token: string) {
-  const cookieStore = await cookies();
-  cookieStore.set({
-    name: 'v5_session',
-    value: token,
-    httpOnly: true, // Invisível para o JavaScript do navegador (Proteção XSS absoluta)
-    secure: process.env.NODE_ENV === 'production', // Apenas HTTPS em produção
-    sameSite: 'strict',
-    path: '/',
-    maxAge: 60 * 60 * 8, // 8 horas
-  });
-}
-
-export async function verificarTokenSessao(token: string) {
+export async function registrarLog({
+  empresaId = null,
+  operadorEmail,
+  acao,
+  entidadeTipo,
+  entidadeId = null,
+  detalhes = {},
+  ip = '127.0.0.1'
+}: AuditLogParams) {
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    return payload;
+    const { error } = await supabaseAdmin.from('auditoria_logs').insert({
+      empresa_id: empresaId,
+      operador_email: operadorEmail,
+      acao: acao.toUpperCase(),
+      entidade_tipo: entidadeTipo,
+      entidade_id: entidadeId,
+      detalhes: detalhes, // Agora recebe o objeto JSON diretamente
+      ip: ip
+    });
+
+    if (error) {
+      console.error('[Audit Error] Falha ao registrar log no Supabase:', error.message);
+    }
   } catch (err) {
-    return null;
+    console.error('[Audit Error] Erro inesperado ao tentar salvar auditoria:', err);
   }
 }
