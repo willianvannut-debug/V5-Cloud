@@ -5,6 +5,9 @@ import { ShieldCheck, Lock, Mail, User, Building2, MapPin, Navigation, Search, L
 import dynamic from 'next/dynamic';
 import { createClient } from '@supabase/supabase-js';
 
+// 🚀 IMPEDE A VERCEL DE FAZER CACHE DESTA PÁGINA
+export const dynamicParams = 'force-dynamic';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
@@ -114,67 +117,56 @@ function PosPagamentoContent() {
     setVerificando(false);
   }, [sessionId]);
 
-  // 🚀 ATUALIZAÇÃO DIRETA E INFalível NO SUPABASE EM TEMPO REAL
+  // 🚀 LÓGICA INTELIGENTE: SEPARA CLIENTES NOVOS DE UPGRADES
   useEffect(() => {
     const processarUpgradeSeguro = async () => {
       if (sessionId && planoComprado) {
-        setIsUpgrade(true);
         
         let idEmpresaAlvo = searchParams.get('empresa_id') || searchParams.get('empresaId');
+        let isLogado = false;
 
+        // Se não tem ID na URL, verifica se já está logado no navegador
         if (!idEmpresaAlvo && typeof window !== 'undefined') {
           try {
             const authStorage = localStorage.getItem('v5_operador') || localStorage.getItem('operador') || localStorage.getItem('empresa');
             if (authStorage) {
               const parsed = JSON.parse(authStorage);
               idEmpresaAlvo = parsed?.empresaId || parsed?.empresa_id || parsed?.id || null;
+              if (idEmpresaAlvo) isLogado = true;
             }
           } catch (e) {
-            console.error("Erro ao ler dados locais do operador:", e);
+            console.error("Erro ao ler dados locais:", e);
           }
         }
 
-        try {
-          console.log("⚡ [PÓS-PAGAMENTO] Atualizando plano no Supabase. Empresa ID:", idEmpresaAlvo || "Mais recente", "| Novo Plano:", planoComprado);
+        // SE TEM EMPRESA ID OU ESTÁ LOGADO -> É UPGRADE!
+        if (idEmpresaAlvo || isLogado) {
+          setIsUpgrade(true);
           
-          if (supabase) {
-            let query = supabase.from('empresas').update({ plano: planoComprado });
-            
-            if (idEmpresaAlvo) {
-              query = query.eq('id', idEmpresaAlvo);
-            } else {
-              // Se não tiver o ID na URL ou localStorage, pega a empresa mais recente cadastrada
-              const { data: ultimaEmpresa } = await supabase.from('empresas').select('id').order('created_at', { ascending: false }).limit(1).maybeSingle();
-              if (ultimaEmpresa?.id) {
-                query = query.eq('id', ultimaEmpresa.id);
-              }
+          try {
+            console.log("⚡ [UPGRADE] Atualizando plano no Supabase. Empresa ID:", idEmpresaAlvo);
+            if (supabase && idEmpresaAlvo) {
+              await supabase.from('empresas').update({ plano: planoComprado }).eq('id', idEmpresaAlvo);
             }
-
-            const { error: erroSupabase } = await query;
-            if (erroSupabase) {
-              console.error("❌ Erro ao atualizar plano diretamente no Supabase:", erroSupabase.message);
-            } else {
-              console.log("✅ Plano atualizado com sucesso no Supabase para:", planoComprado);
-            }
+            await fetch('/api/upgrade', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ empresaId: idEmpresaAlvo, plano: planoComprado })
+            });
+          } catch (e) {
+            console.error("Erro no processamento do upgrade:", e);
           }
 
-          // Mantém a chamada de API de backup caso o backend precise processar algo mais
-          await fetch('/api/upgrade', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              empresaId: idEmpresaAlvo, 
-              plano: planoComprado 
-            })
-          });
-        } catch (e) {
-          console.error("Erro no processamento do upgrade:", e);
-        }
+          const timer = setTimeout(() => {
+            router.push('/dashboard'); 
+          }, 4000);
+          return () => clearTimeout(timer);
 
-        const timer = setTimeout(() => {
-          router.push('/dashboard'); 
-        }, 4000);
-        return () => clearTimeout(timer);
+        } else {
+          // SE NÃO TEM NADA -> É CLIENTE NOVO!
+          // Mantém o isUpgrade falso para mostrar o formulário de Cadastro.
+          setIsUpgrade(false);
+        }
       }
     };
     
@@ -350,7 +342,7 @@ function PosPagamentoContent() {
     );
   }
 
-  // 🚀 TELA DE UPGRADE DINÂMICA (MOSTRA O NOME CORRETO DO PLANO COMPRADO)
+  // 🚀 TELA DE UPGRADE DINÂMICA
   if (isUpgrade) {
     return (
       <div className="min-h-screen bg-[#021708] text-[#f8fafc] font-mono flex items-center justify-center p-4">
