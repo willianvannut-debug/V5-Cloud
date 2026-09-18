@@ -120,7 +120,6 @@ export default function ConfiguracoesPage() {
   const funcionarios = settings?.funcionarios || [];
   const salvarConfiguracoes = settings?.salvarConfiguracoes || (() => {});
   
-  // 🚀 PLANO 100% REAL: Puxado diretamente do banco de dados através do AuthContext (/api/auth/me)
   const planoAtivoAtual = empresa?.plano ? String(empresa.plano).toLowerCase().trim() : 'essencial';
   const carregandoPlano = carregandoAuth;
 
@@ -390,27 +389,42 @@ export default function ConfiguracoesPage() {
       atualizarNomeUsuario(inputUsuario);
     }
 
-    if (typeof salvarConfiguracoes === 'function') {
-      await salvarConfiguracoes(
-        inputNome, 
-        '', 
-        inputTelefone, 
-        inputEmailEmpresa, 
-        inputUsuario, 
-        inputEnderecoLoja,
-        inputLat,
-        inputLon,
-        ctos, 
-        listaPlanos, 
-        listaFuncionarios
-      );
-    }
+    try {
+      // 🛡️ PASSO 2: Captura o ID da empresa guardado no localStorage ou do operador logado
+      const empresaIdSalvoLocal = localStorage.getItem('v5_empresa_id') || empresaIdLogado;
 
-    setSenhaAntiga('');
-    setNovaSenha('');
-    setExibirCamposSenha(false);
-    setSalvo(true);
-    setTimeout(() => setSalvo(false), 4000);
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empresaId: empresaIdSalvoLocal || null,
+          operadorEmail: operador?.email || 'willianvannut@gmail.com',
+          nomeProvedor: inputNome,
+          telefone: inputTelefone,
+          emailEmpresa: inputEmailEmpresa,
+          nomeUsuario: inputUsuario,
+          cidadeEmpresa: inputEnderecoLoja,
+          latEmpresa: inputLat,
+          lonEmpresa: inputLon,
+          ctos,
+          planos: listaPlanos,
+          funcionarios: listaFuncionarios
+        })
+      });
+
+      const resultado = await response.json();
+      console.log("📥 Resposta da API /api/settings:", resultado);
+
+      if (!response.ok || !resultado.success) {
+        throw new Error(resultado.error || "Erro ao salvar no servidor.");
+      }
+
+      setSalvo(true);
+      setTimeout(() => setSalvo(false), 4000);
+    } catch (err) {
+      console.error("❌ Erro ao salvar configurações:", err);
+      alert("Erro ao salvar as configurações. Verifique o console.");
+    }
   };
 
   const handleSelecionarPlanoOficial = async (nomePlano: string, precoMensal: number, precoAnual: number, chavePlano: string) => {
