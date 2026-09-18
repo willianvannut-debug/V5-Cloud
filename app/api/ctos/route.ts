@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { registrarLog } from '@/lib/audit';
+import { registrarLog } from '../../../lib/audit';
 import { jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 
