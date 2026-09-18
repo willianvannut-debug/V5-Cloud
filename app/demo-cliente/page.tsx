@@ -6,6 +6,9 @@ import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-lea
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
+// 🚀 Forçamos a renderização dinâmica para evitar qualquer erro de SSR/window
+export const dynamicOption = 'force-dynamic';
+
 // 🚀 Importamos os Provedores junto com os Hooks
 import { useApp, AppProvider } from '@/context/AppContext'; 
 import { useSettings, SettingsProvider } from '@/context/SettingsContext'; 
@@ -30,7 +33,6 @@ function ClickHandler({ setCoords }: { setCoords: (c: [number, number]) => void 
 function MapaInterno({ coords, setCoords }: { coords: [number, number], setCoords: (c: [number, number]) => void }) {
   const [tipoCamada, setTipoCamada] = useState<'satelite' | 'ruas'>('satelite');
 
-  // Criamos o ícone aqui dentro para garantir que só roda no browser (evita erro de SSR do window)
   const customPin = L.divIcon({
     className: 'custom-pin',
     html: `<div style="background-color: #62c073; width: 28px; height: 28px; border-radius: 50%; border: 3px solid #000; box-shadow: 0 0 20px #62c073;"></div>`,
@@ -102,9 +104,8 @@ const MapaDinamico = dynamic(() => Promise.resolve(MapaInterno), {
   )
 });
 
-// Fórmula Matemática para calcular a distância em metros
 const calcularDistanciaEmMetros = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371e3; // Raio da terra em metros
+  const R = 6371e3;
   const p1 = lat1 * Math.PI/180;
   const p2 = lat2 * Math.PI/180;
   const dp = (lat2-lat1) * Math.PI/180;
