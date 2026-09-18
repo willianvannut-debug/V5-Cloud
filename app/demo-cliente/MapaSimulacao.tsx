@@ -4,13 +4,6 @@ import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-lea
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
-const customPin = L.divIcon({
-  className: 'custom-pin',
-  html: `<div style="background-color: #62c073; width: 28px; height: 28px; border-radius: 50%; border: 3px solid #000; box-shadow: 0 0 20px #62c073;"></div>`,
-  iconSize: [28, 28],
-  iconAnchor: [14, 14]
-});
-
 function RecenterMap({ coords }: { coords: [number, number] }) {
   const map = useMap();
   useEffect(() => {
@@ -30,6 +23,15 @@ function ClickHandler({ setCoords }: { setCoords: (c: [number, number]) => void 
 }
 
 export default function MapaSimulacao({ coords, setCoords }: { coords: [number, number], setCoords: (c: [number, number]) => void }) {
+  
+  // 🚀 Movido para dentro do componente para evitar erro de SSR (window is not defined)
+  const customPin = L.divIcon({
+    className: 'custom-pin',
+    html: `<div style="background-color: #62c073; width: 28px; height: 28px; border-radius: 50%; border: 3px solid #000; box-shadow: 0 0 20px #62c073;"></div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+  });
+
   return (
     <MapContainer 
       center={coords} 
@@ -38,7 +40,6 @@ export default function MapaSimulacao({ coords, setCoords }: { coords: [number, 
       minZoom={10}
       style={{ width: '100%', height: '100%', background: '#0a0a0c' }}
     >
-      {/* Essa URL (Voyager) é a que melhor renderiza os quadradinhos das casas e lotes gratuitamente */}
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
