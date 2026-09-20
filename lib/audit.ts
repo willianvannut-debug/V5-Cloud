@@ -1,3 +1,5 @@
+// lib/audit.ts
+
 import { createClient } from '@supabase/supabase-js';
 
 // Inicializa o cliente do Supabase com a chave de serviço (Admin)

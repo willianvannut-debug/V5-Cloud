@@ -1,3 +1,5 @@
+// lib/verificarLimites.ts
+
 import { PLANOS, TipoPlano } from './planLimites';
 
 export async function verificarLimiteTecnicos(planoAtual: TipoPlano, totalTecnicosCadastrados: number) {

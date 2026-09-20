@@ -1,8 +1,12 @@
+//register/page.tsx
+
 "use client"
 import React, { useState, useEffect, Suspense } from 'react';
 import { ShieldCheck, Mail, Lock, User, KeyRound, ArrowRight, Loader2, Wrench, Headset } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+// 🚀 Importa o medidor de força de senha (certifica-te que criaste este ficheiro)
+import { PasswordStrengthMeter } from '@/components/ui/password-strength';
 
 function RegisterForm() {
   const router = useRouter();
@@ -14,8 +18,11 @@ function RegisterForm() {
   const [senha, setSenha] = useState('');
   const [codigoConvite, setCodigoConvite] = useState('');
   
-  // 🛠️ Novo estado para escolher o tipo de colaborador (atendente ou tecnico)
+  // 🛠️ Estado para escolher o tipo de colaborador (atendente ou tecnico)
   const [tipoColaborador, setTipoColaborador] = useState<'atendente' | 'tecnico'>('atendente');
+  
+  // 🔒 Estado para validar se a senha é forte o suficiente
+  const [isSenhaForte, setIsSenhaForte] = useState(false);
 
   const [carregando, setCarregando] = useState(false);
   const [mensagemErro, setMensagemErro] = useState('');
@@ -37,6 +44,12 @@ function RegisterForm() {
       return;
     }
 
+    // Bloqueia a submissão se o utilizador tentar forçar o envio com uma senha fraca
+    if (!isSenhaForte) {
+      setMensagemErro('Sua senha não é forte o suficiente. Cumpra todos os requisitos visuais.');
+      return;
+    }
+
     setCarregando(true);
 
     try {
@@ -48,7 +61,7 @@ function RegisterForm() {
           email, 
           senha,
           codigoConvite,
-          tipo: tipoColaborador // 🚀 Envia se é 'atendente' ou 'tecnico' para a API
+          tipo: tipoColaborador 
         })
       });
 
@@ -63,7 +76,7 @@ function RegisterForm() {
       if (res.ok && data.sucesso) {
         setMensagemSucesso(data.mensagem || 'Conta ativada com sucesso! Redirecionando para o login...');
         setTimeout(() => {
-          router.push('/login');
+          window.location.replace('/login'); // Força a limpeza de cache ao ir pro login
         }, 2000);
       } else {
         setMensagemErro(data.mensagem || 'Erro ao ativar conta.');
@@ -185,6 +198,7 @@ function RegisterForm() {
               </div>
             </div>
 
+            {/* 🚀 CAMPO DE SENHA COM MEDIDOR DE FORÇA */}
             <div className="space-y-1.5">
               <label className="text-[10px] uppercase text-zinc-400 tracking-wider">Crie sua Senha</label>
               <div className="relative">
@@ -198,6 +212,16 @@ function RegisterForm() {
                   className="w-full bg-black/60 border border-zinc-800 rounded-xl px-3.5 py-2.5 pl-10 text-xs text-white focus:outline-none focus:border-emerald-500 transition-colors"
                 />
               </div>
+              
+              {/* O Medidor só aparece quando o utilizador digita algo na senha */}
+              {senha.length > 0 && (
+                <div className="pt-2">
+                  <PasswordStrengthMeter 
+                    value={senha} 
+                    onStrengthChange={(isStrong) => setIsSenhaForte(isStrong)} 
+                  />
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -216,10 +240,15 @@ function RegisterForm() {
               <p className="text-[9px] text-zinc-500 mt-1">Insira o código enviado no seu e-mail de convite pela gerência.</p>
             </div>
 
+            {/* BOTÃO DE SUBMISSÃO BLOQUEADO SE A SENHA FOR FRACA */}
             <button
               type="submit"
-              disabled={carregando}
-              className="w-full mt-4 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-[11px] tracking-wider rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              disabled={carregando || !isSenhaForte}
+              className={`w-full mt-4 py-3.5 font-bold uppercase text-[11px] tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 ${
+                carregando || !isSenhaForte
+                  ? 'bg-emerald-500/20 text-emerald-900/50 cursor-not-allowed border border-emerald-500/20'
+                  : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.2)] cursor-pointer'
+              }`}
             >
               {carregando ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                 <>FINALIZAR CADASTRO DA EQUIPE <ArrowRight className="w-4 h-4" /></>

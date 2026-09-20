@@ -1,3 +1,5 @@
+//app/tecnico/Mapa.tsx
+
 "use client"
 import React, { useEffect, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';

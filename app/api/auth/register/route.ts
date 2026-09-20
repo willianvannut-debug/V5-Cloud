@@ -1,3 +1,5 @@
+//app/api/auth/register/route.ts
+
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
@@ -15,8 +17,62 @@ const PLANOS_LIMITES: Record<string, { max_usuarios: number; max_tecnicos: numbe
   enterprise: { max_usuarios: 9999, max_tecnicos: 9999 } // 9999 representa ilimitado
 };
 
+// 🛡️ LÓGICA DE RATE LIMIT PARA REGISTRO
+const ipRegisterMap = new Map<string, { count: number; lastReset: number; blockedUntil: number }>();
+const WINDOW_MS = 10 * 60 * 1000; // Janela de 10 minutos
+const MAX_REGISTROS = 3;          // Máximo de 3 tentativas por janela
+const TEMPO_BLOQUEIO_MS = 15 * 60 * 1000; // Bloqueio de 15 minutos em caso de spam
+
+function verificarRateLimitRegister(ip: string): { permitido: boolean; tempoRestanteMinutos: number } {
+  const agora = Date.now();
+  const registro = ipRegisterMap.get(ip);
+
+  if (!registro) {
+    ipRegisterMap.set(ip, { count: 1, lastReset: agora, blockedUntil: 0 });
+    return { permitido: true, tempoRestanteMinutos: 0 };
+  }
+
+  if (registro.blockedUntil > agora) {
+    const tempoRestanteMinutos = Math.ceil((registro.blockedUntil - agora) / 60000);
+    return { permitido: false, tempoRestanteMinutos };
+  }
+
+  if (agora - registro.lastReset > WINDOW_MS) {
+    ipRegisterMap.set(ip, { count: 1, lastReset: agora, blockedUntil: 0 });
+    return { permitido: true, tempoRestanteMinutos: 0 };
+  }
+
+  registro.count++;
+
+  if (registro.count > MAX_REGISTROS) { // Acima de 3 tentativas
+    registro.blockedUntil = agora + TEMPO_BLOQUEIO_MS;
+    ipRegisterMap.set(ip, registro);
+    const tempoRestanteMinutos = Math.ceil((registro.blockedUntil - agora) / 60000);
+    return { permitido: false, tempoRestanteMinutos };
+  }
+
+  ipRegisterMap.set(ip, registro);
+  return { permitido: true, tempoRestanteMinutos: 0 };
+}
+
 export async function POST(request: Request) {
+  // Pega o IP do cliente para verificar o Rate Limit
+  const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
+
   try {
+    // 🛡️ 1. VERIFICAÇÃO DO RATE LIMIT
+    const rateLimit = verificarRateLimitRegister(ip);
+    
+    if (!rateLimit.permitido) {
+      return NextResponse.json(
+        { 
+          sucesso: false, 
+          mensagem: `Muitas tentativas de cadastro detectadas. Por segurança, tente novamente em ${rateLimit.tempoRestanteMinutos} minutos.` 
+        },
+        { status: 429 } // Too Many Requests
+      );
+    }
+
     const body = await request.json();
     
     const nomeOperador = body.usuario || body.nome;
@@ -164,6 +220,9 @@ export async function POST(request: Request) {
     if (erroOperador) {
       return NextResponse.json({ sucesso: false, mensagem: `Erro ao criar operador: ${erroOperador.message}` }, { status: 500 });
     }
+    
+    // Se registrou com sucesso, limpa o contador do IP
+    ipRegisterMap.delete(ip);
 
     return NextResponse.json({ 
       sucesso: true, 

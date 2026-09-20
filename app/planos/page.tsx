@@ -1,3 +1,5 @@
+//app/planos/page.tsx
+
 "use client"
 import React, { useState } from 'react';
 import { Layers, Monitor, Rocket, Building2, Check, X } from 'lucide-react';

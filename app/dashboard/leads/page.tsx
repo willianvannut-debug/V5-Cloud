@@ -1,5 +1,7 @@
+//app/dashboard/leads/page.tsx
+
 "use client"
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Trash2, Globe, Navigation, Loader2, MapPin, Lock, Rocket
@@ -16,7 +18,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-// 🗺️ Carregamento dinâmico do mapa
+// 🗺️ Carregamento dinâmico do mapa com Otimização de Performance
 const MapWithNoSSR = dynamic(
   async () => {
     if (typeof window !== 'undefined' && !document.getElementById('leaflet-css')) {
@@ -27,39 +29,78 @@ const MapWithNoSSR = dynamic(
       document.head.appendChild(link);
     }
 
-    const { MapContainer, TileLayer, Marker, Popup, Polyline } = await import('react-leaflet');
+    const { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } = await import('react-leaflet');
     
-    return function MapComponent({ centroMapa, ctos, leadsInvertidos, iconeCto, iconeVerde, iconeVermelho, iconeCiano, iconeAmarelo, selecionarLeadParaPainel, rotaAtivaCoords }: any) {
+    function MapEventsHandler({ setZoomAtual, setMapBounds }: any) {
+      useMapEvents({
+        zoomend(e: any) {
+          setZoomAtual(e.target.getZoom());
+        },
+        moveend(e: any) {
+          setMapBounds(e.target.getBounds());
+        },
+        load(e: any) {
+          setZoomAtual(e.target.getZoom());
+          setMapBounds(e.target.getBounds());
+        }
+      });
+      return null;
+    }
+
+    return function MapComponent({ centroMapa, ctosAgrupadas, leadsVisiveisNoViewport, iconeCto, criarIconeClusterLead, iconeVerde, iconeVermelho, iconeCiano, iconeAmarelo, selecionarLeadParaPainel, rotaAtivaCoords, setZoomAtual, setMapBounds }: any) {
       return (
         <MapContainer 
           center={centroMapa} 
           zoom={14} 
+          minZoom={4} 
+          maxBounds={[
+            [-35.0, -75.0], 
+            [6.0, -32.0]    
+          ]}
+          maxBoundsViscosity={1.0}
           style={{ width: '100%', height: '100%', background: '#09090b' }}
         >
+          <MapEventsHandler setZoomAtual={setZoomAtual} setMapBounds={setMapBounds} />
+
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          {/* Caixas CTO */}
-          {ctos.map((cto: any) => {
-            if (cto.lat !== undefined && cto.lon !== undefined && iconeCto) {
+          {/* Caixas CTO (Em tom azul limpo) */}
+          {ctosAgrupadas.map((item: any) => {
+            if (item.tipo === 'cluster') {
+              const iconeCluster = criarIconeClusterLead(item.quantidade);
+              if (!iconeCluster) return null;
               return (
-                <Marker key={`cto-${cto.id}`} position={[cto.lat, cto.lon]} icon={iconeCto}>
+                <Marker key={item.id} position={[item.lat, item.lon]} icon={iconeCluster}>
                   <Popup>
                     <div className="font-mono text-xs text-zinc-900 p-1 space-y-1">
-                      <strong className="text-blue-600 block font-black text-sm uppercase">Infra: {cto.identificacao}</strong>
-                      <span className="font-sans text-zinc-700 block">{cto.endereco || "Caixa Óptica"}</span>
+                      <strong className="text-blue-600 block font-black text-sm uppercase">Região com {item.quantidade} Caixas CTO</strong>
+                      <span className="font-sans text-zinc-700 block">Aproxime o zoom para ver os detalhes individuais.</span>
                     </div>
                   </Popup>
                 </Marker>
               );
+            } else {
+              if (item.lat !== undefined && item.lon !== undefined && iconeCto) {
+                return (
+                  <Marker key={`cto-${item.id}`} position={[item.lat, item.lon]} icon={iconeCto}>
+                    <Popup>
+                      <div className="font-mono text-xs text-zinc-900 p-1 space-y-1">
+                        <strong className="text-blue-600 block font-black text-sm uppercase">Infra: {item.identificacao}</strong>
+                        <span className="font-sans text-zinc-700 block">{item.endereco || "Caixa Óptica"}</span>
+                      </div>
+                    </Popup>
+                  </Marker>
+                );
+              }
             }
             return null;
           })}
 
-          {/* Leads ativos */}
-          {leadsInvertidos.filter((l: any) => l.status_instalacao !== 'CONCLUIDA' && l.etapa_funil !== 'NAO CONVERTIDO').map((lead: any) => {
+          {/* Leads visíveis no Viewport atual */}
+          {leadsVisiveisNoViewport.map((lead: any) => {
             if (lead.lat && lead.lon) {
               let iconeAtual = lead.status === 'COM COBERTURA' ? iconeVerde : iconeVermelho;
               
@@ -103,12 +144,12 @@ export default function LeadsPage() {
   const { operador, empresa } = useAuth();
   const ctos = settings?.ctos || [];
   
-  // 🚀 PLANO DIRETO DA SESSÃO / SUPABASE: Pega com segurança o plano da empresa logada
   const [planoAtual, setPlanoAtual] = useState<string>('');
+  const [zoomAtual, setZoomAtual] = useState(14);
+  const [mapBounds, setMapBounds] = useState<any>(null);
 
   useEffect(() => {
     async function sincronizarPlanoReal() {
-      // Se o contexto já tiver o plano da empresa, usa ele direto sem precisar de nova query cega!
       const planoDoContexto = empresa?.plano || operador?.empresa?.plano;
       if (planoDoContexto) {
         setPlanoAtual(String(planoDoContexto).toLowerCase().trim());
@@ -119,7 +160,7 @@ export default function LeadsPage() {
       try {
         const idDaEmpresa = operador?.empresaId || operador?.empresa_id;
         if (!idDaEmpresa) {
-          setPlanoAtual('ERRO');
+          setPlanoAtual('essencial');
           return;
         }
 
@@ -133,19 +174,15 @@ export default function LeadsPage() {
           const planoLimpo = String(data.plano).toLowerCase().trim();
           setPlanoAtual(planoLimpo);
         } else {
-          setPlanoAtual('ERRO');
+          setPlanoAtual('essencial');
         }
       } catch (err) {
         console.error("Erro ao buscar plano nos leads:", err);
-        setPlanoAtual('ERRO');
+        setPlanoAtual('essencial');
       }
     }
     sincronizarPlanoReal();
   }, [operador, empresa]);
-
-  // 🚀 CRUZAMENTO COM PLANLIMITES: Pega os limites reais do dicionário
-  const configPlanoAtual = PLANOS[planoAtual];
-  const limiteLeadsMensal = configPlanoAtual ? configPlanoAtual.max_leads : "ERRO";
 
   const [filtroTab, setFiltroTab] = useState<'TODOS' | 'COM COBERTURA' | 'SEM COBERTURA'>('TODOS');
   const [busca, setBusca] = useState('');
@@ -159,6 +196,7 @@ export default function LeadsPage() {
   const [iconeAmarelo, setIconeAmarelo] = useState<any>(null);
   const [iconeCiano, setIconeCiano] = useState<any>(null);
   const [iconeCto, setIconeCto] = useState<any>(null);
+  const [criarIconeClusterLead, setCriarIconeClusterLead] = useState<any>(null);
   const [mapaPronto, setMapaPronto] = useState(false);
 
   const [leadAtivoPainel, setLeadAtivoPainel] = useState<any | null>(null);
@@ -198,50 +236,114 @@ export default function LeadsPage() {
       import('leaflet').then((L) => {
         delete (L.Icon.Default.prototype as any)._getIconUrl;
         
-        const squareGreen = L.divIcon({
-          className: 'neon-green',
-          html: `<div style="width: 16px; height: 16px; background-color: #10b981; border: 2px solid #fff; box-shadow: 0 0 10px #10b981; border-radius: 3px; cursor: pointer;"></div>`,
-          iconSize: [16, 16],
-          iconAnchor: [8, 8]
+        const cleanGreen = L.divIcon({
+          className: 'clean-green',
+          html: `<div style="width: 12px; height: 12px; background-color: #10b981; border: 1.5px solid #000; border-radius: 2px; cursor: pointer;"></div>`,
+          iconSize: [12, 12],
+          iconAnchor: [6, 6]
         });
 
-        const squareRed = L.divIcon({
-          className: 'neon-red',
-          html: `<div style="width: 16px; height: 16px; background-color: #ef4444; border: 2px solid #fff; box-shadow: 0 0 10px #ef4444; border-radius: 3px; cursor: pointer;"></div>`,
-          iconSize: [16, 16],
-          iconAnchor: [8, 8]
+        const cleanRed = L.divIcon({
+          className: 'clean-red',
+          html: `<div style="width: 12px; height: 12px; background-color: #ef4444; border: 1.5px solid #000; border-radius: 2px; cursor: pointer;"></div>`,
+          iconSize: [12, 12],
+          iconAnchor: [6, 6]
         });
 
-        const squareYellow = L.divIcon({
-          className: 'neon-yellow',
-          html: `<div style="width: 16px; height: 16px; background-color: #f59e0b; border: 2px solid #fff; box-shadow: 0 0 10px #f59e0b; border-radius: 3px; cursor: pointer;"></div>`,
-          iconSize: [16, 16],
-          iconAnchor: [8, 8]
+        const cleanYellow = L.divIcon({
+          className: 'clean-yellow',
+          html: `<div style="width: 12px; height: 12px; background-color: #f59e0b; border: 1.5px solid #000; border-radius: 2px; cursor: pointer;"></div>`,
+          iconSize: [12, 12],
+          iconAnchor: [6, 6]
         });
 
-        const squareCyan = L.divIcon({
-          className: 'neon-cyan',
-          html: `<div style="width: 16px; height: 16px; background-color: #06b6d4; border: 2px solid #fff; box-shadow: 0 0 10px #06b6d4; border-radius: 3px; cursor: pointer;"></div>`,
-          iconSize: [16, 16],
-          iconAnchor: [8, 8]
+        const cleanCyan = L.divIcon({
+          className: 'clean-cyan',
+          html: `<div style="width: 12px; height: 12px; background-color: #06b6d4; border: 1.5px solid #000; border-radius: 2px; cursor: pointer;"></div>`,
+          iconSize: [12, 12],
+          iconAnchor: [6, 6]
         });
 
-        const squareCto = L.divIcon({
-          className: 'neon-blue',
-          html: `<div style="width: 18px; height: 18px; background-color: #3b82f6; border: 2px solid #000; box-shadow: 0 0 12px #3b82f6; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: bold;">T</div>`,
-          iconSize: [18, 18],
-          iconAnchor: [9, 9]
+        // 🔵 Caixas CTO em azul limpo (sem glow)
+        const cleanCto = L.divIcon({
+          className: 'clean-cto',
+          html: `<div style="width: 12px; height: 12px; background-color: #3b82f6; border: 1.5px solid #000000; border-radius: 2px;"></div>`,
+          iconSize: [12, 12],
+          iconAnchor: [6, 6]
         });
 
-        setIconeVerde(squareGreen);
-        setIconeVermelho(squareRed);
-        setIconeAmarelo(squareYellow);
-        setIconeCiano(squareCyan);
-        setIconeCto(squareCto);
+        // 🔵 Clusters de CTO em azul limpo
+        const funcCluster = (quantidade: number) => L.divIcon({
+          className: 'cluster-marker-lead',
+          html: `<div style="background-color: #3b82f6; color: #fff; font-weight: 900; font-family: monospace; font-size: 11px; width: 30px; height: 30px; border: 2px solid #ffffff; border-radius: 50%; display: flex; align-items: center; justify-content: center;">${quantidade}</div>`,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15]
+        });
+
+        setIconeVerde(cleanGreen);
+        setIconeVermelho(cleanRed);
+        setIconeAmarelo(cleanYellow);
+        setIconeCiano(cleanCyan);
+        setIconeCto(cleanCto);
+        setCriarIconeClusterLead(() => funcCluster);
         setMapaPronto(true);
       });
     }
   }, []);
+
+  const ctosAgrupadasParaExibir = useMemo(() => {
+    if (ctos.length === 0) return [];
+
+    const visiveis = (!mapBounds || ctos.length <= 1000) 
+      ? ctos 
+      : ctos.filter((cto: any) => cto.lat !== undefined && cto.lon !== undefined && mapBounds.contains([cto.lat, cto.lon]));
+
+    if (zoomAtual >= 15) {
+      return visiveis.map((c: any) => ({ tipo: 'individual', ...c }));
+    }
+
+    const precisaoDecimal = zoomAtual < 12 ? 1 : 2;
+    const clustersMap: { [key: string]: { lat: number; lon: number; itens: any[] } } = {};
+
+    visiveis.forEach((cto: any) => {
+      if (cto.lat === undefined || cto.lon === undefined) return;
+      const latKey = cto.lat.toFixed(precisaoDecimal);
+      const lonKey = cto.lon.toFixed(precisaoDecimal);
+      const chave = `${latKey},${lonKey}`;
+
+      if (!clustersMap[chave]) {
+        clustersMap[chave] = { lat: cto.lat, lon: cto.lon, itens: [] };
+      }
+      clustersMap[chave].itens.push(cto);
+    });
+
+    return Object.values(clustersMap).map(cluster => {
+      if (cluster.itens.length === 1) {
+        return { tipo: 'individual', ...cluster.itens[0] };
+      } else {
+        return {
+          tipo: 'cluster',
+          id: `cluster-lead-${cluster.lat}-${cluster.lon}`,
+          lat: cluster.lat,
+          lon: cluster.lon,
+          quantidade: cluster.itens.length,
+          itens: cluster.itens
+        };
+      }
+    });
+  }, [ctos, mapBounds, zoomAtual]);
+
+  const leadsInvertidos = [...(leads || [])].reverse();
+  const leadsVisiveisNoViewport = useMemo(() => {
+    const ativosFiltrados = leadsInvertidos.filter((l: any) => l.status_instalacao !== 'CONCLUIDA' && l.etapa_funil !== 'NAO CONVERTIDO');
+    if (!mapBounds || ativosFiltrados.length <= 500) {
+      return ativosFiltrados;
+    }
+    return ativosFiltrados.filter((lead: any) => {
+      if (!lead.lat || !lead.lon) return false;
+      return mapBounds.contains([lead.lat, lead.lon]);
+    });
+  }, [leadsInvertidos, mapBounds]);
 
   const selecionarLeadParaPainel = (lead: any) => {
     setLeadAtivoPainel(lead);
@@ -266,7 +368,7 @@ export default function LeadsPage() {
     let ctoMaisProxima = ctos[0];
     let menorDistancia = Infinity;
 
-    ctos.forEach((cto) => {
+    ctos.forEach((cto: any) => {
       if (cto.lat !== undefined && cto.lon !== undefined) {
         const dLat = Math.abs(cto.lat - (lead.lat || 0));
         const dLon = Math.abs(cto.lon - (lead.lon || 0));
@@ -287,28 +389,34 @@ export default function LeadsPage() {
     setCtoVinculadaNome(ctoMaisProxima.identificacao || 'CTO Principal');
 
     try {
-      const url = `https://router.project-osrm.org/route/v1/driving/${ctoMaisProxima.lon},${ctoMaisProxima.lat};${lead.lon},${lead.lat}?overview=full&geometries=geojson`;
-      const res = await fetch(url);
-      const data = await res.json();
+      const coordenadasTracatadas: [number, number][] = [
+        [ctoMaisProxima.lat, ctoMaisProxima.lon],
+        [lead.lat, lead.lon]
+      ];
 
-      if (data.routes && data.routes.length > 0) {
-        const route = data.routes[0];
-        const distanciaMetros = route.distance;
-        const coordenadasTracatadas: [number, number][] = route.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
+      setRotaAtivaCoords(coordenadasTracatadas);
 
-        setRotaAtivaCoords(coordenadasTracatadas);
+      const R = 6371e3; 
+      const rad = Math.PI / 180;
+      const lat1 = ctoMaisProxima.lat * rad;
+      const lat2 = lead.lat * rad;
+      const dLat = (lead.lat - ctoMaisProxima.lat) * rad;
+      const dLon = (lead.lon - ctoMaisProxima.lon) * rad;
 
-        const textoFormatado = distanciaMetros > 1000 
-          ? `${(distanciaMetros / 1000).toFixed(2)} km` 
-          : `${Math.round(distanciaMetros)} metros`;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1) * Math.cos(lat2) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distanciaMetros = R * c;
 
-        setDistanciaRotaAtiva(textoFormatado);
-      } else {
-        setDistanciaRotaAtiva('Não foi possível traçar rota.');
-      }
+      const textoFormatado = distanciaMetros > 1000 
+        ? `${(distanciaMetros / 1000).toFixed(2)} km (linha reta)` 
+        : `${Math.round(distanciaMetros)} metros (linha reta)`;
+
+      setDistanciaRotaAtiva(textoFormatado);
     } catch (err) {
-      console.error("Erro ao calcular rota OSRM:", err);
-      setDistanciaRotaAtiva('Erro ao calcular rota.');
+      console.error("Erro ao calcular linha reta:", err);
+      setDistanciaRotaAtiva('Erro ao calcular distância.');
     } finally {
       setCalculandoRota(false);
     }
@@ -343,11 +451,20 @@ export default function LeadsPage() {
     }
   };
 
-  const leadsInvertidos = [...(leads || [])].reverse();
+  const configPlanoAtual = PLANOS[planoAtual] || PLANOS['essencial'];
+  const nomeExibicaoPlano = configPlanoAtual?.nome || planoAtual.toUpperCase() || 'ESSENCIAL';
+  const limiteBase = configPlanoAtual?.leads_base || 80;
+  const limiteExtra = configPlanoAtual?.leads_bonus || 30;
+  const limiteTotal = configPlanoAtual?.max_leads || 110;
 
-  const totalLeadsCadastrados = leadsInvertidos.length;
-  const bateuLimiteLeads = typeof limiteLeadsMensal === 'number' ? totalLeadsCadastrados >= limiteLeadsMensal : false;
-  const porcentagemUsoLeads = typeof limiteLeadsMensal === 'number' && limiteLeadsMensal > 0 ? Math.min((totalLeadsCadastrados / limiteLeadsMensal) * 100, 100) : 0;
+  const leadsUsados = leadsInvertidos.length;
+  
+  const leadsBaseUsados = Math.min(leadsUsados, limiteBase);
+  const leadsExtraUsados = Math.max(0, leadsUsados - limiteBase);
+
+  const percentualVerde = limiteTotal > 0 ? (leadsBaseUsados / limiteTotal) * 100 : 0;
+  const percentualAzul = limiteTotal > 0 ? (leadsExtraUsados / limiteTotal) * 100 : 0;
+  const bateuLimiteLeads = leadsUsados >= limiteTotal;
 
   const leadsAtivos = leadsInvertidos.filter(lead => {
     const naoConcluidoPeloTecnico = lead.status_instalacao !== 'CONCLUIDA';
@@ -421,38 +538,59 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {/* CARD DE CONSUMO DE LEADS DO PLANO DINÂMICO */}
       <Card className={`border backdrop-blur transition-all ${bateuLimiteLeads ? 'border-red-500/30 bg-red-500/5' : 'border-zinc-900 bg-zinc-900/40'}`}>
         <CardContent className="p-6 space-y-3">
-          <div className="flex justify-between text-sm font-bold">
-            <span className="text-zinc-300 font-mono uppercase tracking-widest text-xs flex items-center gap-2">
-               Franquia de Leads (Plano {planoAtual ? planoAtual.toUpperCase() : 'CARREGANDO...'})
-            </span>
-            <span className={bateuLimiteLeads ? "text-red-400 font-mono" : "text-emerald-400 font-mono"}>
-              {totalLeadsCadastrados} / {limiteLeadsMensal} Leads Registrados
-            </span>
-          </div>
           
-          <div className="w-full bg-black rounded-full h-2.5 overflow-hidden border border-zinc-800">
-            <div 
-              className={`h-full rounded-full transition-all duration-700 ${bateuLimiteLeads ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]'}`} 
-              style={{ width: `${porcentagemUsoLeads}%` }}
-            ></div>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-2">
+            <span className="text-[11px] font-mono font-bold uppercase tracking-widest text-zinc-400">
+              Franquia de Leads (Plano {nomeExibicaoPlano})
+            </span>
+            
+            <span className="text-xs font-mono font-bold text-white">
+              {leadsUsados} / <span className="text-emerald-500">{limiteBase}</span> <span className="text-cyan-400">(+{limiteExtra} extras)</span>
+            </span>
           </div>
+
+          <div className="relative w-full h-2.5 bg-black border border-zinc-800 rounded-full overflow-hidden flex">
+            {bateuLimiteLeads ? (
+              <div 
+                className="h-full bg-red-500 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+                style={{ width: '100%' }}
+              />
+            ) : (
+              <>
+                <div 
+                  className="h-full bg-emerald-500 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+                  style={{ width: `${percentualVerde}%` }}
+                />
+                <div 
+                  className="h-full bg-cyan-500 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(6,182,212,0.5)]"
+                  style={{ width: `${percentualAzul}%` }}
+                />
+                {limiteTotal > 0 && (
+                  <div 
+                    className="absolute top-0 bottom-0 w-0.5 bg-zinc-950 z-10"
+                    style={{ left: `${(limiteBase / limiteTotal) * 100}%` }}
+                  />
+                )}
+              </>
+            )}
+          </div>
+
           {bateuLimiteLeads && (
             <p className="text-red-400 text-[11px] font-mono uppercase font-bold pt-1">
-              ⚠️ O limite de leads do seu plano foi atingido. Novas consultas de viabilidade estão bloqueadas até um upgrade.
+              ⚠️ O limite total ({limiteTotal} leads) do seu plano foi atingido. Novas consultas estão bloqueadas.
             </p>
           )}
         </CardContent>
       </Card>
 
-      {/* MAPA GERAL DE LEADS */}
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
         <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-row items-center justify-between">
           <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
             <Globe className="w-4 h-4 text-emerald-400" /> Mapa de Calor & Cobertura de Leads (Dark Mode)
           </CardTitle>
+          <span className="text-[10px] font-mono text-zinc-500">Zoom: {zoomAtual}</span>
         </CardHeader>
         <CardContent className="p-5">
           <div className="relative w-full h-[450px] bg-[#09090b] border border-emerald-500/30 rounded-2xl overflow-hidden shadow-[0_0_20px_rgba(16,185,129,0.1)] z-0 flex">
@@ -461,15 +599,18 @@ export default function LeadsPage() {
               {mapaPronto && (
                 <MapWithNoSSR 
                   centroMapa={centroMapa}
-                  ctos={ctos}
-                  leadsInvertidos={leadsInvertidos}
+                  ctosAgrupadas={ctosAgrupadasParaExibir}
+                  leadsVisiveisNoViewport={leadsVisiveisNoViewport}
                   iconeCto={iconeCto}
+                  criarIconeClusterLead={criarIconeClusterLead}
                   iconeVerde={iconeVerde}
                   iconeVermelho={iconeVermelho}
                   iconeCiano={iconeCiano}
                   iconeAmarelo={iconeAmarelo}
                   selecionarLeadParaPainel={selecionarLeadParaPainel}
                   rotaAtivaCoords={rotaAtivaCoords}
+                  setZoomAtual={setZoomAtual}
+                  setMapBounds={setMapBounds}
                 />
               )}
             </div>
@@ -504,28 +645,28 @@ export default function LeadsPage() {
                       onClick={() => calcularRotaDoLead(leadAtivoPainel)}
                       className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.2)]"
                     >
-                      <Navigation className="w-4 h-4" /> Calcular Rota por Ruas
+                      <Navigation className="w-4 h-4" /> Calcular Distância (Linha Reta)
                     </button>
                   )}
 
                   {calculandoRota && (
                     <div className="flex items-center justify-center gap-2 py-2.5 text-emerald-400 text-xs font-bold bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                      <Loader2 className="w-4 h-4 animate-spin" /> Calculando rota nas ruas...
+                      <Loader2 className="w-4 h-4 animate-spin" /> Calculando...
                     </div>
                   )}
 
                   {distanciaRotaAtiva && (
                     <div className="space-y-2.5 bg-black/50 p-3 rounded-xl border border-zinc-800 text-xs">
                       <div className="flex justify-between items-center">
-                        <span className="text-zinc-400">CTO Atendimento:</span>
+                        <span className="text-zinc-400">CTO Mais Próxima:</span>
                         <span className="text-blue-400 font-bold">{ctoVinculadaNome}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-zinc-400">Distância Real:</span>
+                        <span className="text-zinc-400">Distância:</span>
                         <span className="text-emerald-400 font-bold">{distanciaRotaAtiva}</span>
                       </div>
                       <button type="button" onClick={limparRota} className="w-full mt-1 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer">
-                        Ocultar Rota
+                        Ocultar Linha
                       </button>
                     </div>
                   )}
@@ -538,7 +679,6 @@ export default function LeadsPage() {
         </CardContent>
       </Card>
 
-      {/* BUSCA */}
       <div className="flex items-center gap-3 bg-zinc-900/40 border border-zinc-900 rounded-2xl p-3 backdrop-blur">
         <Search className="w-4 h-4 text-zinc-500 ml-2" />
         <input 
@@ -550,7 +690,6 @@ export default function LeadsPage() {
         />
       </div>
 
-      {/* TABELA COM CAMADA DE BLOQUEIO */}
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur relative overflow-hidden">
         
         {bateuLimiteLeads && (
@@ -558,7 +697,7 @@ export default function LeadsPage() {
             <Lock className="w-10 h-10 text-red-400 mb-3 animate-pulse" />
             <h3 className="text-white font-bold text-lg font-mono mb-1">Franquia de Leads Esgotada</h3>
             <p className="text-zinc-400 text-xs mb-5 max-w-md font-mono leading-relaxed">
-              Você atingiu o limite de leads do seu plano atual ({limiteLeadsMensal} consultas). Faça um upgrade para liberar novas consultas e expandir sua base.
+              Você atingiu o limite total ({limiteTotal} consultas) do seu plano atual. Faça um upgrade para liberar novas consultas e expandir sua base.
             </p>
             <button className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs font-mono rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 cursor-pointer">
               <Rocket className="w-4 h-4" /> Fazer Upgrade de Plano
@@ -665,7 +804,6 @@ export default function LeadsPage() {
         </CardContent>
       </Card>
 
-      {/* MODAL DE CONFIRMAÇÃO */}
       {modalAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl">

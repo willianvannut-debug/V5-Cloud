@@ -1,3 +1,5 @@
+//app/api/auth/equipe/aceitar/route.ts
+
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';

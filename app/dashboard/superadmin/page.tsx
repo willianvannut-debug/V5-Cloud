@@ -1,3 +1,5 @@
+//app/dashboard/superadmin/page.tsx
+
 "use client"
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Building2, ExternalLink, Loader2, Search, ArrowLeft } from 'lucide-react';

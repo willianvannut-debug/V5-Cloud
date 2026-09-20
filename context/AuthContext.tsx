@@ -1,3 +1,5 @@
+//context/AuthContext.tsx
+
 "use client"
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -14,7 +16,7 @@ interface EmpresaInfo {
   nomeEmpresa: string;
   codigoConvite: string;
   endereco: string;
-  plano: string; // 🚀 Adicionado para puxar e gerenciar o plano globalmente
+  plano: string; 
 }
 
 interface AuthContextType {
@@ -74,12 +76,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
+      // 1. Pede à API para destruir o cookie HttpOnly seguro no servidor
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (e) {}
+
+    // 2. Apaga qualquer cookie de fallback que o JS tenha acesso
+    document.cookie = 'v5_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC;';
+    
+    // 3. Limpa o cache local de caixas CTO para não vazar dados
+    if (typeof window !== 'undefined') {
+      localStorage.clear();
+    }
+
+    // 4. Limpa os estados do React
     setAutenticado(false);
     setOperador(null);
     setEmpresa(null);
-    router.push('/login');
+    
+    // 🚀 A SOLUÇÃO DEFINITIVA: Força o navegador a recarregar e esquecer o cache do Next.js
+    window.location.href = '/login';
   };
 
   return (

@@ -1,3 +1,5 @@
+//app/dashboard/config/page.tsx
+
 "use client"
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +35,7 @@ import {
 } from 'lucide-react';
 import { useSettings, PlanoItem, FuncionarioItem } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
+import { logger } from '@/lib/logger'; // ✅ NOVO LOGGER
 import { createClient } from '@supabase/supabase-js';
 
 import dynamic from 'next/dynamic';
@@ -118,7 +121,6 @@ export default function ConfiguracoesPage() {
   const ctos = settings?.ctos || [];
   const planos = settings?.planos || [];
   const funcionarios = settings?.funcionarios || [];
-  const salvarConfiguracoes = settings?.salvarConfiguracoes || (() => {});
   
   const planoAtivoAtual = empresa?.plano ? String(empresa.plano).toLowerCase().trim() : 'essencial';
   const carregandoPlano = carregandoAuth;
@@ -390,7 +392,6 @@ export default function ConfiguracoesPage() {
     }
 
     try {
-      // 🛡️ PASSO 2: Captura o ID da empresa guardado no localStorage ou do operador logado
       const empresaIdSalvoLocal = localStorage.getItem('v5_empresa_id') || empresaIdLogado;
 
       const response = await fetch('/api/settings', {
@@ -403,6 +404,7 @@ export default function ConfiguracoesPage() {
           telefone: inputTelefone,
           emailEmpresa: inputEmailEmpresa,
           nomeUsuario: inputUsuario,
+          cep: inputCep,
           cidadeEmpresa: inputEnderecoLoja,
           latEmpresa: inputLat,
           lonEmpresa: inputLon,
@@ -413,7 +415,6 @@ export default function ConfiguracoesPage() {
       });
 
       const resultado = await response.json();
-      console.log("📥 Resposta da API /api/settings:", resultado);
 
       if (!response.ok || !resultado.success) {
         throw new Error(resultado.error || "Erro ao salvar no servidor.");
@@ -427,13 +428,32 @@ export default function ConfiguracoesPage() {
     }
   };
 
+  // ✅ NOVO: Função para selecionar plano com LOG
   const handleSelecionarPlanoOficial = async (nomePlano: string, precoMensal: number, precoAnual: number, chavePlano: string) => {
     setLoadingPlanoStripe(chavePlano);
     
     const precoFinal = isAnnual ? precoAnual : precoMensal;
     const nomeComCiclo = `V5 SaaS - ${nomePlano} (${isAnnual ? 'Anual' : 'Mensal'})`;
+    const ciclo = isAnnual ? 'year' : 'month';
 
     try {
+      // ✅ Log de mudança de plano iniciada
+      await logger.info(
+        'PLANO_ALTERACAO_INICIADA',
+        'checkout',
+        `Mudança de plano iniciada: ${planoAtivoAtual.toUpperCase()} → ${nomePlano}`,
+        {
+          planoAnterior: planoAtivoAtual,
+          planoNovo: nomePlano,
+          precoMensal,
+          precoAnual,
+          precaSelecionado: precoFinal,
+          ciclo: ciclo,
+          email: operador?.email || inputEmailEmpresa,
+          empresaId: empresaIdLogado
+        }
+      );
+
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -441,20 +461,61 @@ export default function ConfiguracoesPage() {
           email: inputEmailEmpresa || "cliente.teste@email.com",
           nomePlano: nomeComCiclo,
           precoCentavos: precoFinal * 100,
-          intervalo: isAnnual ? 'year' : 'month',
+          intervalo: ciclo,
           empresaId: empresaIdLogado,
           chavePlano: chavePlano
         })
       });
 
       const data = await res.json();
+      
       if (data.url) {
+        // ✅ Log de sucesso ao gerar link de pagamento
+        await logger.sucesso(
+          'PLANO_LINK_PAGAMENTO_GERADO',
+          'checkout',
+          `Link de pagamento gerado para plano ${nomePlano}`,
+          {
+            planoNovo: nomePlano,
+            preco: precoFinal,
+            ciclo,
+            email: operador?.email || inputEmailEmpresa,
+            empresaId: empresaIdLogado
+          }
+        );
+
         window.location.href = data.url;
       } else {
+        // ✅ Log de erro ao gerar link
+        await logger.erro(
+          'ERRO_GERAR_LINK_PAGAMENTO',
+          'checkout',
+          'Erro ao gerar link de pagamento',
+          new Error(data.error || 'Erro desconhecido'),
+          {
+            planoTentativa: nomePlano,
+            email: operador?.email || inputEmailEmpresa,
+            empresaId: empresaIdLogado
+          }
+        );
+
         alert("Erro no pagamento: " + (data.error || "Tente novamente."));
         setLoadingPlanoStripe(null);
       }
-    } catch (err) {
+    } catch (err: any) {
+      // ✅ Log de erro geral
+      await logger.erro(
+        'ERRO_CHECKOUT_PLANO',
+        'checkout',
+        'Erro ao processar checkout de plano',
+        err,
+        {
+          planoTentativa: nomePlano,
+          email: operador?.email || inputEmailEmpresa,
+          empresaId: empresaIdLogado
+        }
+      );
+
       console.error(err);
       alert("Erro de conexão ao processar pagamento.");
       setLoadingPlanoStripe(null);
@@ -467,21 +528,69 @@ export default function ConfiguracoesPage() {
     window.location.href = '/login';
   };
 
-  const handleExportarDados = () => {
-    const dadosUsuario = {
-      usuario: inputUsuario,
-      empresa: inputNome,
-      telefone: inputTelefone,
-      email: inputEmailEmpresa,
-      enderecoLoja: inputEnderecoLoja,
-      dataRequisicao: new Date().toLocaleDateString('pt-BR')
-    };
-    const blob = new Blob([JSON.stringify(dadosUsuario, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'meus-dados-v5.json';
-    a.click();
+  // ✅ NOVO: Função para exportar dados com LOG
+  const handleExportarDados = async () => {
+    try {
+      // ✅ Log de exportação iniciada
+      await logger.info(
+        'EXPORTACAO_DADOS_LGPD_INICIADA',
+        'sistema',
+        'Exportação de dados pessoais solicitada pelo usuário',
+        {
+          email: operador?.email,
+          empresaId: empresaIdLogado,
+          timestamp: new Date().toISOString()
+        }
+      );
+
+      const response = await fetch('/api/lgpd/exportar', {
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Falha ao exportar relatório LGPD.');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `relatorio-lgpd-v5-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      // ✅ Log de sucesso na exportação
+      await logger.sucesso(
+        'DADOS_EXPORTADOS_LGPD',
+        'sistema',
+        'Relatório de dados pessoais exportado com sucesso',
+        {
+          email: operador?.email,
+          empresaId: empresaIdLogado,
+          nomeArquivo: `relatorio-lgpd-v5-${Date.now()}.json`,
+          tamanhoBlob: blob.size
+        }
+      );
+
+    } catch (error: any) {
+      // ✅ Log de erro na exportação
+      await logger.erro(
+        'ERRO_EXPORTAR_DADOS_LGPD',
+        'sistema',
+        'Erro ao exportar dados pessoais',
+        error,
+        {
+          email: operador?.email,
+          empresaId: empresaIdLogado
+        }
+      );
+
+      console.error('❌ Erro ao exportar dados LGPD:', error);
+      alert('Erro ao descarregar relatório de dados pessoais. Verifique se possui sessão ativa.');
+    }
   };
 
   return (

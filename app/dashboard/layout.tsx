@@ -1,3 +1,5 @@
+//app/dashboard/layout.tsx
+
 "use client"
 import React, { useEffect } from 'react';
 import { Sidebar } from "@/components/Sidebar";

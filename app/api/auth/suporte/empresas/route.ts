@@ -1,3 +1,5 @@
+//app/api/auth/suporte/empresas/route.ts
+
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { jwtVerify } from 'jose';

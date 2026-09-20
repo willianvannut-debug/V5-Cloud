@@ -1,3 +1,5 @@
+// lib/planLimites.ts
+
 export const PLANOS: Record<string, any> = {
   essencial: {
     nome: 'Essencial',
@@ -22,7 +24,7 @@ export const PLANOS: Record<string, any> = {
     leads_base: 500,
     leads_bonus: 90,
     max_leads: 590, // 500 + 90
-    max_ctos: 1500,
+    max_ctos: 15000,
     max_vendedores: 10,
     max_tecnicos: 30,
   },

@@ -1,4 +1,4 @@
-// Dicionário em memória para armazenar as tentativas por IP
+// lib/rateLimit.ts
 const ipRateLimitMap = new Map<string, { count: number; lastReset: number }>();
 
 // Configurações padrão

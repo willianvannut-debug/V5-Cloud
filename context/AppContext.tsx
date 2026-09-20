@@ -1,4 +1,7 @@
+//context/AppContext.tsx
+
 "use client"
+import { logger } from '@/lib/logger';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import { Award, X } from 'lucide-react';

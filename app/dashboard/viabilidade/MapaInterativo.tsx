@@ -1,3 +1,5 @@
+//app/dashboard/viabilidade/MapaInterativo.tsx
+
 "use client"
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';

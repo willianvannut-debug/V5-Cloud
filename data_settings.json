@@ -1,21 +1,22 @@
 {
-  "nomeProvedor": "V5 Fibra Matriz",
-  "logoUrl": "",
+  "empresaId": "ced517b0-0af7-4608-8663-0541169e2830",
+  "operadorEmail": "123@gmail.com",
+  "nomeProvedor": "empresa fantasma",
   "telefone": "",
-  "emailEmpresa": "willianvannut@gmail.com",
-  "nomeUsuario": "Willian vannut",
-  "cidadeEmpresa": "Águas Lindas de Goiás - GO",
-  "latEmpresa": -15.8193,
-  "lonEmpresa": -48.1133,
-  "planoAtivo": "essencial",
+  "emailEmpresa": "123@gmail.com",
+  "nomeUsuario": "gerente para teste",
+  "cep": "",
+  "cidadeEmpresa": "Rua Araguaia, Mansões Olinda, Águas Lindas de Goiás, Goiás, Região Centro-Oeste, 72920-533, Brasil",
+  "latEmpresa": -15.738355787662977,
+  "lonEmpresa": -48.28688621520997,
   "ctos": [],
   "planos": [],
   "funcionarios": [
     {
-      "id": "ab4f9193-93c4-4c54-a154-f09179c121a6",
-      "nome": "Vannut Master",
-      "cargo": "Atendente",
-      "email": "willianvannut@gmail.com"
+      "id": "8409bdb4-55f0-425c-bf22-ef37520e0e5e",
+      "nome": "gerente para teste",
+      "cargo": "Gerente / Dono",
+      "email": "123@gmail.com"
     }
   ]
 }

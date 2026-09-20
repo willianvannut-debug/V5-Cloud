@@ -1,3 +1,5 @@
+//app/api/auth/suporte/impersonate/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { jwtVerify, SignJWT } from 'jose';

@@ -1,9 +1,13 @@
+//app/pos-pagamento/page.tsx
+
 "use client"
 import React, { useEffect, useState, useRef, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ShieldCheck, Lock, Mail, User, Building2, MapPin, Navigation, Search, Loader2, ArrowRight, ArrowLeft, AlertTriangle, FileText, Eye, EyeOff, X, CheckCircle2, Rocket } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { createClient } from '@supabase/supabase-js';
+// 🚀 Importa o medidor de força de senha
+import { PasswordStrengthMeter } from '@/components/ui/password-strength';
 
 // 🚀 IMPEDE A VERCEL DE FAZER CACHE DESTA PÁGINA
 
@@ -89,6 +93,9 @@ function PosPagamentoContent() {
   const [confirmaSenha, setConfirmaSenha] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [mostrarConfirmaSenha, setMostrarConfirmaSenha] = useState(false);
+  
+  // 🔒 Estado para validar se a senha é forte o suficiente
+  const [isSenhaForte, setIsSenhaForte] = useState(false);
 
   // Etapa 2: Empresa, Mapa
   const [nomeEmpresa, setNomeEmpresa] = useState('');
@@ -223,6 +230,10 @@ function PosPagamentoContent() {
     e.preventDefault();
     if (!usuario || !email || !senha || !confirmaSenha) {
       alert("Preencha todos os campos da Etapa 1.");
+      return;
+    }
+    if (!isSenhaForte) {
+      alert("Sua senha não é forte o suficiente. Cumpra todos os requisitos visuais antes de prosseguir.");
       return;
     }
     if (senha !== confirmaSenha) {
@@ -449,6 +460,15 @@ function PosPagamentoContent() {
                     {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {/* 🚀 MEDIDOR DE FORÇA DE SENHA */}
+                {senha.length > 0 && (
+                  <div className="pt-2">
+                    <PasswordStrengthMeter 
+                      value={senha} 
+                      onStrengthChange={(isStrong) => setIsSenhaForte(isStrong)} 
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -476,7 +496,12 @@ function PosPagamentoContent() {
 
             <button
               type="submit"
-              className="w-full mt-6 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs tracking-wider transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2 cursor-pointer"
+              disabled={senha.length > 0 && !isSenhaForte}
+              className={`w-full mt-6 py-3.5 rounded-xl font-bold uppercase text-xs tracking-wider transition-all flex items-center justify-center gap-2 ${
+                senha.length > 0 && !isSenhaForte
+                  ? 'bg-emerald-500/20 text-emerald-900/50 cursor-not-allowed border border-emerald-500/20'
+                  : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer'
+              }`}
             >
               PRÓXIMA ETAPA: DADOS DA EMPRESA <ArrowRight className="w-4 h-4" />
             </button>

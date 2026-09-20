@@ -1,5 +1,5 @@
 // ================================================================================
-// 🔒 ROTA DE LEADS - SUPABASE (BLINDADA + SUPORTE A COOKIE E BEARER TOKEN)
+// 🔒 ROTA DE LEADS - SUPABASE (BLINDADA + SUPORTE A COOKIE E BEARER TOKEN + LOGS)
 // Arquivo: app/api/leads/route.ts
 // ================================================================================
 
@@ -21,8 +21,55 @@ function sanitizarTexto(str: any): string {
   return str.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '').trim();
 }
 
+/**
+ * ✅ Função auxiliar para registrar LOGS
+ */
+async function registrarLog(
+  email: string,
+  acao: string,
+  nivel: 'SUCCESS' | 'ERROR' | 'WARNING' | 'INFO',
+  mensagem: string,
+  request: NextRequest,
+  detalhes?: Record<string, any>
+) {
+  try {
+    const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
+    const userAgent = request.headers.get('user-agent') || '';
+
+    console.log('📝 Tentando registrar log:', acao); // DEBUG
+
+    const { error } = await supabase.from('logs_sistema').insert([
+      {
+        nivel,
+        acao: acao.toUpperCase(),
+        entidade: 'leads',
+        mensagem,
+        operador_email: email || 'sistema',
+        ip,
+        user_agent: userAgent,
+        detalhes: detalhes || {},
+        timestamp: new Date().toISOString(),
+        criado_em: new Date().toISOString(),
+      }
+    ]);
+
+    if (error) {
+      console.error('❌ ERRO ao inserir log no Supabase:', error);
+    } else {
+      console.log('✅ Log registrado com sucesso:', acao); // DEBUG
+    }
+  } catch (erro) {
+    console.error('❌ Erro ao registrar log:', erro);
+    // Não falha a requisição se o log falhar
+  }
+}
+
 // Validação dupla: Aceita Bearer Token (API_SECRET) OU Cookie HttpOnly (v5_session)
-async function validarAutorizacao(request: NextRequest): Promise<{ autorizado: boolean; empresaIdSessao?: string }> {
+async function validarAutorizacao(request: NextRequest): Promise<{ 
+  autorizado: boolean; 
+  empresaIdSessao?: string;
+  emailOperador?: string;
+}> {
   // 1. Tenta validar via Bearer Token
   const authHeader = request.headers.get('authorization');
   const token = authHeader?.replace('Bearer ', '').trim();
@@ -37,7 +84,8 @@ async function validarAutorizacao(request: NextRequest): Promise<{ autorizado: b
       const { payload } = await jwtVerify(cookieSessao.value, JWT_SECRET);
       return { 
         autorizado: true, 
-        empresaIdSessao: payload.empresaId as string 
+        empresaIdSessao: payload.empresaId as string,
+        emailOperador: payload.email as string
       };
     } catch (e) {
       console.error('Erro ao verificar JWT na API de leads:', e);
@@ -51,11 +99,17 @@ export async function GET(request: NextRequest) {
   try {
     const auth = await validarAutorizacao(request);
     if (!auth.autorizado) {
+      // ✅ Log de acesso não autorizado
+      await registrarLog('desconhecido', 'ACESSO_LEADS_NAO_AUTORIZADO', 'WARNING',
+        'Tentativa de acesso não autorizado à lista de leads',
+        request,
+        { metodo: 'GET' }
+      );
+
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
-    // Se a query string não mandou o empresa_id mas o usuário está logado, usa o ID da empresa do token dele
     const empresaId = searchParams.get('empresa_id') || auth.empresaIdSessao;
 
     let query = supabase.from('leads').select('*').order('created_at', { ascending: false });
@@ -83,9 +137,20 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // ⚠️ Removido: Log de leitura simples NÃO é obrigatório pela LGPD
+    // await registrarLog(auth.emailOperador || 'sistema', 'LEADS_LISTADOS', 'INFO', ...);
+
     return NextResponse.json(leadsMapeados, { status: 200 });
   } catch (error: any) {
     console.error('❌ ERRO (GET):', error.message);
+
+    // ✅ Log de erro
+    await registrarLog('sistema', 'ERRO_LISTAR_LEADS', 'ERROR',
+      `Erro ao listar leads: ${error.message}`,
+      request,
+      { erro: error.message }
+    );
+
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -94,12 +159,20 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await validarAutorizacao(request);
     if (!auth.autorizado) {
+      // ✅ Log de acesso não autorizado
+      await registrarLog('desconhecido', 'ACESSO_CRIAR_LEAD_NAO_AUTORIZADO', 'WARNING',
+        'Tentativa de criar lead sem autorização',
+        request,
+        { metodo: 'POST' }
+      );
+
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
     const body = await request.json();
     const empresaIdAlvo = body.empresa_id || auth.empresaIdSessao;
 
+    // ✅ Se for limpar tudo
     if (body.limparTudo) {
       let deleteQuery = supabase.from('leads').delete().not('id', 'is', null);
       if (empresaIdAlvo) {
@@ -107,6 +180,14 @@ export async function POST(request: NextRequest) {
       }
       const { error } = await deleteQuery;
       if (error) throw error;
+
+      // ✅ Log de limpeza
+      await registrarLog(auth.emailOperador || 'sistema', 'LEADS_LIMPOS', 'WARNING',
+        'Todos os leads foram removidos',
+        request,
+        { empresaId: empresaIdAlvo }
+      );
+
       return NextResponse.json({ success: true, leads: [] });
     }
 
@@ -127,6 +208,18 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('❌ ERRO AO INSERIR:', insertError);
+
+      // ✅ Log de erro ao criar lead
+      await registrarLog(auth.emailOperador || 'sistema', 'ERRO_CRIAR_LEAD', 'ERROR',
+        `Falha ao criar novo lead: ${novoLeadBanco.nome}`,
+        request,
+        { 
+          leadNome: novoLeadBanco.nome,
+          cep: novoLeadBanco.cep,
+          erro: insertError.message
+        }
+      );
+
       return NextResponse.json({ success: false, error: insertError.message }, { status: 400 });
     }
 
@@ -146,9 +239,29 @@ export async function POST(request: NextRequest) {
       lon: l.lon !== null && l.lon !== undefined ? Number(l.lon) : undefined,
     }));
 
+    // ✅ Log de sucesso ao criar lead
+    await registrarLog(auth.emailOperador || 'sistema', 'LEAD_CRIADO', 'SUCCESS',
+      `Novo lead criado: ${novoLeadBanco.nome}`,
+      request,
+      {
+        leadNome: novoLeadBanco.nome,
+        cep: novoLeadBanco.cep,
+        telefone: novoLeadBanco.whatsapp,
+        empresaId: empresaIdAlvo
+      }
+    );
+
     return NextResponse.json({ success: true, leads: leadsMapeados }, { status: 201 });
   } catch (error: any) {
     console.error('❌ ERRO CRÍTICO NO POST:', error.message);
+
+    // ✅ Log de erro crítico
+    await registrarLog('sistema', 'ERRO_CRITICO_CRIAR_LEAD', 'ERROR',
+      `Erro crítico ao criar lead: ${error.message}`,
+      request,
+      { erro: error.message, stack: error.stack?.slice(0, 200) }
+    );
+
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
@@ -157,6 +270,13 @@ export async function PUT(request: NextRequest) {
   try {
     const auth = await validarAutorizacao(request);
     if (!auth.autorizado) {
+      // ✅ Log de acesso não autorizado
+      await registrarLog('desconhecido', 'ACESSO_ATUALIZAR_LEAD_NAO_AUTORIZADO', 'WARNING',
+        'Tentativa de atualizar lead sem autorização',
+        request,
+        { metodo: 'PUT' }
+      );
+
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
@@ -164,12 +284,32 @@ export async function PUT(request: NextRequest) {
     const empresaIdAlvo = body.empresa_id || auth.empresaIdSessao;
 
     if (body.id) {
+      // Busca o lead anterior para comparação
+      const { data: leadAnterior } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('id', body.id)
+        .single();
+
       const dadosAtualizados: any = {};
       if (body.etapa_funil || body.perfil) dadosAtualizados.perfil = sanitizarTexto(body.etapa_funil || body.perfil);
       if (body.telefone || body.whatsapp) dadosAtualizados.whatsapp = sanitizarTexto(body.telefone || body.whatsapp);
       if (body.endereco || body.numero) dadosAtualizados.numero = sanitizarTexto(body.endereco || body.numero);
 
       await supabase.from('leads').update(dadosAtualizados).eq('id', body.id);
+
+      // ✅ Log de atualização
+      await registrarLog(auth.emailOperador || 'sistema', 'LEAD_ATUALIZADO', 'INFO',
+        `Lead atualizado: ${leadAnterior?.nome}`,
+        request,
+        {
+          leadId: body.id,
+          leadNome: leadAnterior?.nome,
+          etapaAnterior: leadAnterior?.perfil,
+          etapaNova: body.etapa_funil || body.perfil,
+          alteracoes: dadosAtualizados
+        }
+      );
     }
 
     let fetchQuery = supabase.from('leads').select('*').order('created_at', { ascending: false });
@@ -190,6 +330,15 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ success: true, leads: leadsMapeados }, { status: 200 });
   } catch (error: any) {
+    console.error('❌ ERRO NO PUT:', error.message);
+
+    // ✅ Log de erro
+    await registrarLog('sistema', 'ERRO_ATUALIZAR_LEAD', 'ERROR',
+      `Erro ao atualizar lead: ${error.message}`,
+      request,
+      { erro: error.message }
+    );
+
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

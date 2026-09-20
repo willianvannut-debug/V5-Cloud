@@ -1,11 +1,18 @@
+//app/dashboard/viabilidade/page.tsx
+
 "use client"
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Search, MapPin, Loader2, CheckCircle2, XCircle, Building, RefreshCw, Navigation, X, User, Phone, PlusCircle } from 'lucide-react';
-import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
+import { logger } from '@/lib/logger';
+import { createClient } from '@supabase/supabase-js';
 
 import dynamic from 'next/dynamic';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 const MapContainer = dynamic(() => import('react-leaflet').then((mod) => mod.MapContainer), { ssr: false });
 const TileLayer = dynamic(() => import('react-leaflet').then((mod) => mod.TileLayer), { ssr: false });
@@ -81,10 +88,11 @@ interface ConsultaItem {
 }
 
 export default function ViabilidadePage() {
-  const settings = useSettings();
-  const ctos = settings?.ctos || [];
   const { adicionarLead } = useApp();
   
+  const [ctos, setCtos] = useState<any[]>([]);
+  const [carregandoCtos, setCarregandoCtos] = useState(true);
+
   const [nomeCliente, setNomeCliente] = useState('');
   const [telefoneCliente, setTelefoneCliente] = useState('');
 
@@ -112,6 +120,23 @@ export default function ViabilidadePage() {
 
   const [resultadoAtual, setResultadoAtual] = useState<ConsultaItem | null>(null);
   const [historico, setHistorico] = useState<ConsultaItem[]>([]);
+
+  useEffect(() => {
+    async function carregarCtosDoSupabase() {
+      if (!supabase) return;
+      try {
+        const { data, error } = await supabase.from('ctos').select('*');
+        if (!error && data) {
+          setCtos(data);
+        }
+      } catch (err) {
+        console.error("Erro ao buscar CTOs para viabilidade:", err);
+      } finally {
+        setCarregandoCtos(false);
+      }
+    }
+    carregarCtosDoSupabase();
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -265,60 +290,39 @@ export default function ViabilidadePage() {
     }
 
     if (!ctos || ctos.length === 0) {
-      alert("Atenção: Não há nenhuma caixa CTO cadastrada no sistema. Cadastre uma na aba 'Caixas CTO'.");
+      alert("Atenção: Não há nenhuma caixa CTO cadastrada no sistema ou carregada do Supabase.");
       return;
     }
 
     setCalculandoRota(true);
 
     try {
-      let menorDistanciaRuas = Infinity;
+      let menorDistanciaMetros = Infinity;
       let ctoMaisProxima = ctos[0].identificacao;
       let raioPermitido = 300;
 
+      const R = 6371000;
+
       for (let cto of ctos) {
         if (cto.lat !== undefined && cto.lon !== undefined) {
-          try {
-            const url = `https://router.project-osrm.org/route/v1/foot/${cto.lon},${cto.lat};${coordsCliente.lon},${coordsCliente.lat}?overview=false`;
-            const res = await fetch(url);
-            const data = await res.json();
+          const dLat = (cto.lat - coordsCliente.lat) * Math.PI / 180;
+          const dLon = (cto.lon - coordsCliente.lon) * Math.PI / 180;
+          const a = Math.sin(dLat / 2) ** 2 +
+                    Math.cos(coordsCliente.lat * Math.PI / 180) * Math.cos(cto.lat * Math.PI / 180) *
+                    Math.sin(dLon / 2) ** 2;
+          const distanciaMetros = R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 
-            if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-              const distanciaRealRuas = data.routes[0].distance;
-
-              if (distanciaRealRuas < menorDistanciaRuas) {
-                menorDistanciaRuas = distanciaRealRuas;
-                ctoMaisProxima = cto.identificacao;
-                raioPermitido = cto.raio || 300;
-              }
-            }
-          } catch (err) {
-            console.error(`Erro ao consultar OSRM para a CTO ${cto.identificacao}:`, err);
+          if (distanciaMetros < menorDistanciaMetros) {
+            menorDistanciaMetros = distanciaMetros;
+            ctoMaisProxima = cto.identificacao;
+            raioPermitido = cto.raio || 300;
           }
         }
       }
 
-      if (menorDistanciaRuas === Infinity) {
-        for (let cto of ctos) {
-          if (cto.lat !== undefined && cto.lon !== undefined) {
-            const R = 6371000;
-            const dLat = (cto.lat - coordsCliente.lat) * Math.PI / 180;
-            const dLon = (cto.lon - coordsCliente.lon) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) ** 2 +
-                      Math.cos(coordsCliente.lat * Math.PI / 180) * Math.cos(cto.lat * Math.PI / 180) *
-                      Math.sin(dLon / 2) ** 2;
-            const distanciaMetros = R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-            if (distanciaMetros < menorDistanciaRuas) {
-              menorDistanciaRuas = distanciaMetros;
-              ctoMaisProxima = cto.identificacao;
-              raioPermitido = cto.raio || 300;
-            }
-          }
-        }
-      }
-
-      const temCobertura = menorDistanciaRuas <= raioPermitido;
+      const temCobertura = menorDistanciaMetros <= raioPermitido;
       const statusFinal = temCobertura ? 'COM COBERTURA' : 'SEM COBERTURA';
+      const distanciaFinalArredondada = Math.round(menorDistanciaMetros);
 
       const novaConsulta: ConsultaItem = {
         id: Date.now().toString(),
@@ -332,14 +336,30 @@ export default function ViabilidadePage() {
         cidade: `${endereco.cidade} - ${endereco.uf}`,
         status: statusFinal,
         cto: ctoMaisProxima,
-        distancia: Math.round(menorDistanciaRuas)
+        distancia: distanciaFinalArredondada
       };
 
       setResultadoAtual(novaConsulta);
       setHistorico([novaConsulta, ...historico]);
 
-      // 🚀 AQUI ESTÁ A CORREÇÃO! Forçando o lead a nascer como 'NOVO' obrigatoriamente.
-      adicionarLead({
+      await logger.sucesso(
+        'VIABILIDADE_CONSULTADA',
+        'leads',
+        `Consulta de viabilidade realizada para ${nomeCliente.trim()}`,
+        {
+          cliente: nomeCliente.trim(),
+          telefone: telefoneCliente.trim(),
+          cep: cep,
+          endereco: `${endereco.logradouro}, Nº ${numeroLote}`,
+          status: statusFinal,
+          cto: ctoMaisProxima,
+          distancia: distanciaFinalArredondada,
+          latitude: coordsCliente.lat,
+          longitude: coordsCliente.lon,
+        }
+      );
+
+      await adicionarLead({
         nome: nomeCliente.trim(),
         telefone: telefoneCliente.trim() || '(61) 99999-9999',
         cep: cep,
@@ -350,12 +370,24 @@ export default function ViabilidadePage() {
         data: new Date().toLocaleDateString('pt-BR'),
         lat: coordsCliente.lat,
         lon: coordsCliente.lon,
-        etapa_funil: 'NOVO', // GARANTE QUE É "NOVO LEAD" E NÃO "CONVERTIDO"
-        status_instalacao: null // GARANTE QUE NÃO ESTÁ "PENDENTE" PRO TÉCNICO AINDA
+        etapa_funil: 'NOVO',
+        status_instalacao: null
       } as any);
 
     } catch (error) {
-      console.error("Erro no cálculo de viabilidade por ruas:", error);
+      console.error("Erro no cálculo de viabilidade:", error);
+
+      await logger.erro(
+        'ERRO_CONSULTA_VIABILIDADE',
+        'leads',
+        `Erro ao calcular viabilidade para ${nomeCliente.trim()}`,
+        error,
+        {
+          cliente: nomeCliente.trim(),
+          cep: cep,
+          mensagem: (error as Error).message
+        }
+      );
     } finally {
       setCalculandoRota(false);
     }
@@ -371,7 +403,6 @@ export default function ViabilidadePage() {
     setEndereco({ logradouro: '', bairro: '', cidade: 'Águas Lindas de Goiás', uf: 'GO' });
   };
 
-  // Função para reiniciar os campos e fazer um novo teste sem recarregar a página
   const novoTeste = () => {
     setNomeCliente('');
     setTelefoneCliente('');
@@ -393,6 +424,7 @@ export default function ViabilidadePage() {
         </div>
 
         <button 
+          type="button"
           onClick={limparTudo}
           className="px-4 py-2 rounded-xl text-xs font-mono font-bold uppercase border bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-all flex items-center gap-2 cursor-pointer"
         >
@@ -401,16 +433,18 @@ export default function ViabilidadePage() {
       </div>
 
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-        <CardHeader className="border-b border-zinc-900/85 pb-4">
+        <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-row items-center justify-between">
           <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
             <Search className="w-4 h-4 text-emerald-400" /> 1. Dados do Cliente & Localização no Mapa
           </CardTitle>
+          <span className="text-[10px] font-mono text-emerald-400">
+            {carregandoCtos ? "Carregando caixas do Supabase..." : `✓ ${ctos.length} Caixas CTO ativas no sistema`}
+          </span>
         </CardHeader>
         
         <CardContent className="p-6">
           <form onSubmit={handleCalcularViabilidade} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
             
-            {/* Nome do Cliente */}
             <div className="md:col-span-6 space-y-1.5">
               <label className="text-xs font-mono uppercase text-emerald-400 font-bold flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5" /> Nome do Cliente *
@@ -425,7 +459,6 @@ export default function ViabilidadePage() {
               />
             </div>
 
-            {/* Telefone / WhatsApp */}
             <div className="md:col-span-6 space-y-1.5">
               <label className="text-xs font-mono uppercase text-zinc-400 flex items-center gap-1.5">
                 <Phone className="w-3.5 h-3.5" /> Telefone / WhatsApp
@@ -439,7 +472,6 @@ export default function ViabilidadePage() {
               />
             </div>
 
-            {/* CEP */}
             <div className="md:col-span-3 space-y-1.5">
               <label className="text-xs font-mono uppercase text-emerald-400 font-bold">CEP</label>
               <div className="relative">
@@ -459,7 +491,6 @@ export default function ViabilidadePage() {
               </div>
             </div>
 
-            {/* Logradouro */}
             <div className="md:col-span-5 space-y-1.5">
               <label className="text-xs font-mono uppercase text-zinc-400">Logradouro / Rua</label>
               <input 
@@ -471,7 +502,6 @@ export default function ViabilidadePage() {
               />
             </div>
 
-            {/* Número / Lote */}
             <div className="md:col-span-4 space-y-1.5">
               <label className="text-xs font-mono uppercase text-emerald-400 font-bold">Lote / Nº da Casa *</label>
               <input 
@@ -483,7 +513,6 @@ export default function ViabilidadePage() {
               />
             </div>
 
-            {/* Bloco do Mapa / PIN */}
             <div className="md:col-span-12 mt-2 p-4 bg-black/40 border border-zinc-800 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
               <div>
                 <span className="text-xs font-mono text-zinc-300 font-bold uppercase block">Localização Exata da Residência (PIN no Mapa)</span>
@@ -504,16 +533,15 @@ export default function ViabilidadePage() {
               </button>
             </div>
 
-            {/* Botão de Cálculo */}
             <div className="md:col-span-12 mt-2">
               <button 
                 type="submit"
-                disabled={!coordsCliente || calculandoRota}
+                disabled={!coordsCliente || calculandoRota || carregandoCtos}
                 className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-black uppercase text-xs font-mono transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer"
               >
                 {calculandoRota ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" /> Calculando Menor Metragem pelas Ruas...
+                    <Loader2 className="w-4 h-4 animate-spin" /> Verificando Cobertura da CTO...
                   </>
                 ) : (
                   <>
@@ -526,16 +554,14 @@ export default function ViabilidadePage() {
         </CardContent>
       </Card>
 
-      {/* Exibição do Resultado Atual + Botão de Novo Teste */}
       {resultadoAtual && (
         <Card className={`border ${resultadoAtual.status === 'COM COBERTURA' ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-red-500/40 bg-red-500/5'} backdrop-blur animate-in fade-in duration-300`}>
           <CardHeader className={`border-b ${resultadoAtual.status === 'COM COBERTURA' ? 'border-emerald-500/20 text-emerald-400' : 'border-red-500/20 text-red-400'} pb-4 flex flex-row items-center justify-between`}>
             <CardTitle className="text-xs uppercase font-mono tracking-wide flex items-center gap-2">
               {resultadoAtual.status === 'COM COBERTURA' ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />} 
-              Resultado da Viabilidade para {resultadoAtual.nomeCliente} (Metragem Real pelas Ruas: {resultadoAtual.distancia}m da CTO)
+              Resultado da Viabilidade para {resultadoAtual.nomeCliente} (Distância em Linha Reta: {resultadoAtual.distancia}m da CTO)
             </CardTitle>
 
-            {/* BOTÃO NOVO TESTE */}
             <button
               type="button"
               onClick={novoTeste}
@@ -588,7 +614,6 @@ export default function ViabilidadePage() {
         </Card>
       )}
 
-      {/* Histórico de Consultas */}
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
         <CardHeader className="border-b border-zinc-900/85 pb-4">
           <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
@@ -604,7 +629,7 @@ export default function ViabilidadePage() {
                   <th className="p-4">Cliente & Contato</th>
                   <th className="p-4">Endereço & Lote</th>
                   <th className="p-4">Status</th>
-                  <th className="p-4 text-right">CTO & Metragem Real</th>
+                  <th className="p-4 text-right">CTO & Distância</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900/50 text-xs font-mono">
@@ -634,7 +659,7 @@ export default function ViabilidadePage() {
                         </span>
                       </td>
                       <td className="p-4 text-right font-bold text-emerald-400">
-                        {item.cto} <span className="text-[11px] text-zinc-500 font-normal">({item.distancia}m de cabo)</span>
+                        {item.cto} <span className="text-[11px] text-zinc-500 font-normal">({item.distancia}m)</span>
                       </td>
                     </tr>
                   ))
@@ -645,7 +670,6 @@ export default function ViabilidadePage() {
         </CardContent>
       </Card>
 
-      {/* Modal do Mapa para Arrastar o PIN */}
       {modalMapaAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col">

@@ -1,3 +1,5 @@
+//app/page.tsx
+
 export default function Home() {
   return (
     <div className="min-h-screen bg-[#0a0a0c] flex flex-col items-center justify-center text-white font-sans">
