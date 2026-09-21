@@ -1,4 +1,7 @@
-//app/dashboard/relatorios/page.tsx
+// ================================================================================
+// 📋 RELATÓRIOS E DESEMPENHO - V5 CLOUD
+// app/dashboard/relatorios/page.tsx
+// ================================================================================
 
 "use client"
 import React, { useState, useEffect } from 'react';
@@ -27,7 +30,7 @@ export default function RelatoriosPage() {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
 
-  // Sincroniza com o localStorage operacional do técnico
+  // Sincroniza com o localStorage operacional do técnico e o contexto de leads
   useEffect(() => {
     const carregarLeads = () => {
       if (typeof window !== 'undefined') {
@@ -56,13 +59,10 @@ export default function RelatoriosPage() {
     return () => window.removeEventListener('storage', carregarLeads);
   }, [leadsContexto]);
 
-  // 🚀 VALIDAÇÃO DE PLANO REAL: Puxa o plano da empresa logada ou do contexto
   const planoDoContexto = empresa?.plano || operador?.empresa?.plano || planoAtivoSettings || 'essencial';
   const planoAtualFormatado = String(planoDoContexto).toLowerCase().trim();
 
   const isSuperAdmin = typeof window !== 'undefined' && localStorage.getItem('v5_role') === 'superadmin';
-  
-  // 🔒 REGRA: Plano Essencial NÃO tem acesso a relatórios. Liberado apenas para PRO, SCALE, ENTERPRISE ou Superadmin.
   const temAcessoRelatorios = isSuperAdmin || (planoAtualFormatado !== 'essencial');
 
   if (!temAcessoRelatorios) {
@@ -76,19 +76,22 @@ export default function RelatoriosPage() {
           <h2 className="text-2xl font-black font-mono text-white uppercase tracking-tight">Recurso Indisponível no Plano Essencial</h2>
           <p className="text-zinc-400 text-sm leading-relaxed">
             Os relatórios de conversão e métricas avançadas estão disponíveis a partir do plano <strong className="text-emerald-400">PRO</strong>. 
-            Faça um upgrade para elevar o nível da sua gestão e tomar decisões baseadas em dados!
           </p>
         </div>
       </div>
     );
   }
 
-  // Se ele TIVER acesso (Pro, Scale, Enterprise ou Master), o painel renderiza normalmente!
-  const relatorioItens = leads.filter(item => 
-    item.statusOperacional === 'CONCLUIDA' || 
-    item.statusOperacional === 'NAO_FEITA' || 
-    item.status === 'SEM COBERTURA'
-  );
+  const relatorioItens = leads.filter(item => {
+    const etapa = String(item.etapa_funil || item.perfil || '').toUpperCase();
+    return (
+      item.statusOperacional === 'CONCLUIDA' || 
+      item.statusOperacional === 'NAO_FEITA' || 
+      item.status === 'SEM COBERTURA' ||
+      etapa === 'NAO CONVERTIDO' ||
+      etapa === 'NÃO CONVERTIDO'
+    );
+  });
 
   const totalVendas = leads.filter(l => l.statusOperacional === 'CONCLUIDA').length;
   const faturamentoGerado = totalVendas * 99.90; 
@@ -97,7 +100,6 @@ export default function RelatoriosPage() {
   return (
     <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans w-full">
 
-      {/* CABEÇALHO */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-black uppercase tracking-tight font-mono text-white flex items-center gap-2">
@@ -116,7 +118,6 @@ export default function RelatoriosPage() {
         </div>
       </div>
 
-      {/* MÉTRICAS SUPERIORES */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
           <CardContent className="p-5 flex flex-col justify-between h-32">
@@ -162,16 +163,15 @@ export default function RelatoriosPage() {
         </Card>
       </div>
 
-      {/* PREFERÊNCIA DE PLANOS NA REDE */}
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
         <CardHeader className="border-b border-zinc-900/85 pb-4">
           <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-emerald-400" /> Preferência de Planos na Rede (Sincronizado com Configurações)
+            <BarChart3 className="w-4 h-4 text-emerald-400" /> Preferência de Planos na Rede
           </CardTitle>
         </CardHeader>
         <CardContent className="p-8 text-center">
           {(!planos || planos.length === 0) ? (
-            <p className="text-xs font-mono text-zinc-500">Nenhum plano cadastrado nas configurações. Adicione planos para visualizar a preferência da rede.</p>
+            <p className="text-xs font-mono text-zinc-500">Nenhum plano cadastrado nas configurações.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
               {planos.map(p => (
@@ -186,7 +186,6 @@ export default function RelatoriosPage() {
         </CardContent>
       </Card>
 
-      {/* RELATÓRIO CONSOLIDADO */}
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
         <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
@@ -232,19 +231,21 @@ export default function RelatoriosPage() {
                 {relatorioItens.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-12 text-center text-zinc-500">
-                      Nenhum registro consolidado no momento. Os dados aparecerão aqui assim que o técnico registrar <strong className="text-emerald-400">Instalação Feita</strong> ou <strong className="text-amber-400">Não Feita</strong>.
+                      Nenhum registro consolidado no momento.
                     </td>
                   </tr>
                 ) : (
                   relatorioItens.map((item) => {
+                    const etapaUpper = String(item.etapa_funil || item.perfil || '').toUpperCase();
                     let statusLabel = 'Novo';
                     let statusStyle = 'bg-zinc-800 text-zinc-300 border-zinc-700';
 
                     if (item.statusOperacional === 'CONCLUIDA') {
                       statusLabel = 'Instalação Feita';
                       statusStyle = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
-                    } else if (item.statusOperacional === 'NAO_FEITA') {
-                      statusLabel = 'Instalação Não Feita';
+                    } else if (item.statusOperacional === 'NAO_FEITA' || etapaUpper === 'NAO CONVERTIDO' || etapaUpper === 'NÃO CONVERTIDO') {
+                      // 🚀 Alterado para exibir exatamente "NÃO CONVERTIDO" conforme solicitado
+                      statusLabel = 'NÃO CONVERTIDO';
                       statusStyle = 'bg-amber-500/10 text-amber-400 border-amber-500/30';
                     } else if (item.status === 'SEM COBERTURA') {
                       statusLabel = 'Sem Cobertura';
@@ -258,11 +259,6 @@ export default function RelatoriosPage() {
                         <td className="p-4">
                           <div className="font-bold font-sans text-sm text-white">{item.nome}</div>
                           <div className="text-[11px] text-zinc-500">CEP {item.cep} • {item.endereco}</div>
-                          {item.motivoPendencia && (
-                            <div className="text-[10px] text-amber-400 mt-1">
-                              <strong>Motivo:</strong> {item.motivoPendencia}
-                            </div>
-                          )}
                         </td>
                         <td className="p-4">
                           <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px]">

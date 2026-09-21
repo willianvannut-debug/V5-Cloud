@@ -1,21 +1,79 @@
-//app/planos/page.tsx
-
 "use client"
 import React, { useState } from 'react';
-import { Layers, Monitor, Rocket, Building2, Check, X } from 'lucide-react';
+import { Layers, Monitor, Rocket, Building2, Check, X, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export default function PlanosPage() {
+  const router = useRouter();
   const [isAnnual, setIsAnnual] = useState(false);
+  const [carregandoPlano, setCarregandoPlano] = useState<string | null>(null);
 
-  // 🚀 Links oficiais do Stripe inseridos aqui
-  const linkEssencialMensal = "https://buy.stripe.com/test_14A5kFdiN66v0bq6sm1oI00";
-  const linkProMensal = "https://buy.stripe.com/test_bJe7sN92xamLf6k4ke1oI01";
-  const linkScaleMensal = "https://buy.stripe.com/test_5kQdRb0w1dyX2jy3ga1oI02";
+  // 🚀 Função inteligente: Atualiza o plano no localStorage e chama a API de Checkout local
+  const handleAssinar = async (chavePlano: string, nomePlano: string, precoCentavos: number) => {
+    setCarregandoPlano(chavePlano);
 
-  // Se no futuro você criar links anuais, basta trocar o '#' pelo link correto.
-  const linkEssencialAnual = "#";
-  const linkProAnual = "#";
-  const linkScaleAnual = "#";
+    try {
+      let empresaId = '';
+      let emailEmpresa = '';
+
+      if (typeof window !== 'undefined') {
+        // 1. Atualiza o plano escolhido nos dados pendentes do cadastro no localStorage
+        const dadosPendentesStr = localStorage.getItem('v5_dados_cadastro_pendente');
+        if (dadosPendentesStr) {
+          try {
+            const dadosPendentes = JSON.parse(dadosPendentesStr);
+            dadosPendentes.plano = chavePlano; // Garante que o plano escolhido ('essencial', 'pro', 'scale') fica gravado
+            localStorage.setItem('v5_dados_cadastro_pendente', JSON.stringify(dadosPendentes));
+            emailEmpresa = dadosPendentes.email || '';
+          } catch (e) {
+            console.error("Erro ao atualizar plano nos dados pendentes", e);
+          }
+        }
+
+        // Tenta apanhar dados alternativos se existirem (utilizador já logado)
+        const localData = localStorage.getItem('v5_empresa_criada') || localStorage.getItem('v5_operador');
+        if (localData) {
+          try {
+            const parsed = JSON.parse(localData);
+            empresaId = parsed.empresaId || parsed.id || parsed.empresa_id || '';
+            if (!emailEmpresa) emailEmpresa = parsed.email || '';
+          } catch (e) {
+            console.error("Erro ao ler dados locais", e);
+          }
+        }
+      }
+
+      // 🚀 Se o utilizador já estiver logado (tem empresaId), configuramos a URL de sucesso para retornar ao dashboard com o popup
+      const rotaSucessoRetorno = empresaId ? `${window.location.origin}/dashboard?mudanca_plano=${chavePlano}` : undefined;
+
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chavePlano,
+          nomePlano,
+          precoCentavos,
+          intervalo: isAnnual ? 'year' : 'month',
+          empresaId,
+          email: emailEmpresa,
+          successUrl: rotaSucessoRetorno // Passa a rota de retorno customizada para mudança de plano
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.url) {
+        window.location.href = data.url; // Redireciona para o Stripe mantendo o fluxo local
+      } else {
+        alert(data.error || 'Erro ao gerar sessão de pagamento.');
+        setCarregandoPlano(null);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro de conexão ao processar pagamento.');
+      setCarregandoPlano(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#021708] text-[#f8fafc] font-sans antialiased">
@@ -56,19 +114,20 @@ export default function PlanosPage() {
                 </div>
                 <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
                 
-                <a 
-                  href={isAnnual ? linkEssencialAnual : linkEssencialMensal}
-                  className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] transition-colors text-[#f8fafc]"
+                <button 
+                  onClick={() => handleAssinar('essencial', 'Plano Essencial V5 Cloud', isAnnual ? 97000 : 9700)}
+                  disabled={carregandoPlano !== null}
+                  className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] transition-colors text-[#f8fafc] cursor-pointer"
                 >
-                  Começar Agora
-                </a>
+                  {carregandoPlano === 'essencial' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Começar Agora'}
+                </button>
                 
                 <div className="text-left text-sm mt-auto">
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1 Usuário de vendas</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 300 caixas CTO cadastradas</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 100 Leads validados por mês</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Até 2 Tecnico em campo</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Até 2 Técnico em campo</p>
                   
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                   <ul className="space-y-2.5">
@@ -94,19 +153,20 @@ export default function PlanosPage() {
                 </div>
                 <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
                 
-                <a 
-                  href={isAnnual ? linkProAnual : linkProMensal}
-                  className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] transition-colors text-[#f8fafc]"
+                <button 
+                  onClick={() => handleAssinar('pro', 'Plano Pro V5 Cloud', isAnnual ? 247000 : 24700)}
+                  disabled={carregandoPlano !== null}
+                  className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] transition-colors text-[#f8fafc] cursor-pointer"
                 >
-                  Começar Agora
-                </a>
+                  {carregandoPlano === 'pro' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Começar Agora'}
+                </button>
                 
                 <div className="text-left text-sm mt-auto">
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 3 Usuários de vendas</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 1.500 Caixas CTO cadastradas</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 500 leads validados por mês</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Até 10 Tecnico em campo</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Até 10 Técnico em campo</p>
                   
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                   <ul className="space-y-2.5">
@@ -135,19 +195,20 @@ export default function PlanosPage() {
                 </div>
                 <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
                 
-                <a 
-                  href={isAnnual ? linkScaleAnual : linkScaleMensal}
-                  className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 bg-[#f8fafc] text-[#021708] hover:bg-[#f8fafc]/90 transition-colors shadow-[0_0_15px_rgba(248,250,252,0.15)]"
+                <button 
+                  onClick={() => handleAssinar('scale', 'Plano Scale V5 Cloud', isAnnual ? 497000 : 49700)}
+                  disabled={carregandoPlano !== null}
+                  className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 bg-[#f8fafc] text-[#021708] hover:bg-[#f8fafc]/90 transition-colors shadow-[0_0_15px_rgba(248,250,252,0.15)] cursor-pointer"
                 >
-                  Assinar Scale
-                </a>
+                  {carregandoPlano === 'scale' ? <Loader2 className="w-4 h-4 animate-spin text-[#021708]" /> : 'Assinar Scale'}
+                </button>
                 
                 <div className="text-left text-sm mt-auto">
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 10 Usuários de vendas</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 5.000 caixas CTO cadastradas</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 1.500 leads validados por mês</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Até 30 Tecnico em campo</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Até 30 Técnico em campo</p>
                   
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                   <ul className="space-y-2.5">
@@ -184,7 +245,7 @@ export default function PlanosPage() {
                 
                 <div className="text-left text-sm mt-auto">
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Limite de usuarios personalizados</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Limite de usuários personalizados</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Áreas de cobertura Personalizadas</p>
                   
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>

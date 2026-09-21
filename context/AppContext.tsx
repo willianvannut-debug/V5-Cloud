@@ -1,4 +1,7 @@
-//context/AppContext.tsx
+// ================================================================================
+// 📋 CONTEXTO DA APLICAÇÃO - V5 CLOUD (COM SUPORTE A STATUS DE INSTALAÇÃO)
+// context/AppContext.tsx
+// ================================================================================
 
 "use client"
 import { logger } from '@/lib/logger';
@@ -14,8 +17,10 @@ export interface LeadReal {
   endereco: string;
   status: 'COM COBERTURA' | 'SEM COBERTURA';
   cto: string;
-  etapa_funil: 'NOVO' | 'EM CONTATO' | 'AGENDADO' | 'CONVERTIDO' | 'NAO CONVERTIDO' | 'INSTALACAO_FEITA';
-  status_instalacao?: 'CONCLUIDA' | 'PENDENTE';
+  // 🚀 CORREÇÃO: Atualização das etapas permitidas para o TypeScript aceitar a nova nomenclatura
+  etapa_funil: 'NOVO' | 'EM CONTATO' | 'AGENDADO' | 'MANDAR PARA INSTALAÇÃO' | 'NAO CONVERTIDO' | 'INSTALAÇÃO FEITA' | 'INSTALACAO_FEITA';
+  status_instalacao?: 'CONCLUIDA' | 'PENDENTE' | string;
+  motivo_pendencia?: string;
   atendente: string;
   plano: string;
   data: string;
@@ -41,11 +46,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [mostrarNotificacaoMeta, setMostrarNotificacaoMeta] = useState(false);
   const [metaBatidaDisparada, setMetaBatidaDisparada] = useState(false);
 
-  // 🚀 RECARREGAR LEADS COM SINCRONIZAÇÃO INTELIGENTE (EVITA O F5 APAGAR O STATUS)
+  // 🚀 RECARREGAR LEADS COM SINCRONIZAÇÃO INTELIGENTE
   const recarregarLeads = useCallback(async () => {
     let listaLocal: LeadReal[] = [];
 
-    // 1. Carrega do armazenamento local primeiro (Onde está o status 'Convertido' salvo pelo front-end)
     if (typeof window !== 'undefined') {
       try {
         const localCompartilhado = localStorage.getItem('v5_leads_unificados');
@@ -56,7 +60,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {}
     }
 
-    // 2. Tenta buscar da API/Servidor
     try {
       const timestamp = new Date().getTime();
       const res = await fetch(`/api/leads?t=${timestamp}`, {
@@ -80,16 +83,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (listaRecebida.length > 0) {
-          // 🚀 MÁGICA AQUI: Cruzamento de Dados!
-          // Se a API não salvou direito e devolver o status 'NOVO', o sistema olha para o Cache Local.
-          // Se no Cache ele já for 'CONVERTIDO', forçamos o Cache por cima da API para o F5 não bugar.
           const listaSincronizada = listaRecebida.map(leadApi => {
             const leadDoCache = listaLocal.find(l => l.id === leadApi.id);
-            if (leadDoCache && leadDoCache.etapa_funil !== leadApi.etapa_funil) {
+            if (leadDoCache && (leadDoCache.etapa_funil !== leadApi.etapa_funil || leadDoCache.status_instalacao !== leadApi.status_instalacao)) {
               return { 
                 ...leadApi, 
                 etapa_funil: leadDoCache.etapa_funil, 
                 status_instalacao: leadDoCache.status_instalacao,
+                motivo_pendencia: leadDoCache.motivo_pendencia,
                 atendente: leadDoCache.atendente
               };
             }
@@ -98,18 +99,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
           setLeads(listaSincronizada);
           
-          // Garante que o Cache fique 100% igual à tela final
           if (typeof window !== 'undefined') {
             localStorage.setItem('v5_leads_unificados', JSON.stringify(listaSincronizada));
           }
-          return; // Finaliza aqui se a API respondeu
+          return;
         }
       }
     } catch (e) {
       console.error("Aviso: API offline ou falhou, usando apenas cache local.");
     }
 
-    // 3. Fallback: Se a API falhou ou está vazia, usa apenas o LocalStorage
     if (listaLocal.length > 0) {
       setLeads(listaLocal);
     }
@@ -130,8 +129,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const metaSalva = localStorage.getItem('v5_meta_global');
     const metaGlobal = metaSalva ? parseFloat(metaSalva) : 10000;
 
+    // 🚀 CORREÇÃO: Monitorar também a palavra com acentuação
     const totalInstalacoesFeitas = leads.filter(l => 
-      l.etapa_funil === 'INSTALACAO_FEITA' || l.status_instalacao === 'CONCLUIDA'
+      l.etapa_funil === 'INSTALAÇÃO FEITA' || l.etapa_funil === 'INSTALACAO_FEITA' || l.status_instalacao === 'CONCLUIDA'
     ).length;
     
     const faturamentoAtual = totalInstalacoesFeitas * 99.90;
@@ -155,7 +155,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const item: LeadReal = {
       ...novo,
       id: Date.now().toString(),
-      etapa_funil: 'NOVO', // Nasce estritamente como NOVO LEAD
+      etapa_funil: 'NOVO',
       atendente: 'Não atribuído'
     };
 

@@ -1,5 +1,3 @@
-//app/api/checkout/route.ts
-
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -12,25 +10,25 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { email, nomePlano, precoCentavos, intervalo, empresaId, chavePlano } = body;
 
-    // 🚀 Normaliza a chave do plano (ex: 'essencial', 'pro', 'scale', 'enterprise')
     const planoNormalizado = String(chavePlano || 'pro').toLowerCase().trim();
 
-    console.log(`🛒 [API CHECKOUT] Empresa ID: ${empresaId} | Plano Nome: ${nomePlano} | Chave Plano: ${planoNormalizado}`);
+    console.log(`🛒 [API CHECKOUT] Empresa ID: ${empresaId} | Email: ${email} | Plano: ${planoNormalizado}`);
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://v5-cloud.vercel.app';
+    // 🚀 DETECÇÃO INTELIGENTE DE URL LOCAL OU PRODUÇÃO
+    const host = req.headers.get('host') || 'localhost:3000';
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    const baseUrl = `${protocol}://${host}`;
 
-    // 🚀 Monta a URL de sucesso injetando tanto o ID da empresa quanto a chave exata do plano
-    const params = new URLSearchParams({
-      session_id: '{CHECKOUT_SESSION_ID}'
-    });
-    if (empresaId) params.append('empresa_id', empresaId);
-    if (planoNormalizado) params.append('plano', planoNormalizado);
+    // 🚀 AQUI ESTÁ A MÁGICA: Se tem empresaId, força o redirecionamento para o Dashboard com os parâmetros certos!
+    const successUrl = empresaId 
+      ? `${baseUrl}/dashboard?mudanca_plano_sucesso=true&novo_plano=${planoNormalizado}&empresa_id=${empresaId}`
+      : `${baseUrl}/login?pagamento=sucesso&plano=${planoNormalizado}`;
 
-    const successUrl = `${baseUrl}/pos-pagamento?${params.toString()}`;
+    const cancelUrl = `${baseUrl}/planos?pagamento=cancelado`;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
-      customer_email: email,
+      customer_email: email || undefined,
       line_items: [
         {
           price_data: {
@@ -47,13 +45,12 @@ export async function POST(req: Request) {
         },
       ],
       mode: 'subscription',
-      // Metadados úteis caso você use webhooks do Stripe no futuro
       metadata: {
         empresaId: empresaId || '',
         plano: planoNormalizado,
       },
       success_url: successUrl,
-      cancel_url: `${baseUrl}/planos?pagamento=cancelado`,
+      cancel_url: cancelUrl,
     });
 
     return NextResponse.json({ url: session.url });

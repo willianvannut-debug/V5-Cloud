@@ -1,16 +1,20 @@
-//app/dashboard/leads/page.tsx
+// ================================================================================
+// 📋 ROTA DE LEADS (FRONTEND) - V5 CLOUD (OCULTAR CÁLCULO SE NÃO FEITA)
+// app/dashboard/leads/page.tsx
+// ================================================================================
 
 "use client"
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
-  Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Trash2, Globe, Navigation, Loader2, MapPin, Lock, Rocket
+  Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Trash2, Globe, Navigation, Loader2, MapPin
 } from 'lucide-react';
 import { useApp, LeadReal } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { PLANOS } from '@/lib/planLimites';
 import { createClient } from '@supabase/supabase-js';
+import { lerOperacional, limparOperacional } from '@/lib/operacional';
 
 import dynamic from 'next/dynamic';
 
@@ -18,7 +22,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-// 🗺️ Carregamento dinâmico do mapa com Otimização de Performance
+// 🗺️ Carregamento dinâmico do mapa
 const MapWithNoSSR = dynamic(
   async () => {
     if (typeof window !== 'undefined' && !document.getElementById('leaflet-css')) {
@@ -67,7 +71,6 @@ const MapWithNoSSR = dynamic(
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          {/* Caixas CTO (Em tom azul limpo) */}
           {ctosAgrupadas.map((item: any) => {
             if (item.tipo === 'cluster') {
               const iconeCluster = criarIconeClusterLead(item.quantidade);
@@ -99,15 +102,18 @@ const MapWithNoSSR = dynamic(
             return null;
           })}
 
-          {/* Leads visíveis no Viewport atual */}
           {leadsVisiveisNoViewport.map((lead: any) => {
             if (lead.lat && lead.lon) {
               let iconeAtual = lead.status === 'COM COBERTURA' ? iconeVerde : iconeVermelho;
               
-              if (lead.etapa_funil === 'CONVERTIDO') {
-                iconeAtual = iconeCiano; 
-              } else if (lead.status_instalacao === 'PENDENTE') {
+              const perfilLead = String(lead.perfil || '').toUpperCase();
+              const statusTecnico = String(lead.status_instalacao || lead.statusOperacional || '').toUpperCase();
+              const deuProblema = perfilLead === 'NÃO FEITA' || statusTecnico === 'PENDENTE' || statusTecnico === 'PROBLEMA' || statusTecnico === 'FALHA' || statusTecnico === 'REMARCAR';
+
+              if (deuProblema) {
                 iconeAtual = iconeAmarelo;
+              } else if (lead.etapa_funil === 'MANDAR PARA INSTALAÇÃO') {
+                iconeAtual = iconeCiano; 
               }
 
               if (!iconeAtual) return null;
@@ -126,7 +132,6 @@ const MapWithNoSSR = dynamic(
             return null;
           })}
 
-          {/* Linha da Rota */}
           {rotaAtivaCoords.length > 1 && (
             <Polyline positions={rotaAtivaCoords} color="#10b981" weight={4} opacity={0.85} dashArray="6, 6" />
           )}
@@ -139,10 +144,76 @@ const MapWithNoSSR = dynamic(
 );
 
 export default function LeadsPage() {
-  const { leads, atualizarEtapaLead, limparTudo } = useApp();
+  const { leads: leadsContexto, atualizarEtapaLead, limparTudo } = useApp();
   const settings = useSettings();
   const { operador, empresa } = useAuth();
   const ctos = settings?.ctos || [];
+  
+  const [operacional, setOperacional] = useState<any[]>([]);
+  const [leadsApi, setLeadsApi] = useState<any[] | null>(null);
+
+  const carregarLeadsSupabase = useCallback(async () => {
+    try {
+      const resposta = await fetch('/api/leads?origem=pc', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (resposta.ok) {
+        const dados = await resposta.json();
+        if (Array.isArray(dados)) {
+          setLeadsApi(dados);
+        }
+      }
+    } catch (erro) {
+      console.error("Erro ao carregar leads do Supabase:", erro);
+    }
+  }, []);
+
+  useEffect(() => {
+    carregarLeadsSupabase();
+
+    if (!supabase) return;
+
+    const canal = supabase
+      .channel('leads-realtime-pc')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leads' },
+        (payload) => {
+          console.log('⚡ Atualização do Supabase detectada em tempo real:', payload);
+          carregarLeadsSupabase();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
+  }, [carregarLeadsSupabase]);
+
+  useEffect(() => {
+    const carregarOperacional = async () => {
+      const dados = await lerOperacional();
+      setOperacional(dados);
+    };
+
+    carregarOperacional();
+
+    window.addEventListener('v5-operacional', carregarOperacional);
+    return () => {
+      window.removeEventListener('v5-operacional', carregarOperacional);
+    };
+  }, []);
+
+  const leadsSource = leadsApi !== null ? leadsApi : leadsContexto;
+
+  const leads = useMemo(
+    () => (leadsSource || []).map((l: any) => {
+      const op = operacional.find((p: any) => p.id === l.id);
+      return op ? { ...l, ...op } : l;
+    }),
+    [leadsSource, operacional]
+  );
   
   const [planoAtual, setPlanoAtual] = useState<string>('');
   const [zoomAtual, setZoomAtual] = useState(14);
@@ -264,7 +335,6 @@ export default function LeadsPage() {
           iconAnchor: [6, 6]
         });
 
-        // 🔵 Caixas CTO em azul limpo (sem glow)
         const cleanCto = L.divIcon({
           className: 'clean-cto',
           html: `<div style="width: 12px; height: 12px; background-color: #3b82f6; border: 1.5px solid #000000; border-radius: 2px;"></div>`,
@@ -272,7 +342,6 @@ export default function LeadsPage() {
           iconAnchor: [6, 6]
         });
 
-        // 🔵 Clusters de CTO em azul limpo
         const funcCluster = (quantidade: number) => L.divIcon({
           className: 'cluster-marker-lead',
           html: `<div style="background-color: #3b82f6; color: #fff; font-weight: 900; font-family: monospace; font-size: 11px; width: 30px; height: 30px; border: 2px solid #ffffff; border-radius: 50%; display: flex; align-items: center; justify-content: center;">${quantidade}</div>`,
@@ -333,9 +402,17 @@ export default function LeadsPage() {
     });
   }, [ctos, mapBounds, zoomAtual]);
 
+  const isLeadVisivel = (lead: any) => {
+    const etapa = String(lead.etapa_funil || lead.perfil || '').toUpperCase();
+    if (etapa === 'INSTALAÇÃO FEITA' || etapa === 'INSTALACAO FEITA') return false;
+    return true;
+  };
+
   const leadsInvertidos = [...(leads || [])].reverse();
+  
   const leadsVisiveisNoViewport = useMemo(() => {
-    const ativosFiltrados = leadsInvertidos.filter((l: any) => l.status_instalacao !== 'CONCLUIDA' && l.etapa_funil !== 'NAO CONVERTIDO');
+    const ativosFiltrados = leadsInvertidos.filter(isLeadVisivel);
+    
     if (!mapBounds || ativosFiltrados.length <= 500) {
       return ativosFiltrados;
     }
@@ -422,19 +499,23 @@ export default function LeadsPage() {
     }
   };
 
-  const handleSolicitarMudancaEtapa = (id: string, etapa: LeadReal['etapa_funil']) => {
-    if (etapa === 'CONVERTIDO' || etapa === 'NAO CONVERTIDO') {
+  const handleSolicitarMudancaEtapa = async (id: string, etapa: LeadReal['etapa_funil']) => {
+    if (etapa === 'MANDAR PARA INSTALAÇÃO' || etapa === 'NAO CONVERTIDO') {
       setLeadSelecionado(id);
       setNovaEtapaPendente(etapa);
       setModalAberto(true);
     } else {
-      atualizarEtapaLead(id, etapa);
+      await limparOperacional(id);
+      await atualizarEtapaLead(id, etapa);
+      await carregarLeadsSupabase();
     }
   };
 
-  const confirmarMudanca = () => {
+  const confirmarMudanca = async () => {
     if (leadSelecionado && novaEtapaPendente) {
-      atualizarEtapaLead(leadSelecionado, novaEtapaPendente);
+      await limparOperacional(leadSelecionado);
+      await atualizarEtapaLead(leadSelecionado, novaEtapaPendente);
+      await carregarLeadsSupabase();
     }
     fecharModal();
   };
@@ -451,24 +532,34 @@ export default function LeadsPage() {
     }
   };
 
-  const configPlanoAtual = PLANOS[planoAtual] || PLANOS['essencial'];
-  const nomeExibicaoPlano = configPlanoAtual?.nome || planoAtual.toUpperCase() || 'ESSENCIAL';
+  const planoVindoDaAuth = empresa?.plano || operador?.empresa?.plano || planoAtual || 'essencial';
+  const chavePlanoLimpa = String(planoVindoDaAuth).toLowerCase().trim();
+  const configPlanoAtual = PLANOS[chavePlanoLimpa] || PLANOS['essencial'];
+
+  const nomeExibicaoPlano = configPlanoAtual?.nome || 'Essencial';
   const limiteBase = configPlanoAtual?.leads_base || 80;
   const limiteExtra = configPlanoAtual?.leads_bonus || 30;
   const limiteTotal = configPlanoAtual?.max_leads || 110;
+  const precoExcedenteUnitario = configPlanoAtual?.preco_excedente ?? 1.50;
 
   const leadsUsados = leadsInvertidos.length;
   
   const leadsBaseUsados = Math.min(leadsUsados, limiteBase);
-  const leadsExtraUsados = Math.max(0, leadsUsados - limiteBase);
+  const leadsBonusUsados = Math.max(0, Math.min(leadsUsados - limiteBase, limiteExtra));
+  const leadsExcedentesUsados = Math.max(0, leadsUsados - limiteTotal);
 
-  const percentualVerde = limiteTotal > 0 ? (leadsBaseUsados / limiteTotal) * 100 : 0;
-  const percentualAzul = limiteTotal > 0 ? (leadsExtraUsados / limiteTotal) * 100 : 0;
-  const bateuLimiteLeads = leadsUsados >= limiteTotal;
+  const escalaVisualMaxima = Math.max(limiteTotal, leadsUsados);
+
+  const percentualVerde = escalaVisualMaxima > 0 ? (leadsBaseUsados / escalaVisualMaxima) * 100 : 0;
+  const percentualAzul = escalaVisualMaxima > 0 ? (leadsBonusUsados / escalaVisualMaxima) * 100 : 0;
+  const percentualAmarelo = escalaVisualMaxima > 0 ? (leadsExcedentesUsados / escalaVisualMaxima) * 100 : 0;
+  
+  const ultrapassouFranquia = leadsUsados > limiteTotal;
+  const quantidadeExcedente = leadsExcedentesUsados;
+  const custoEstimadoExcedente = (quantidadeExcedente * precoExcedenteUnitario).toFixed(2);
 
   const leadsAtivos = leadsInvertidos.filter(lead => {
-    const naoConcluidoPeloTecnico = lead.status_instalacao !== 'CONCLUIDA';
-    const naoCancelado = lead.etapa_funil !== 'NAO CONVERTIDO';
+    const visivel = isLeadVisivel(lead);
     const matchTab = filtroTab === 'TODOS' || lead.status === filtroTab;
     
     const nomeLead = (lead.nome || '').toLowerCase();
@@ -480,11 +571,11 @@ export default function LeadsPage() {
                        cepLead.includes(buscaTexto) ||
                        telefoneLead.includes(buscaTexto);
 
-    return naoConcluidoPeloTecnico && naoCancelado && matchTab && matchBusca;
+    return visivel && matchTab && matchBusca;
   });
 
-  const totalComCobertura = leadsInvertidos.filter(l => l.status_instalacao !== 'CONCLUIDA' && l.etapa_funil !== 'NAO CONVERTIDO' && l.status === 'COM COBERTURA').length;
-  const totalSemCobertura = leadsInvertidos.filter(l => l.status_instalacao !== 'CONCLUIDA' && l.etapa_funil !== 'NAO CONVERTIDO' && l.status === 'SEM COBERTURA').length;
+  const totalComCobertura = leadsInvertidos.filter(l => isLeadVisivel(l) && l.status === 'COM COBERTURA').length;
+  const totalSemCobertura = leadsInvertidos.filter(l => isLeadVisivel(l) && l.status === 'SEM COBERTURA').length;
 
   const centroMapa = ctos.length > 0 && ctos[0].lat && ctos[0].lon 
     ? [ctos[0].lat, ctos[0].lon] as [number, number] 
@@ -509,7 +600,7 @@ export default function LeadsPage() {
                 filtroTab === 'TODOS' ? 'bg-emerald-500 text-black border-emerald-500 shadow' : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
               }`}
             >
-              Todos ({leadsInvertidos.filter(l => l.status_instalacao !== 'CONCLUIDA' && l.etapa_funil !== 'NAO CONVERTIDO').length})
+              Todos ({leadsInvertidos.filter(isLeadVisivel).length})
             </button>
             <button 
               onClick={() => setFiltroTab('COM COBERTURA')}
@@ -538,7 +629,7 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      <Card className={`border backdrop-blur transition-all ${bateuLimiteLeads ? 'border-red-500/30 bg-red-500/5' : 'border-zinc-900 bg-zinc-900/40'}`}>
+      <Card className={`border backdrop-blur transition-all ${ultrapassouFranquia ? 'border-amber-500/40 bg-amber-500/5' : 'border-zinc-900 bg-zinc-900/40'}`}>
         <CardContent className="p-6 space-y-3">
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-2">
@@ -548,49 +639,66 @@ export default function LeadsPage() {
             
             <span className="text-xs font-mono font-bold text-white">
               {leadsUsados} / <span className="text-emerald-500">{limiteBase}</span> <span className="text-cyan-400">(+{limiteExtra} extras)</span>
+              {ultrapassouFranquia && (
+                <span className="ml-2 px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[10px]">
+                  +{quantidadeExcedente} excedente(s) (R$ {custoEstimadoExcedente})
+                </span>
+              )}
             </span>
           </div>
 
           <div className="relative w-full h-2.5 bg-black border border-zinc-800 rounded-full overflow-hidden flex">
-            {bateuLimiteLeads ? (
+            <div 
+              className="h-full bg-emerald-500 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+              style={{ width: `${percentualVerde}%` }}
+            />
+            <div 
+              className="h-full bg-cyan-500 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(6,182,212,0.5)]"
+              style={{ width: `${percentualAzul}%` }}
+            />
+            {ultrapassouFranquia && (
               <div 
-                className="h-full bg-red-500 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(239,68,68,0.5)]"
-                style={{ width: '100%' }}
+                className="h-full bg-amber-500 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(245,158,11,0.5)] animate-pulse"
+                style={{ width: `${percentualAmarelo}%` }}
               />
-            ) : (
-              <>
-                <div 
-                  className="h-full bg-emerald-500 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)]"
-                  style={{ width: `${percentualVerde}%` }}
-                />
-                <div 
-                  className="h-full bg-cyan-500 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(6,182,212,0.5)]"
-                  style={{ width: `${percentualAzul}%` }}
-                />
-                {limiteTotal > 0 && (
-                  <div 
-                    className="absolute top-0 bottom-0 w-0.5 bg-zinc-950 z-10"
-                    style={{ left: `${(limiteBase / limiteTotal) * 100}%` }}
-                  />
-                )}
-              </>
             )}
           </div>
 
-          {bateuLimiteLeads && (
-            <p className="text-red-400 text-[11px] font-mono uppercase font-bold pt-1">
-              ⚠️ O limite total ({limiteTotal} leads) do seu plano foi atingido. Novas consultas estão bloqueadas.
+          {ultrapassouFranquia ? (
+            <div className="flex items-center justify-start pt-1 text-amber-400 text-[11px] font-mono uppercase font-bold">
+              <span className="flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" /> Franquia excedida! Suas consultas continuam livres (Cobrança por uso: R$ {precoExcedenteUnitario.toFixed(2)} / lead extra).
+              </span>
+            </div>
+          ) : (
+            <p className="text-zinc-500 text-[11px] font-mono uppercase">
+              Operação fluindo normalmente dentro do pacote contratado.
             </p>
           )}
         </CardContent>
       </Card>
 
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-        <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-row items-center justify-between">
-          <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
-            <Globe className="w-4 h-4 text-emerald-400" /> Mapa de Calor & Cobertura de Leads (Dark Mode)
+        <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2 shrink-0">
+            <Globe className="w-4 h-4 text-emerald-400" /> Mapa de Calor & Cobertura de Leads
           </CardTitle>
-          <span className="text-[10px] font-mono text-zinc-500">Zoom: {zoomAtual}</span>
+          
+          <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono text-zinc-400 uppercase font-bold">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 bg-[#3b82f6] border border-black rounded-[2px]"></div> Caixa CTO
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 bg-[#10b981] border border-black rounded-[2px]"></div> Com Cobertura
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 bg-[#ef4444] border border-black rounded-[2px]"></div> Sem Cobertura
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 bg-[#f59e0b] border border-black rounded-[2px]"></div> Problema / Pendente
+            </div>
+            <span className="text-zinc-500 ml-1 pl-3 border-l border-zinc-800">Zoom: {zoomAtual}</span>
+          </div>
         </CardHeader>
         <CardContent className="p-5">
           <div className="relative w-full h-[450px] bg-[#09090b] border border-emerald-500/30 rounded-2xl overflow-hidden shadow-[0_0_20px_rgba(16,185,129,0.1)] z-0 flex">
@@ -615,65 +723,85 @@ export default function LeadsPage() {
               )}
             </div>
 
-            {leadAtivoPainel && (
-              <div className="absolute top-4 right-4 z-[1000] w-80 bg-zinc-900/95 border border-emerald-500/40 rounded-2xl p-5 backdrop-blur-md shadow-2xl space-y-4 font-mono text-zinc-50 animate-fadeIn">
-                <div className="flex items-start justify-between border-b border-zinc-800 pb-3">
-                  <div>
-                    <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Lead Selecionado</span>
-                    <h3 className="text-sm font-bold text-white font-sans mt-0.5">{leadAtivoPainel.nome}</h3>
-                  </div>
-                  <button onClick={limparRota} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
+            {leadAtivoPainel && (() => {
+              const perfilPainel = String(leadAtivoPainel.perfil || '').toUpperCase();
+              const eNaoFeitaPainel = perfilPainel === 'NÃO FEITA';
 
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-start gap-2 text-zinc-300">
-                    <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>{leadAtivoPainel.endereco || 'Endereço não informado'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-zinc-300">
-                    <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span>{leadAtivoPainel.telefone || 'Sem telefone'}</span>
-                  </div>
-                </div>
-
-                <div className="border-t border-zinc-800 pt-3 space-y-3">
-                  {!distanciaRotaAtiva && !calculandoRota && (
-                    <button
-                      type="button"
-                      onClick={() => calcularRotaDoLead(leadAtivoPainel)}
-                      className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.2)]"
-                    >
-                      <Navigation className="w-4 h-4" /> Calcular Distância (Linha Reta)
+              return (
+                <div className={`absolute top-4 right-4 z-[1000] w-80 bg-zinc-900/95 border rounded-2xl p-5 backdrop-blur-md shadow-2xl space-y-4 font-mono text-zinc-50 animate-fadeIn ${
+                  eNaoFeitaPainel ? 'border-amber-500/80 shadow-[0_0_25px_rgba(245,158,11,0.25)]' : 'border-emerald-500/40'
+                }`}>
+                  <div className="flex items-start justify-between border-b border-zinc-800 pb-3">
+                    <div>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider block ${eNaoFeitaPainel ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        {eNaoFeitaPainel ? '⚠️ Instalação Não Realizada' : 'Lead Selecionado'}
+                      </span>
+                      <h3 className="text-sm font-bold text-white font-sans mt-0.5">{leadAtivoPainel.nome}</h3>
+                    </div>
+                    <button onClick={limparRota} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
+                      <X className="w-4 h-4" />
                     </button>
-                  )}
+                  </div>
 
-                  {calculandoRota && (
-                    <div className="flex items-center justify-center gap-2 py-2.5 text-emerald-400 text-xs font-bold bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                      <Loader2 className="w-4 h-4 animate-spin" /> Calculando...
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-start gap-2 text-zinc-300">
+                      <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <span>{leadAtivoPainel.endereco || 'Endereço não informado'}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>{leadAtivoPainel.telefone || 'Sem telefone'}</span>
+                    </div>
+
+                    {/* Exibe o motivo no popup do mapa quando for não feita */}
+                    {eNaoFeitaPainel && leadAtivoPainel.motivo_pendencia && (
+                      <div className="mt-3 bg-amber-500/10 border border-amber-500/40 p-2.5 rounded-xl text-amber-300 space-y-1">
+                        <div className="font-bold uppercase text-[10px] text-amber-400">Motivo do Técnico:</div>
+                        <div className="text-xs normal-case">{leadAtivoPainel.motivo_pendencia}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 🚀 Oculta o botão de calcular distância se o lead estiver marcado como NÃO FEITA */}
+                  {!eNaoFeitaPainel && (
+                    <div className="border-t border-zinc-800 pt-3 space-y-3">
+                      {!distanciaRotaAtiva && !calculandoRota && (
+                        <button
+                          type="button"
+                          onClick={() => calcularRotaDoLead(leadAtivoPainel)}
+                          className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                        >
+                          <Navigation className="w-4 h-4" /> Calcular Distância (Linha Reta)
+                        </button>
+                      )}
+
+                      {calculandoRota && (
+                        <div className="flex items-center justify-center gap-2 py-2.5 text-emerald-400 text-xs font-bold bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                          <Loader2 className="w-4 h-4 animate-spin" /> Calculando...
+                        </div>
+                      )}
+
+                      {distanciaRotaAtiva && (
+                        <div className="space-y-2.5 bg-black/50 p-3 rounded-xl border border-zinc-800 text-xs">
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-400">CTO Mais Próxima:</span>
+                            <span className="text-blue-400 font-bold">{ctoVinculadaNome}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-zinc-400">Distância:</span>
+                            <span className="text-emerald-400 font-bold">{distanciaRotaAtiva}</span>
+                          </div>
+                          <button type="button" onClick={limparRota} className="w-full mt-1 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer">
+                            Ocultar Linha
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {distanciaRotaAtiva && (
-                    <div className="space-y-2.5 bg-black/50 p-3 rounded-xl border border-zinc-800 text-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="text-zinc-400">CTO Mais Próxima:</span>
-                        <span className="text-blue-400 font-bold">{ctoVinculadaNome}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-zinc-400">Distância:</span>
-                        <span className="text-emerald-400 font-bold">{distanciaRotaAtiva}</span>
-                      </div>
-                      <button type="button" onClick={limparRota} className="w-full mt-1 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-[10px] font-bold uppercase transition-colors cursor-pointer">
-                        Ocultar Linha
-                      </button>
-                    </div>
-                  )}
                 </div>
-
-              </div>
-            )}
+              );
+            })()}
 
           </div>
         </CardContent>
@@ -692,19 +820,6 @@ export default function LeadsPage() {
 
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur relative overflow-hidden">
         
-        {bateuLimiteLeads && (
-          <div className="absolute inset-0 z-20 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
-            <Lock className="w-10 h-10 text-red-400 mb-3 animate-pulse" />
-            <h3 className="text-white font-bold text-lg font-mono mb-1">Franquia de Leads Esgotada</h3>
-            <p className="text-zinc-400 text-xs mb-5 max-w-md font-mono leading-relaxed">
-              Você atingiu o limite total ({limiteTotal} consultas) do seu plano atual. Faça um upgrade para liberar novas consultas e expandir sua base.
-            </p>
-            <button className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs font-mono rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 cursor-pointer">
-              <Rocket className="w-4 h-4" /> Fazer Upgrade de Plano
-            </button>
-          </div>
-        )}
-
         <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-row items-center justify-between">
           <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
             <Filter className="w-4 h-4 text-emerald-400" /> Registros de Viabilidade & Funil
@@ -737,7 +852,10 @@ export default function LeadsPage() {
                     const numeroLimpo = lead.telefone ? lead.telefone.replace(/\D/g, '') : '';
                     const mensagem = encodeURIComponent(`Olá ${lead.nome}, vi sua consulta de viabilidade para o CEP ${lead.cep}. Como podemos ajudar?`);
                     const linkWhatsapp = numeroLimpo ? `https://wa.me/55${numeroLimpo}?text=${mensagem}` : '#';
-                    const etapaAtual = lead.etapa_funil || 'NOVO';
+                    const etapaAtual = lead.etapa_funil || lead.perfil || 'NOVO';
+                    
+                    const perfilLead = String(lead.perfil || '').toUpperCase();
+                    const eNaoFeita = perfilLead === 'NÃO FEITA';
 
                     return (
                       <tr key={lead.id} className="hover:bg-zinc-900/30 transition-colors">
@@ -756,32 +874,38 @@ export default function LeadsPage() {
                         </td>
                         <td className="p-4 whitespace-nowrap">
                           <span className={`inline-block px-3 py-1 rounded-lg text-[10px] uppercase font-bold border ${
-                            etapaAtual === 'CONVERTIDO'
+                            eNaoFeita
+                              ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.3)] animate-pulse'
+                              : etapaAtual === 'MANDAR PARA INSTALAÇÃO'
                               ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
                               : lead.status === 'COM COBERTURA' 
                               ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
                               : 'bg-red-500/10 text-red-400 border-red-500/30'
                           }`}>
                             {
-                              etapaAtual === 'CONVERTIDO' ? '🔵 Aguardando Instalação' :
+                              eNaoFeita ? '⚠️ INSTALAÇÃO NÃO FEITA' :
+                              etapaAtual === 'MANDAR PARA INSTALAÇÃO' ? '🔵 Aguardando Instalação' :
                               lead.status === 'COM COBERTURA' ? 'COM COBERTURA' : 'SEM COBERTURA'
                             }
                           </span>
                         </td>
-                        <td className="p-4 font-bold text-emerald-400">
-                          {lead.cto || 'CTO-01'}
+                        <td className={`p-4 font-bold ${lead.status === 'COM COBERTURA' ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {lead.cto && lead.cto !== 'Sem CTO' ? lead.cto : 'Sem CTO Vinculada'}
                         </td>
                         <td className="p-4">
                           <select 
-                            value={etapaAtual}
-                            onChange={(e) => handleSolicitarMudancaEtapa(lead.id, e.target.value as LeadReal['etapa_funil'])}
-                            className="bg-black/60 border border-zinc-800 text-emerald-400 rounded-lg px-2.5 py-1.5 text-xs font-mono uppercase font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                            value={eNaoFeita ? 'NÃO FEITA' : etapaAtual}
+                            onChange={(e) => {
+                              handleSolicitarMudancaEtapa(lead.id, e.target.value as LeadReal['etapa_funil']);
+                            }}
+                            className={`bg-black/60 border ${eNaoFeita ? 'border-amber-500 text-amber-400' : 'border-zinc-800 text-emerald-400'} rounded-lg px-2.5 py-1.5 text-xs font-mono uppercase font-bold focus:outline-none focus:border-emerald-500 cursor-pointer`}
                           >
-                            <option value="NOVO">Novo Lead</option>
-                            <option value="EM CONTATO">Em Contato</option>
-                            <option value="AGENDADO">Agendado</option>
-                            <option value="CONVERTIDO">Convertido</option>
-                            <option value="NAO CONVERTIDO">Não Convertido</option>
+                            {eNaoFeita && <option value="NÃO FEITA">⚠️ Instalação Não Feita</option>}
+                            <option value="NOVO">NOVO</option>
+                            <option value="EM CONTATO">EM CONTATO</option>
+                            <option value="AGENDADO">AGENDADO</option>
+                            <option value="MANDAR PARA INSTALAÇÃO">MANDAR PARA INSTALAÇÃO</option>
+                            <option value="NAO CONVERTIDO">NAO CONVERTIDO</option>
                           </select>
                         </td>
                         <td className="p-4 text-right whitespace-nowrap">
@@ -822,7 +946,7 @@ export default function LeadsPage() {
                 Confirmação de Alteração
               </h3>
               <p className="text-zinc-400 text-xs font-mono leading-relaxed">
-                Tem certeza que quer mudar o status para <strong className="text-emerald-400 uppercase">{novaEtapaPendente === 'CONVERTIDO' ? 'Convertido' : 'Não Convertido'}</strong>? O lead será enviado para a fila de instalação do técnico.
+                Tem certeza que quer mudar o status para <strong className="text-emerald-400 uppercase">{novaEtapaPendente === 'MANDAR PARA INSTALAÇÃO' ? 'Mandar para Instalação' : 'Não Convertido'}</strong>? O lead será atualizado na central.
               </p>
             </div>
 

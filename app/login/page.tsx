@@ -1,7 +1,5 @@
-//app/login/page.tsx
-
 "use client"
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Mail, Lock, ArrowRight, Loader2, KeyRound, CheckCircle2, X, Ban } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -12,6 +10,7 @@ export default function LoginPage() {
   const [senha, setSenha] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [mensagemErro, setMensagemErro] = useState('');
+  const [mensagemSucesso, setMensagemSucesso] = useState('');
   
   // 🔒 Novo estado para travar o botão rigidamente quando houver Rate Limit (429)
   const [bloqueadoPorRateLimit, setBloqueadoPorRateLimit] = useState(false);
@@ -22,11 +21,61 @@ export default function LoginPage() {
   const [enviandoRecuperacao, setEnviandoRecuperacao] = useState(false);
   const [sucessoRecuperacao, setSucessoRecuperacao] = useState(false);
 
+  // 🚀 CRIAÇÃO AUTOMÁTICA NO SUPABASE APÓS O PAGAMENTO BEM-SUCEDIDO (PROTEGIDO CONTRA DUPLO DISPARO)
+  useEffect(() => {
+    const processarCriacaoAposPagamento = async () => {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('pagamento') === 'sucesso') {
+          const dadosSalvos = localStorage.getItem('v5_dados_cadastro_pendente');
+          if (dadosSalvos) {
+            try {
+              // Remove imediatamente do localStorage ANTES de chamar a API para evitar duplo disparo
+              localStorage.removeItem('v5_dados_cadastro_pendente');
+
+              setCarregando(true);
+              setMensagemSucesso('Pagamento aprovado! A criar a sua conta corporativa...');
+              
+              const parsedData = JSON.parse(dadosSalvos);
+              
+              // Garante que o plano não vai como 'pendente' se já foi escolhido
+              parsedData.plano = parsedData.plano && parsedData.plano !== 'pendente' ? parsedData.plano : 'essencial';
+              
+              const res = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(parsedData)
+              });
+
+              const data = await res.json();
+              if (res.ok && data.sucesso) {
+                setMensagemSucesso('Conta criada com sucesso! Pode fazer login.');
+                if (parsedData.email) {
+                  setEmail(parsedData.email);
+                }
+              } else {
+                setMensagemErro(data.mensagem || 'Erro ao finalizar criação da conta após pagamento.');
+              }
+            } catch (e) {
+              console.error("Erro ao finalizar cadastro pós-pagamento:", e);
+              setMensagemErro('Erro interno ao sincronizar conta após pagamento.');
+            } finally {
+              setCarregando(false);
+            }
+          }
+        }
+      }
+    };
+
+    processarCriacaoAposPagamento();
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (bloqueadoPorRateLimit) return; // Trava de segurança extra
 
     setMensagemErro('');
+    setMensagemSucesso('');
     setCarregando(true);
 
     try {
@@ -103,6 +152,12 @@ export default function LoginPage() {
             <span>{mensagemErro}</span>
           </div>
         )}
+        {mensagemSucesso && (
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-[11px] font-mono text-center flex items-center justify-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{mensagemSucesso}</span>
+          </div>
+        )}
 
         <div className="bg-[#0a0a0a] border border-[#1e3b29] rounded-2xl p-6 shadow-2xl space-y-6">
           
@@ -126,7 +181,7 @@ export default function LoginPage() {
                 <input 
                   type="email"
                   required
-                  disabled={bloqueadoPorRateLimit}
+                  disabled={bloqueadoPorRateLimit || carregando}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="seu@email.com"
@@ -151,7 +206,7 @@ export default function LoginPage() {
                 <input 
                   type="password"
                   required
-                  disabled={bloqueadoPorRateLimit}
+                  disabled={bloqueadoPorRateLimit || carregando}
                   value={senha}
                   onChange={(e) => setSenha(e.target.value)}
                   placeholder="••••••••"

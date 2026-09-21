@@ -1,4 +1,7 @@
-//app/tecnico/Mapa.tsx
+// ================================================================================
+// 📋 ROTA DO TÉCNICO (MAPA) - V5 CLOUD
+// app/tecnico/Mapa.tsx
+// ================================================================================
 
 "use client"
 import React, { useEffect, useState, useRef } from 'react';
@@ -18,9 +21,13 @@ function CentralizadorMapa({ targetPos }: { targetPos: [number, number] | null }
 }
 
 export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa: [number, number]; ctos?: any[]; leads?: any[] }) {
+  const [mounted, setMounted] = useState(false);
   const [listaLeads, setListaLeads] = useState<any[]>([]);
 
-  // Sincroniza os leads com o localStorage e filtra apenas os CONVERTIDOS (vendas fechadas)
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     const atualizarLeadsCampo = () => {
       let baseLeads = leads;
@@ -31,16 +38,21 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
             const parsed = JSON.parse(salvos);
             baseLeads = leads.map((l: any) => {
               const encontrado = parsed.find((p: any) => p.id === l.id);
-              return encontrado ? { ...l, ...encontrado } : l;
+              if (encontrado) {
+                return {
+                  ...l,
+                  statusOperacional: encontrado.statusOperacional || l.statusOperacional,
+                  status_instalacao: encontrado.status_instalacao || l.status_instalacao,
+                  motivo_pendencia: encontrado.motivo_pendencia || l.motivo_pendencia
+                };
+              }
+              return l;
             });
-          } catch (e) {
-            console.error("Erro ao ler leads salvos:", e);
-          }
+          } catch (e) {}
         }
       }
       
-      // REGRA DE OURO: Apenas leads onde etapa_funil seja 'CONVERTIDO' vão para o técnico
-      const apenasConvertidos = baseLeads.filter((l: any) => l.etapa_funil === 'CONVERTIDO');
+      const apenasConvertidos = baseLeads.filter((l: any) => String(l.etapa_funil).toUpperCase() === 'MANDAR PARA INSTALAÇÃO');
       setListaLeads(apenasConvertidos);
     };
 
@@ -50,11 +62,10 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
   }, [leads]);
 
   const salvarNoStorage = (novaListaCompleta: any[]) => {
-    // Atualiza mantendo a regra de exibição e sincroniza com o storage
     if (typeof window !== 'undefined') {
       localStorage.setItem('v5_leads_operacional', JSON.stringify(novaListaCompleta));
     }
-    const apenasConvertidos = novaListaCompleta.filter((l: any) => l.etapa_funil === 'CONVERTIDO');
+    const apenasConvertidos = novaListaCompleta.filter((l: any) => String(l.etapa_funil).toUpperCase() === 'MANDAR PARA INSTALAÇÃO');
     setListaLeads(apenasConvertidos);
   };
 
@@ -89,12 +100,8 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
           const style = document.createElement('style');
           style.id = 'leaflet-dark-mode';
           style.innerHTML = `
-            .leaflet-tile-pane {
-              filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(95%) !important;
-            }
-            .leaflet-container {
-              background: #0a0a0a !important;
-            }
+            .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(95%) !important; }
+            .leaflet-container { background: #0a0a0a !important; }
           `;
           document.head.appendChild(style);
         }
@@ -103,76 +110,31 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
           const stylePopup = document.createElement('style');
           stylePopup.id = 'leaflet-dark-popup';
           stylePopup.innerHTML = `
-            .leaflet-popup-content-wrapper {
-              background: #121214 !important;
-              color: #f4f4f5 !important;
-              border: 1px solid #27272a !important;
-              border-radius: 12px !important;
-              box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
-            }
-            .leaflet-popup-tip {
-              background: #121214 !important;
-              border: 1px solid #27272a !important;
-            }
-            .leaflet-container a.leaflet-popup-close-button {
-              color: #a1a1aa !important;
-              padding: 8px !important;
-            }
+            .leaflet-popup-content-wrapper { background: #121214 !important; color: #f4f4f5 !important; border: 1px solid #27272a !important; border-radius: 12px !important; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important; }
+            .leaflet-popup-tip { background: #121214 !important; border: 1px solid #27272a !important; }
+            .leaflet-container a.leaflet-popup-close-button { color: #a1a1aa !important; padding: 8px !important; }
           `;
           document.head.appendChild(stylePopup);
         }
-      } catch (e) {
-        console.error("Erro ao injetar estilos do mapa:", e);
-      }
+      } catch (e) {}
     }
 
     const squareIconVerde = L.divIcon({
       className: 'custom-lead-marker-verde',
-      html: `<div style="
-        width: 20px;
-        height: 20px;
-        background-color: #10b981;
-        border: 2px solid #ffffff;
-        box-shadow: 0 0 12px #10b981, 0 0 20px #10b981;
-        border-radius: 4px;
-      "></div>`,
-      iconSize: [20, 20],
-      iconAnchor: [10, 10]
+      html: `<div style="width: 20px; height: 20px; background-color: #10b981; border: 2px solid #ffffff; box-shadow: 0 0 12px #10b981, 0 0 20px #10b981; border-radius: 4px;"></div>`,
+      iconSize: [20, 20], iconAnchor: [10, 10]
     });
 
     const squareIconAmarelo = L.divIcon({
       className: 'custom-lead-marker-amarelo',
-      html: `<div style="
-        width: 20px;
-        height: 20px;
-        background-color: #f59e0b;
-        border: 2px solid #ffffff;
-        box-shadow: 0 0 12px #f59e0b, 0 0 20px #f59e0b;
-        border-radius: 4px;
-      "></div>`,
-      iconSize: [20, 20],
-      iconAnchor: [10, 10]
+      html: `<div style="width: 20px; height: 20px; background-color: #f59e0b; border: 2px solid #ffffff; box-shadow: 0 0 12px #f59e0b, 0 0 20px #f59e0b; border-radius: 4px;"></div>`,
+      iconSize: [20, 20], iconAnchor: [10, 10]
     });
 
     const ctoIcon = L.divIcon({
       className: 'custom-cto-marker',
-      html: `<div style="
-        width: 22px;
-        height: 22px;
-        background-color: #3b82f6;
-        border: 2px solid #ffffff;
-        box-shadow: 0 0 10px #3b82f6;
-        border-radius: 4px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: bold;
-        font-size: 10px;
-        font-family: monospace;
-      ">T</div>`,
-      iconSize: [22, 22],
-      iconAnchor: [11, 11]
+      html: `<div style="width: 22px; height: 22px; background-color: #3b82f6; border: 2px solid #ffffff; box-shadow: 0 0 10px #3b82f6; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 10px; font-family: monospace;">T</div>`,
+      iconSize: [22, 22], iconAnchor: [11, 11]
     });
 
     setIconeLeadVerde(squareIconVerde);
@@ -180,8 +142,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     setIconeCto(ctoIcon);
   }, []);
 
-  // Exibe apenas os leads conversões ativas que ainda não foram concluídas pelo técnico
-  const leadsAtivosNaTela = listaLeads.filter((l: any) => l.statusOperacional !== 'CONCLUIDA');
+  const leadsAtivosNaTela = listaLeads.filter((l: any) => l.statusOperacional !== 'CONCLUIDA' && l.status_instalacao !== 'CONCLUIDA');
 
   const iniciarToqueLongo = (e: any, lead: any) => {
     e.preventDefault();
@@ -257,35 +218,23 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     }
   };
 
-  const confirmarInstalacaoFeita = () => {
+  // 🚀 SINCRONIZAÇÃO DIRETA COM O SUPABASE: INSTALAÇÃO FEITA
+  const confirmarInstalacaoFeita = async () => {
     if (!leadSelecionado) return;
     
-    // Pega o localStorage atual completo para atualizar o item correto
-    let salvos = [];
     try {
-      salvos = JSON.parse(localStorage.getItem('v5_leads_operacional') || '[]');
-    } catch(err) {}
-
-    const novaListaCompleta = leads.map((l: any) => {
-      const encontrado = salvos.find((p: any) => p.id === l.id) || l;
-      if (l.id === leadSelecionado.id) {
-        return { ...encontrado, ...l, statusOperacional: 'CONCLUIDA', motivoPendencia: null };
-      }
-      return { ...encontrado, ...l };
-    });
-
-    salvarNoStorage(novaListaCompleta);
-    setLeadSelecionado(null);
-    setRotaAtiva(null);
-    alert("Instalação registrada como FEITA! O lead foi concluído com sucesso.");
-  };
-
-  const enviarMotivoNaoFeita = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!leadSelecionado) return;
-    if (!motivoNaoFeita.trim()) {
-      alert("Por favor, informe o motivo pelo qual a instalação não foi realizada.");
-      return;
+      await fetch(`/api/leads`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: leadSelecionado.id, 
+          status_instalacao: 'CONCLUIDA', 
+          etapa_funil: 'INSTALAÇÃO FEITA',
+          perfil: 'INSTALAÇÃO FEITA' 
+        })
+      });
+    } catch (e) {
+      console.error("Erro ao sincronizar com Supabase:", e);
     }
 
     let salvos = [];
@@ -294,16 +243,75 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     } catch(err) {}
 
     const novaListaCompleta = leads.map((l: any) => {
-      const encontrado = salvos.find((p: any) => p.id === l.id) || l;
+      const encontrado = salvos.find((p: any) => p.id === l.id) || {};
       if (l.id === leadSelecionado.id) {
-        return { ...encontrado, ...l, statusOperacional: 'PENDENTE_ANALISE', motivoPendencia: motivoNaoFeita };
+        return { 
+          ...l, 
+          ...encontrado,
+          statusOperacional: 'CONCLUIDA', 
+          status_instalacao: 'CONCLUIDA', 
+          etapa_funil: 'INSTALAÇÃO FEITA', 
+          motivo_pendencia: null 
+        };
       }
-      return { ...encontrado, ...l };
+      return { ...l, statusOperacional: encontrado.statusOperacional, status_instalacao: encontrado.status_instalacao, motivo_pendencia: encontrado.motivo_pendencia };
+    });
+
+    salvarNoStorage(novaListaCompleta);
+    setLeadSelecionado(null);
+    setRotaAtiva(null);
+    alert("Instalação registrada como FEITA! Sincronizado com o Supabase e removida da fila.");
+  };
+
+  // 🚀 SINCRONIZAÇÃO DIRETA COM O SUPABASE: INSTALAÇÃO NÃO FEITA
+  const enviarMotivoNaoFeita = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leadSelecionado) return;
+    if (!motivoNaoFeita.trim()) {
+      alert("Por favor, informe o motivo pelo qual a instalação não foi realizada.");
+      return;
+    }
+
+    try {
+      // 🚀 Atualiza diretamente no Supabase enviando perfil "NÃO FEITA" e o motivo da pendência
+      await fetch(`/api/leads`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: leadSelecionado.id, 
+          status_instalacao: 'NÃO FEITA', 
+          motivo_pendencia: motivoNaoFeita,
+          etapa_funil: 'NÃO FEITA',
+          perfil: 'NÃO FEITA' 
+        })
+      });
+    } catch (e) {
+      console.error("Erro ao sincronizar com Supabase:", e);
+    }
+
+    let salvos = [];
+    try {
+      salvos = JSON.parse(localStorage.getItem('v5_leads_operacional') || '[]');
+    } catch(err) {}
+
+    const novaListaCompleta = leads.map((l: any) => {
+      const encontrado = salvos.find((p: any) => p.id === l.id) || {};
+      if (l.id === leadSelecionado.id) {
+        return { 
+          ...l, 
+          ...encontrado,
+          statusOperacional: 'NAO_FEITA', 
+          status_instalacao: 'NÃO FEITA', 
+          motivo_pendencia: motivoNaoFeita,
+          etapa_funil: 'NÃO FEITA'
+        };
+      }
+      return { ...l, statusOperacional: encontrado.statusOperacional, status_instalacao: encontrado.status_instalacao, motivo_pendencia: encontrado.motivo_pendencia };
     });
 
     salvarNoStorage(novaListaCompleta);
 
-    alert(`Justificativa registrada: "${motivoNaoFeita}". O marcador ficou AMARELO para avaliação da central.`);
+    alert(`Justificativa registrada: "${motivoNaoFeita}". Salvo no Supabase como NÃO FEITA.`);
     setExibirFormularioNaoFeita(false);
     setMotivoNaoFeita('');
     setLeadSelecionado(null);
@@ -338,9 +346,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
               melhorGeometriaRota = rota.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
             }
           }
-        } catch (e) {
-          console.error(`Erro ao consultar OSRM para a CTO ${cto.identificacao}:`, e);
-        }
+        } catch (e) {}
       }
     }
 
@@ -382,6 +388,14 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     }
   };
 
+  if (!mounted || !centroMapa) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', backgroundColor: '#0a0a0a', color: '#10b981', fontFamily: 'monospace', fontSize: '12px' }}>
+        Carregando mapa tático...
+      </div>
+    );
+  }
+
   const leadsExibidosNoMapa = leadSelecionado 
     ? leadsAtivosNaTela.filter((l: any) => l.id === leadSelecionado.id)
     : leadsAtivosNaTela;
@@ -401,7 +415,6 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
 
         <CentralizadorMapa targetPos={alvoMapa} />
 
-        {/* CTOs */}
         {ctos.map((cto: any) => {
           if (cto.lat && cto.lon && iconeCto) {
             return (
@@ -418,7 +431,6 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
           return null;
         })}
 
-        {/* ROTA ATIVA */}
         {rotaAtiva && (
           <Polyline 
             positions={rotaAtiva.coordenadas} 
@@ -426,11 +438,10 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
           />
         )}
 
-        {/* LEADS EXIBIDOS (APENAS OS CONVERTIDOS) */}
         {leadsExibidosNoMapa.map((lead: any) => {
           if (lead.lat && lead.lon) {
             const estaSegurando = segurandoId === lead.id;
-            const iconeAtivo = lead.statusOperacional === 'PENDENTE_ANALISE' ? iconeLeadAmarelo : iconeLeadVerde;
+            const iconeAtivo = (lead.statusOperacional === 'PENDENTE_ANALISE' || lead.status_instalacao === 'PENDENTE' || lead.status_instalacao === 'NÃO FEITA') ? iconeLeadAmarelo : iconeLeadVerde;
 
             if (!iconeAtivo) return null;
 
@@ -439,8 +450,8 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                 <Popup>
                   <div style={{ fontFamily: 'monospace', fontSize: '11px', minWidth: '220px', padding: '6px', color: '#f4f4f5' }}>
                     
-                    <div style={{ textTransform: 'uppercase', fontSize: '10px', color: lead.statusOperacional === 'PENDENTE_ANALISE' ? '#f59e0b' : '#10b981', fontWeight: 'bold', marginBottom: '2px' }}>
-                      {lead.statusOperacional === 'PENDENTE_ANALISE' ? '⚠️ Instalação Não Realizada (Em Análise)' : 'Venda Fechada (Instalação)'}
+                    <div style={{ textTransform: 'uppercase', fontSize: '10px', color: (lead.statusOperacional === 'PENDENTE_ANALISE' || lead.status_instalacao === 'PENDENTE' || lead.status_instalacao === 'NÃO FEITA') ? '#f59e0b' : '#10b981', fontWeight: 'bold', marginBottom: '2px' }}>
+                      {(lead.statusOperacional === 'PENDENTE_ANALISE' || lead.status_instalacao === 'PENDENTE' || lead.status_instalacao === 'NÃO FEITA') ? '⚠️ Instalação Não Realizada' : 'Venda Fechada (Instalação)'}
                     </div>
                     
                     <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#fff', borderBottom: '1px solid #27272a', paddingBottom: '6px', marginBottom: '8px' }}>
@@ -451,9 +462,9 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                       <span>🏠</span> {lead.endereco || 'Endereço não informado'}
                     </div>
 
-                    {lead.motivoPendencia && (
+                    {lead.motivo_pendencia && (
                       <div style={{ fontSize: '10px', color: '#fca5a5', marginBottom: '8px', background: 'rgba(239, 68, 68, 0.1)', padding: '4px', borderRadius: '4px' }}>
-                        Motivo: {lead.motivoPendencia}
+                        Motivo: {lead.motivo_pendencia}
                       </div>
                     )}
 
@@ -512,7 +523,6 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         })}
       </MapContainer>
 
-      {/* BOTÃO FLUTUANTE DE GPS */}
       <button 
         onClick={centralizarMinhaLocalizacao}
         className="absolute bottom-6 right-4 z-[400] bg-zinc-900/90 border border-zinc-700 hover:border-emerald-500 text-emerald-400 p-3 rounded-2xl shadow-xl backdrop-blur transition-all flex items-center justify-center cursor-pointer active:scale-95"
@@ -521,7 +531,6 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         <Compass className="w-5 h-5 animate-pulse" />
       </button>
 
-      {/* MENU FLUTUANTE DE OPÇÕES DE CAMPO */}
       <div className="absolute bottom-6 left-4 z-[400]">
         {menuAberto && (
           <div className="absolute bottom-14 left-0 w-64 bg-zinc-900/95 border border-zinc-700 rounded-2xl p-2 shadow-2xl backdrop-blur-md flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-200">
@@ -549,7 +558,6 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         </button>
       </div>
 
-      {/* MODAL / GAVETA DE LISTA DE CLIENTES */}
       {modalListaAberto && (
         <div className="absolute inset-0 z-[600] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 animate-in fade-in duration-200">
           <div className="bg-zinc-900 border border-zinc-800 w-full md:max-w-lg rounded-t-3xl md:rounded-2xl p-5 max-h-[85vh] flex flex-col shadow-2xl">
@@ -571,11 +579,12 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
             <div className="flex-1 overflow-y-auto py-3 space-y-3">
               {leadsAtivosNaTela.length === 0 ? (
                 <div className="text-center py-12 text-zinc-500 font-mono text-xs">
-                  Nenhuma venda convertida pendente para instalação.
+                  Nenhuma venda pendente para instalação.
                 </div>
               ) : (
                 leadsAtivosNaTela.map((lead: any, index: number) => {
                   const estaSegurandoLista = segurandoId === lead.id;
+                  const pendente = lead.statusOperacional === 'PENDENTE_ANALISE' || lead.status_instalacao === 'PENDENTE' || lead.status_instalacao === 'NÃO FEITA';
 
                   return (
                     <div 
@@ -583,8 +592,8 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                       className="bg-black/40 border border-zinc-800 rounded-xl p-3.5 flex flex-col gap-2.5 hover:border-zinc-700 transition-all"
                     >
                       <div>
-                        <span className={`text-[10px] font-mono font-bold uppercase ${lead.statusOperacional === 'PENDENTE_ANALISE' ? 'text-amber-400' : 'text-emerald-400'}`}>
-                          #{index + 1} — {lead.statusOperacional === 'PENDENTE_ANALISE' ? '⚠️ EM ANÁLISE' : 'VENDA CONVERTIDA'}
+                        <span className={`text-[10px] font-mono font-bold uppercase ${pendente ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          #{index + 1} — {pendente ? '⚠️ EM ANÁLISE' : 'VENDA CONVERTIDA'}
                         </span>
                         <h4 className="font-bold text-sm text-white font-sans">{lead.nome || 'Cliente Instalação'}</h4>
                         <p className="text-xs text-zinc-400 font-sans flex items-center gap-1 mt-0.5">
@@ -643,7 +652,6 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         </div>
       )}
 
-      {/* PAINEL FLUTUANTE INFERIOR DE ATENDIMENTO */}
       {leadSelecionado && (
         <div className="absolute bottom-4 left-4 right-4 z-[500] bg-zinc-900/95 border border-emerald-500/50 rounded-2xl p-4 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom duration-300">
           <div className="flex justify-between items-start mb-2">

@@ -1,5 +1,3 @@
-//app/dashboard/page.tsx
-
 "use client"
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,7 +15,8 @@ import {
   UserCheck,
   UserPlus,
   Lock,
-  Rocket
+  Rocket,
+  AlertTriangle
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { useApp } from '@/context/AppContext';
@@ -29,64 +28,134 @@ export default function DashboardPage() {
   const { operador, empresa, carregando: carregandoAuth } = useAuth();
   const { leads = [], carregarLeads } = useApp() || {};
 
-  // 🛡️ Proteção de Rota: Atendente não pode ver a Visão Geral de Gerente
+  const [popupSucessoPlano, setPopupSucessoPlano] = useState<string | null>(null);
+  
+  // Estados de Plano e Status Financeiro
+  const [statusAssinatura, setStatusAssinatura] = useState<string>('ativa');
+  const [planoAtual, setPlanoAtual] = useState<string>('essencial');
+
+  // 🚀 NOVO: Estado para armazenar os funcionários reais
+  const [funcionarios, setFuncionarios] = useState<{id: string, nome: string, role?: string}[]>([]);
+
+  // 🛡️ Proteção de Rota
   useEffect(() => {
     if (!carregandoAuth && operador && operador.role === 'atendente') {
       router.push('/dashboard/leads');
     }
   }, [operador, carregandoAuth, router]);
 
-  // 🚀 BUSCA REAL DO PLANO NO SUPABASE (Sem adivinhação)
-  const [planoAtual, setPlanoAtual] = useState<string>('essencial');
-
+  // 🚀 DETECÇÃO RETORNO STRIPE
   useEffect(() => {
-    async function sincronizarPlanoReal() {
-      const planoDoContexto = empresa?.plano || operador?.empresa?.plano;
-      if (planoDoContexto) {
-        setPlanoAtual(String(planoDoContexto).toLowerCase().trim());
-        return;
-      }
+    if (carregandoAuth) return;
 
+    const processarRetornoMudancaPlano = async () => {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const mudancaSucesso = params.get('mudanca_plano_sucesso');
+        const novoPlano = params.get('novo_plano');
+        const empresaIdParam = params.get('empresa_id');
+
+        if (mudancaSucesso === 'true' && novoPlano && empresaIdParam) {
+          try {
+            setPopupSucessoPlano(novoPlano.toUpperCase());
+
+            const respostaApi = await fetch('/api/empresa/atualizar-plano', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                empresaId: empresaIdParam, 
+                plano: novoPlano 
+              })
+            });
+
+            const resultado = await respostaApi.json();
+            if (!resultado.sucesso) {
+              console.error("Erro ao sincronizar novo plano via API:", resultado.erro);
+            }
+
+            router.replace('/dashboard', { scroll: false });
+          } catch (err) {
+            console.error("Erro crítico ao processar mudança de plano:", err);
+          }
+        }
+      }
+    };
+
+    processarRetornoMudancaPlano();
+  }, [carregandoAuth, router]);
+
+  // 🚀 BUSCA REAL: PLANO, STATUS E FUNCIONÁRIOS
+  useEffect(() => {
+    async function sincronizarDadosReais() {
       if (!supabase) return;
       try {
         const idDaEmpresa = operador?.empresaId || operador?.empresa_id;
         if (!idDaEmpresa) return;
 
-        const { data, error } = await supabase
+        // 1. Busca dados da empresa (plano e status)
+        const { data: dadosEmpresa, error: erroEmpresa } = await supabase
           .from('empresas')
-          .select('plano')
+          .select('plano, status_assinatura')
           .eq('id', idDaEmpresa)
           .maybeSingle();
 
-        if (!error && data && data.plano) {
-          setPlanoAtual(String(data.plano).toLowerCase().trim());
+        if (!erroEmpresa && dadosEmpresa) {
+          if (dadosEmpresa.plano) setPlanoAtual(String(dadosEmpresa.plano).toLowerCase().trim());
+          if (dadosEmpresa.status_assinatura) setStatusAssinatura(String(dadosEmpresa.status_assinatura).toLowerCase().trim());
         }
+
+        // 2. 🚀 BUSCA FUNCIONÁRIOS DINÂMICOS
+        // ATENÇÃO: Confirma se a tua tabela se chama 'operadores' (ou 'usuarios')
+        const { data: dadosEquipe, error: erroEquipe } = await supabase
+          .from('operadores') // <--- MUDA AQUI SE A TABELA FOR OUTRA
+          .select('id, nome, role')
+          .eq('empresa_id', idDaEmpresa); // Usa 'empresa_id' ou 'empresaId' dependendo da tua base
+
+        if (!erroEquipe && dadosEquipe) {
+          setFuncionarios(dadosEquipe);
+        }
+
       } catch (err) {
-        console.error("Erro ao buscar plano na visão geral:", err);
+        console.error("Erro ao buscar dados na visão geral:", err);
       }
     }
-    sincronizarPlanoReal();
-  }, [operador, empresa]);
+    sincronizarDadosReais();
+  }, [operador]);
 
   const [busca, setBusca] = useState('');
-  
-  // Estados para seleção em lote e atribuição
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [funcionarioSelecionado, setFuncionarioSelecionado] = useState('');
   const [mensagemSucesso, setMensagemSucesso] = useState('');
-
-  // Lista de funcionários padrão para atribuição
-  const funcionarios = [
-    { id: '1', nome: 'Vannut Santos', cargo: 'Admin' },
-    { id: '2', nome: 'Suporte Técnico 01', cargo: 'Operador' },
-    { id: '3', nome: 'Comercial V5', cargo: 'Atendimento' }
-  ];
 
   if (carregandoAuth || (operador && operador.role === 'atendente')) {
     return null;
   }
 
-  // --- 🚀 REGRAS DE NEGÓCIO E LIMITES OFICIAIS DO PLANO (BASEADO NO PLANLIMITES) ---
+  // 🚨 BLOQUEIO DE INADIMPLÊNCIA
+  if (statusAssinatura === 'inadimplente' || statusAssinatura === 'cancelada') {
+    return (
+      <div className="min-h-screen bg-[#020804] flex items-center justify-center p-4 font-mono text-center relative overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-600/10 blur-[120px] rounded-full pointer-events-none"></div>
+        <div className="max-w-lg w-full bg-[#0a0a0a]/90 border border-red-500/40 p-8 rounded-3xl shadow-2xl backdrop-blur-xl relative z-10 animate-in zoom-in-95 duration-500">
+          <div className="inline-flex p-4 rounded-full bg-red-500/10 border border-red-500/30 mb-6 text-red-500">
+            <AlertTriangle className="w-12 h-12" />
+          </div>
+          <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-3">Acesso Suspenso</h2>
+          <p className="text-zinc-400 text-sm mb-8 leading-relaxed px-4">
+            Identificámos uma falha no pagamento da tua assinatura mensal (Status: <strong className="text-red-400 uppercase">{statusAssinatura}</strong>). 
+            Por favor, regulariza a tua situação para voltares a ter acesso total à plataforma e aos teus clientes.
+          </p>
+          <button 
+            onClick={() => router.push('/planos')}
+            className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-black uppercase text-sm tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(220,38,38,0.4)] cursor-pointer"
+          >
+            Regularizar Pagamento
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const configPlanoAtual = PLANOS[planoAtual] || PLANOS['essencial'];
   const limiteLeadsMensal = configPlanoAtual?.max_leads || 100;
   
@@ -94,7 +163,6 @@ export default function DashboardPage() {
   const bateuLimiteLeads = totalLeadsCadastrados >= limiteLeadsMensal;
   const porcentagemUsoLeads = Math.min((totalLeadsCadastrados / limiteLeadsMensal) * 100, 100);
 
-  // Datas de referência (Hoje e Mês Atual)
   const dataHojeObj = new Date();
   const diaHojeStr = String(dataHojeObj.getDate()).padStart(2, '0');
   const mesAtualStr = String(dataHojeObj.getMonth() + 1).padStart(2, '0');
@@ -104,33 +172,28 @@ export default function DashboardPage() {
   const formatoIsoDia = `${anoAtualStr}-${mesAtualStr}-${diaHojeStr}`;
   const formatoMesAno = `${mesAtualStr}/${anoAtualStr}`;
 
-  // 1. Total de Leads do Mês Todo
   const totalLeadsMes = Array.isArray(leads) ? leads.filter(l => {
     const dataReg = l?.created_at || l?.data || '';
     return dataReg.includes(formatoMesAno) || dataReg.includes(`${anoAtualStr}-${mesAtualStr}`) || !dataReg;
   }).length : 0;
   const totalLeadsGeral = totalLeadsMes > 0 ? totalLeadsMes : totalLeadsCadastrados;
 
-  // 2. Leads Novos do Dia Atual
   const leadsNovosHoje = Array.isArray(leads) ? leads.filter(l => {
     const dataReg = l?.created_at || l?.data || '';
     const ehHoje = dataReg.includes(formatoBrDia) || dataReg.includes(formatoIsoDia) || (!l?.status || l?.status === 'NOVO');
     return ehHoje;
   }).length : 0;
 
-  // 3. Em Atendimento
   const emAtendimento = Array.isArray(leads) ? leads.filter(l => 
     l?.status === 'EM ATENDIMENTO' || l?.status === 'AGENDADO' || l?.etapa_funil === 'EM CONTATO'
   ).length : 0;
 
-  // 4. Convertidos do Mês Todo
   const convertidosMes = Array.isArray(leads) ? leads.filter(l => {
     const dataReg = l?.created_at || l?.data || '';
     const ehConvertido = l?.status === 'CONVERTIDO' || l?.etapa_funil === 'CONVERTIDO' || l?.status_instalacao === 'CONCLUIDA';
     return ehConvertido && (dataReg.includes(formatoMesAno) || dataReg.includes(`${anoAtualStr}-${mesAtualStr}`) || !dataReg);
   }).length : 0;
 
-  // 📊 DADOS REAIS PARA O GRÁFICO (Agrupamento real por dia da semana com base nos leads do Supabase)
   const contagemDias: Record<string, number> = { 'Dom': 0, 'Seg': 0, 'Ter': 0, 'Qua': 0, 'Qui': 0, 'Sex': 0, 'Sáb': 0 };
   const diasSemanaMap = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -138,7 +201,6 @@ export default function DashboardPage() {
     leads.forEach(l => {
       const dataStr = l?.created_at || l?.data;
       if (dataStr) {
-        // Tenta interpretar a data para extrair o dia da semana real
         const d = new Date(dataStr);
         if (!isNaN(d.getTime())) {
           const diaNome = diasSemanaMap[d.getDay()];
@@ -191,9 +253,13 @@ export default function DashboardPage() {
 
     try {
       for (const id of selecionados) {
+        // 🚀 CORREÇÃO: Agora grava o nome do atendente também no banco!
         await supabase
           .from('leads')
-          .update({ status: 'EM ATENDIMENTO' })
+          .update({ 
+            status: 'EM ATENDIMENTO',
+            atendente: funcionarioSelecionado 
+          })
           .eq('id', id);
       }
       
@@ -208,7 +274,30 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans">
+    <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans relative">
+
+      {popupSucessoPlano && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 font-mono">
+          <div className="bg-[#0a0a0a] border border-emerald-500/40 w-full max-w-md rounded-2xl p-6 text-center space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="inline-flex p-3 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <h3 className="text-base font-black uppercase text-white tracking-wider">Plano Atualizado com Sucesso!</h3>
+            <p className="text-xs text-zinc-400">
+              Sua assinatura foi alterada para o plano <strong className="text-emerald-400">{popupSucessoPlano}</strong>. Todos os novos recursos já estão liberados!
+            </p>
+            <button
+              onClick={() => {
+                setPopupSucessoPlano(null);
+                window.location.reload(); 
+              }}
+              className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs tracking-wider rounded-xl transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+            >
+              Continuar para o Painel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* CABEÇALHO */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -238,7 +327,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 🚀 CARD DE CONSUMO DA FRANQUIA DE LEADS (DINÂMICO CONFORME O SUPABASE) */}
+      {/* CARD FRANQUIA DE LEADS */}
       <Card className={`border backdrop-blur transition-all ${bateuLimiteLeads ? 'border-red-500/30 bg-red-500/5' : 'border-zinc-900 bg-zinc-900/40'}`}>
         <CardContent className="p-6 space-y-3">
           <div className="flex justify-between text-sm font-bold">
@@ -264,10 +353,8 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* SEÇÃO LADO A LADO: 4 QUADRADOS + GRÁFICO REAL */}
+      {/* DASHBOARD GRIDS E GRÁFICOS */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch">
-        
-        {/* LADO ESQUERDO: 4 QUADRADOS EM GRID 2x2 */}
         <div className="xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur flex flex-col justify-between">
             <CardContent className="p-5 flex flex-col justify-between h-full">
@@ -281,7 +368,6 @@ export default function DashboardPage() {
               </div>
             </CardContent>
           </Card>
-
           <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur flex flex-col justify-between">
             <CardContent className="p-5 flex flex-col justify-between h-full">
               <div className="flex justify-between items-center text-zinc-400">
@@ -294,7 +380,6 @@ export default function DashboardPage() {
               </div>
             </CardContent>
           </Card>
-
           <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur flex flex-col justify-between">
             <CardContent className="p-5 flex flex-col justify-between h-full">
               <div className="flex justify-between items-center text-zinc-400">
@@ -307,7 +392,6 @@ export default function DashboardPage() {
               </div>
             </CardContent>
           </Card>
-
           <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur flex flex-col justify-between">
             <CardContent className="p-5 flex flex-col justify-between h-full">
               <div className="flex justify-between items-center text-zinc-400">
@@ -322,7 +406,6 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* LADO DIREITO: GRÁFICO COM DADOS REAIS DO SUPABASE */}
         <div className="xl:col-span-5">
           <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur h-full flex flex-col">
             <div className="p-5 border-b border-zinc-900 flex justify-between items-center">
@@ -349,9 +432,7 @@ export default function DashboardPage() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
                     <XAxis dataKey="date" stroke="#71717a" fontSize={11} tickLine={false} />
                     <YAxis stroke="#71717a" fontSize={11} tickLine={false} allowDecimals={false} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#09090b', borderColor: '#27272a', borderRadius: '12px', color: '#fff', fontSize: '12px', fontFamily: 'monospace' }}
-                    />
+                    <Tooltip contentStyle={{ backgroundColor: '#09090b', borderColor: '#27272a', borderRadius: '12px', color: '#fff', fontSize: '12px', fontFamily: 'monospace' }} />
                     <Area type="monotone" dataKey="leads" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorLeads)" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -359,16 +440,14 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
-
       </div>
 
-      {/* BARRA DE AÇÃO EM LOTE */}
+      {/* AÇÕES EM LOTE E TABELA DE LEADS */}
       {selecionados.length > 0 && (
         <div className="p-4 bg-zinc-900 border border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-xs font-mono text-emerald-400 font-bold">
             {selecionados.length} lead(s) selecionado(s)
           </div>
-
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <select 
               value={funcionarioSelecionado}
@@ -376,11 +455,16 @@ export default function DashboardPage() {
               className="bg-black border border-zinc-800 text-white rounded-xl px-3.5 py-2 text-xs font-mono uppercase focus:outline-none focus:border-emerald-500 cursor-pointer flex-1 sm:w-64"
             >
               <option value="">Selecione o Funcionário...</option>
-              {funcionarios.map(f => (
-                <option key={f.id} value={f.nome}>{f.nome} ({f.cargo})</option>
-              ))}
+              {funcionarios.length > 0 ? (
+                funcionarios.map(f => (
+                  <option key={f.id} value={f.nome}>
+                    {f.nome} {f.role ? `(${f.role.toUpperCase()})` : ''}
+                  </option>
+                ))
+              ) : (
+                <option value="" disabled>Nenhum funcionário encontrado</option>
+              )}
             </select>
-
             <button
               onClick={handleAtribuirFuncionario}
               disabled={!funcionarioSelecionado}
@@ -392,7 +476,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* BARRA DE FILTROS E BUSCA */}
       <div className="flex flex-col sm:flex-row items-center gap-3">
         <div className="flex items-center gap-3 bg-zinc-900/40 border border-zinc-900 rounded-2xl p-3 flex-1 w-full backdrop-blur">
           <Search className="w-4 h-4 text-zinc-500 ml-2" />
@@ -406,9 +489,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* TABELA DE REGISTROS DA OPERAÇÃO COM CAMADA DE BLOQUEIO */}
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur relative overflow-hidden">
-        
         {bateuLimiteLeads && (
           <div className="absolute inset-0 z-20 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
             <Lock className="w-10 h-10 text-red-400 mb-3 animate-pulse" />
@@ -416,7 +497,10 @@ export default function DashboardPage() {
             <p className="text-zinc-400 text-xs mb-5 max-w-md font-mono leading-relaxed">
               Você atingiu o limite de leads do seu plano atual ({limiteLeadsMensal} registros). Faça um upgrade para liberar novas consultas e expandir sua base.
             </p>
-            <button className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs font-mono rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 cursor-pointer">
+            <button 
+              onClick={() => router.push('/planos')}
+              className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs font-mono rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 cursor-pointer"
+            >
               <Rocket className="w-4 h-4" /> Fazer Upgrade de Plano
             </button>
           </div>
@@ -434,12 +518,7 @@ export default function DashboardPage() {
               <thead>
                 <tr className="border-b border-zinc-900 text-[11px] font-mono uppercase tracking-wider text-zinc-500 bg-black/20">
                   <th className="p-4 w-10">
-                    <input 
-                      type="checkbox" 
-                      checked={leadsFiltrados.length > 0 && selecionados.length === leadsFiltrados.length}
-                      onChange={handleSelecionarTodos}
-                      className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" 
-                    />
+                    <input type="checkbox" checked={leadsFiltrados.length > 0 && selecionados.length === leadsFiltrados.length} onChange={handleSelecionarTodos} className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" />
                   </th>
                   <th className="p-4">Cliente / Contato</th>
                   <th className="p-4">Plano</th>
@@ -459,16 +538,10 @@ export default function DashboardPage() {
                 ) : (
                   leadsFiltrados.map((reg) => {
                     const isSelected = selecionados.includes(reg.id);
-
                     return (
                       <tr key={reg.id} className={`hover:bg-zinc-900/35 transition-colors ${isSelected ? 'bg-emerald-500/5' : ''}`}>
                         <td className="p-4">
-                          <input 
-                            type="checkbox" 
-                            checked={isSelected}
-                            onChange={() => handleSelecionarLead(reg.id)}
-                            className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" 
-                          />
+                          <input type="checkbox" checked={isSelected} onChange={() => handleSelecionarLead(reg.id)} className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" />
                         </td>
                         <td className="p-4">
                           <div className="font-bold font-sans text-sm text-white">{reg.nome || 'Sem nome'}</div>
@@ -476,24 +549,12 @@ export default function DashboardPage() {
                             <Phone className="w-3 h-3 text-zinc-600" /> {reg.whatsapp || reg.telefone || 'Sem telefone'} • CEP {reg.cep || 'S/N'}
                           </div>
                         </td>
-                        <td className="p-4">
-                          <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px]">
-                            {reg.perfil || 'Gamer / Streaming'}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] uppercase font-bold">
-                            {reg.status || reg.etapa_funil || 'NOVO'}
-                          </span>
-                        </td>
-                        <td className="p-4 text-zinc-300 font-bold">
-                          <span className="text-emerald-400">{reg.atendente || 'Atribuído'}</span>
-                        </td>
+                        <td className="p-4"><span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px]">{reg.perfil || 'Gamer / Streaming'}</span></td>
+                        <td className="p-4"><span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] uppercase font-bold">{reg.status || reg.etapa_funil || 'NOVO'}</span></td>
+                        <td className="p-4 text-zinc-300 font-bold"><span className="text-emerald-400">{reg.atendente || 'Atribuído'}</span></td>
                         <td className="p-4 text-zinc-500">🔥 ❄️ ✓</td>
                         <td className="p-4 text-right">
-                          <button className="px-3.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 font-bold uppercase text-[11px] transition-all cursor-pointer">
-                            Preencher Tel
-                          </button>
+                          <button className="px-3.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 font-bold uppercase text-[11px] transition-all cursor-pointer">Preencher Tel</button>
                         </td>
                       </tr>
                     );
@@ -504,7 +565,6 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
-
     </div>
   );
 }

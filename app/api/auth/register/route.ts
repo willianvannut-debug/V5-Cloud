@@ -1,5 +1,3 @@
-//app/api/auth/register/route.ts
-
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
@@ -9,70 +7,8 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
-// 🚀 LIMITES CORRIGIDOS E ALINHADOS COM O PAINEL DE PLANOS
-const PLANOS_LIMITES: Record<string, { max_usuarios: number; max_tecnicos: number }> = {
-  essencial: { max_usuarios: 1, max_tecnicos: 2 },
-  pro: { max_usuarios: 3, max_tecnicos: 10 },
-  scale: { max_usuarios: 10, max_tecnicos: 30 },
-  enterprise: { max_usuarios: 9999, max_tecnicos: 9999 } // 9999 representa ilimitado
-};
-
-// 🛡️ LÓGICA DE RATE LIMIT PARA REGISTRO
-const ipRegisterMap = new Map<string, { count: number; lastReset: number; blockedUntil: number }>();
-const WINDOW_MS = 10 * 60 * 1000; // Janela de 10 minutos
-const MAX_REGISTROS = 3;          // Máximo de 3 tentativas por janela
-const TEMPO_BLOQUEIO_MS = 15 * 60 * 1000; // Bloqueio de 15 minutos em caso de spam
-
-function verificarRateLimitRegister(ip: string): { permitido: boolean; tempoRestanteMinutos: number } {
-  const agora = Date.now();
-  const registro = ipRegisterMap.get(ip);
-
-  if (!registro) {
-    ipRegisterMap.set(ip, { count: 1, lastReset: agora, blockedUntil: 0 });
-    return { permitido: true, tempoRestanteMinutos: 0 };
-  }
-
-  if (registro.blockedUntil > agora) {
-    const tempoRestanteMinutos = Math.ceil((registro.blockedUntil - agora) / 60000);
-    return { permitido: false, tempoRestanteMinutos };
-  }
-
-  if (agora - registro.lastReset > WINDOW_MS) {
-    ipRegisterMap.set(ip, { count: 1, lastReset: agora, blockedUntil: 0 });
-    return { permitido: true, tempoRestanteMinutos: 0 };
-  }
-
-  registro.count++;
-
-  if (registro.count > MAX_REGISTROS) { // Acima de 3 tentativas
-    registro.blockedUntil = agora + TEMPO_BLOQUEIO_MS;
-    ipRegisterMap.set(ip, registro);
-    const tempoRestanteMinutos = Math.ceil((registro.blockedUntil - agora) / 60000);
-    return { permitido: false, tempoRestanteMinutos };
-  }
-
-  ipRegisterMap.set(ip, registro);
-  return { permitido: true, tempoRestanteMinutos: 0 };
-}
-
 export async function POST(request: Request) {
-  // Pega o IP do cliente para verificar o Rate Limit
-  const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
-
   try {
-    // 🛡️ 1. VERIFICAÇÃO DO RATE LIMIT
-    const rateLimit = verificarRateLimitRegister(ip);
-    
-    if (!rateLimit.permitido) {
-      return NextResponse.json(
-        { 
-          sucesso: false, 
-          mensagem: `Muitas tentativas de cadastro detectadas. Por segurança, tente novamente em ${rateLimit.tempoRestanteMinutos} minutos.` 
-        },
-        { status: 429 } // Too Many Requests
-      );
-    }
-
     const body = await request.json();
     
     const nomeOperador = body.usuario || body.nome;
@@ -82,100 +18,64 @@ export async function POST(request: Request) {
     const enderecoEmpresa = body.enderecoEmpresa;
     const lat = body.lat;
     const lon = body.lon;
-    const codigoConvite = body.codigoConvite;
     
-    // 🚀 Puxa o plano que veio da tela de pós-pagamento (ou cai pro essencial por segurança)
-    const planoComprado = (body.plano || 'essencial').toLowerCase();
-    
-    // 🛠️ Recebe o tipo/cargo escolhido no cadastro (ex: 'atendente' ou 'tecnico')
-    const tipoColaborador = body.tipo || body.cargo || 'atendente';
+    // 🚀 Normalização avançada: apanha o plano de qualquer propriedade onde o frontend possa enviar
+    const planoBruto = body.plano || body.chavePlano || body.selectedPlan || 'essencial';
+    const planoComprado = planoBruto !== 'pendente' ? planoBruto.toLowerCase() : 'essencial';
 
-    if (!nomeOperador || !email || !senha) {
+    if (!nomeOperador || !email || !senha || !nomeEmpresa) {
       return NextResponse.json({ sucesso: false, mensagem: 'Preencha todos os campos obrigatórios.' }, { status: 400 });
     }
 
     const emailLimpo = email.trim().toLowerCase();
+    const senhaHash = await bcrypt.hash(senha, 10);
+    const ipCliente = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'IP Desconhecido';
+    const userAgentCliente = request.headers.get('user-agent') || 'Dispositivo Desconhecido';
+    const versaoTermo = body.termo_versao || '1.0';
+    const hashDocumento = body.termo_hash || 'hash_padrao_v5';
 
-    // 1. Verifica se já existe um operador com esse e-mail
+    // 1. Verifica se já existe um operador cadastrado com este e-mail
     const { data: operadorExistente } = await supabaseAdmin
       .from('operadores')
-      .select('id')
+      .select('id, empresa_id')
       .eq('email', emailLimpo)
       .maybeSingle();
 
+    let empresaIdFinal = '';
+
     if (operadorExistente) {
-      return NextResponse.json({ sucesso: false, mensagem: 'Este e-mail já está cadastrado no sistema.' }, { status: 400 });
-    }
+      // 🔄 SE O OPERADOR JÁ EXISTE: Atualizamos os dados da empresa (incluindo o plano correto) e a senha de forma limpa
+      empresaIdFinal = operadorExistente.empresa_id;
 
-    let empresaIdFinal: string;
-    let cargoFinal = 'gerente';
-
-    const codigoLimpo = codigoConvite ? String(codigoConvite).trim() : '';
-
-    // 2. Lógica de Convite vs Nova Empresa
-    if (codigoLimpo !== '' && codigoLimpo !== 'undefined' && codigoLimpo !== 'null') {
-      const codigoBusca = codigoLimpo.toUpperCase();
-
-      const { data: empresaEncontrada, error: erroBuscaEmpresa } = await supabaseAdmin
-        .from('empresas')
-        .select('id, codigo_convite, plano')
-        .eq('codigo_convite', codigoBusca)
-        .maybeSingle();
-
-      if (erroBuscaEmpresa || !empresaEncontrada) {
-        return NextResponse.json({ sucesso: false, mensagem: 'Código de convite inválido ou empresa não encontrada.' }, { status: 400 });
+      if (empresaIdFinal) {
+        await supabaseAdmin
+          .from('empresas')
+          .update({
+            nome_empresa: nomeEmpresa.trim(),
+            endereco: enderecoEmpresa || 'Não informado',
+            lat: lat || -15.8193,
+            lon: lon || -48.1133,
+            plano: planoComprado, // Atualiza para o plano exato selecionado
+            termo_aceito: true,
+            termo_versao: versaoTermo,
+            termo_data_aceite: new Date().toISOString(),
+            termo_ip: ipCliente,
+            termo_user_agent: userAgentCliente,
+            termo_hash: hashDocumento
+          })
+          .eq('id', empresaIdFinal);
       }
 
-      empresaIdFinal = empresaEncontrada.id;
-      
-      // Define se vai entrar como técnico ou atendente/vendedor
-      const isTecnico = tipoColaborador.toLowerCase().includes('tec') || tipoColaborador.toLowerCase().includes('campo');
-      cargoFinal = isTecnico ? 'tecnico' : 'atendente';
-
-      // 🔒 VALIDAÇÃO DE LIMITE ESPECÍFICA (Vendedores vs Técnicos)
-      const planoEmpresa = (empresaEncontrada as any).plano || 'essencial';
-      const limitesPermitidos = PLANOS_LIMITES[planoEmpresa] || PLANOS_LIMITES['essencial'];
-
-      if (cargoFinal === 'tecnico') {
-        // Conta quantos técnicos já existem
-        const { count: totalTecnicosAtuais, error: erroContagemTec } = await supabaseAdmin
-          .from('operadores')
-          .select('*', { count: 'exact', head: true })
-          .eq('empresa_id', empresaIdFinal)
-          .eq('role', 'tecnico');
-
-        if (!erroContagemTec && totalTecnicosAtuais !== null) {
-          if (totalTecnicosAtuais >= limitesPermitidos.max_tecnicos) {
-            return NextResponse.json({ 
-              sucesso: false, 
-              mensagem: `Limite de Técnicos atingido para o plano atual (${totalTecnicosAtuais}/${limitesPermitidos.max_tecnicos}).` 
-            }, { status: 400 });
-          }
-        }
-      } else {
-        // Conta quantos atendentes/vendedores já existem
-        const { count: totalAtendentesAtuais, error: erroContagemAtend } = await supabaseAdmin
-          .from('operadores')
-          .select('*', { count: 'exact', head: true })
-          .eq('empresa_id', empresaIdFinal)
-          .in('role', ['atendente', 'vendedor']);
-
-        if (!erroContagemAtend && totalAtendentesAtuais !== null) {
-          if (totalAtendentesAtuais >= limitesPermitidos.max_usuarios) {
-            return NextResponse.json({ 
-              sucesso: false, 
-              mensagem: `Limite de Vendedores/Atendentes atingido para o plano atual (${totalAtendentesAtuais}/${limitesPermitidos.max_usuarios}).` 
-            }, { status: 400 });
-          }
-        }
-      }
+      await supabaseAdmin
+        .from('operadores')
+        .update({
+          nome: nomeOperador.trim(),
+          senha_hash: senhaHash
+        })
+        .eq('id', operadorExistente.id);
 
     } else {
-      // 👑 Fluxo de Nova Assinatura (Gerente)
-      if (!nomeEmpresa || nomeEmpresa.trim() === '') {
-        return NextResponse.json({ sucesso: false, mensagem: 'O nome da empresa é obrigatório para novas assinaturas.' }, { status: 400 });
-      }
-
+      // 🆕 SE NÃO EXISTE: Criamos a empresa com o plano correto escolhido e depois o operador associado
       const codigoConviteGerado = Math.random().toString(36).substring(2, 8).toUpperCase();
       
       const { data: empresaCriada, error: erroEmpresa } = await supabaseAdmin
@@ -187,7 +87,13 @@ export async function POST(request: Request) {
             lat: lat || -15.8193,
             lon: lon || -48.1133,
             codigo_convite: codigoConviteGerado,
-            plano: planoComprado // Salva "pro", "scale" ou "essencial" dependendo do link
+            plano: planoComprado, // Grava rigorosamente o plano escolhido pelo utilizador
+            termo_aceito: true,
+            termo_versao: versaoTermo,
+            termo_data_aceite: new Date().toISOString(),
+            termo_ip: ipCliente,
+            termo_user_agent: userAgentCliente,
+            termo_hash: hashDocumento
           }
         ])
         .select()
@@ -198,35 +104,30 @@ export async function POST(request: Request) {
       }
 
       empresaIdFinal = empresaCriada.id;
-      cargoFinal = 'gerente';
+
+      const { error: erroOperador } = await supabaseAdmin
+        .from('operadores')
+        .insert([
+          {
+            nome: nomeOperador.trim(),
+            email: emailLimpo,
+            senha_hash: senhaHash,
+            role: 'gerente',
+            empresa_id: empresaIdFinal
+          }
+        ]);
+
+      if (erroOperador) {
+        // Se houver falha ao inserir o operador, removemos a empresa criada para manter a consistência
+        await supabaseAdmin.from('empresas').delete().eq('id', empresaIdFinal);
+        return NextResponse.json({ sucesso: false, mensagem: `Erro ao criar operador: ${erroOperador.message}` }, { status: 500 });
+      }
     }
-
-    // 3. Hash da senha
-    const senhaHash = await bcrypt.hash(senha, 10);
-
-    // 4. Cria o Operador com o cargo correto ('gerente', 'atendente' ou 'tecnico')
-    const { error: erroOperador } = await supabaseAdmin
-      .from('operadores')
-      .insert([
-        {
-          nome: nomeOperador.trim(),
-          email: emailLimpo,
-          senha_hash: senhaHash,
-          role: cargoFinal,
-          empresa_id: empresaIdFinal
-        }
-      ]);
-
-    if (erroOperador) {
-      return NextResponse.json({ sucesso: false, mensagem: `Erro ao criar operador: ${erroOperador.message}` }, { status: 500 });
-    }
-    
-    // Se registrou com sucesso, limpa o contador do IP
-    ipRegisterMap.delete(ip);
 
     return NextResponse.json({ 
       sucesso: true, 
-      mensagem: cargoFinal === 'gerente' ? 'Empresa e conta de gerente criadas com sucesso!' : 'Cadastro realizado com sucesso na equipe!' 
+      mensagem: 'Conta criada e sincronizada com sucesso!',
+      empresaId: empresaIdFinal
     });
 
   } catch (err: any) {

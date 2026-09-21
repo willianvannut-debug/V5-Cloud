@@ -1,10 +1,15 @@
-//app/dashboard/viabilidade/page.tsx
+// ================================================================================
+// 📋 ROTA DE VIABILIDADE (FRONTEND) - V5 CLOUD (ALERTAS CUSTOMIZADOS)
+// app/dashboard/viabilidade/page.tsx
+// ================================================================================
 
 "use client"
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, MapPin, Loader2, CheckCircle2, XCircle, Building, RefreshCw, Navigation, X, User, Phone, PlusCircle } from 'lucide-react';
+import { Search, MapPin, Loader2, CheckCircle2, XCircle, Building, RefreshCw, Navigation, X, User, Phone, PlusCircle, AlertTriangle } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+import { useSettings } from '@/context/SettingsContext';
+import { useAuth } from '@/context/AuthContext';
 import { logger } from '@/lib/logger';
 import { createClient } from '@supabase/supabase-js';
 
@@ -89,9 +94,10 @@ interface ConsultaItem {
 
 export default function ViabilidadePage() {
   const { adicionarLead } = useApp();
+  const settings = useSettings();
+  const { operador, empresa } = useAuth();
   
-  const [ctos, setCtos] = useState<any[]>([]);
-  const [carregandoCtos, setCarregandoCtos] = useState(true);
+  const ctos = settings?.ctos || [];
 
   const [nomeCliente, setNomeCliente] = useState('');
   const [telefoneCliente, setTelefoneCliente] = useState('');
@@ -116,27 +122,21 @@ export default function ViabilidadePage() {
   const [enderecoReverso, setEnderecoReverso] = useState('');
   const [carregandoBuscaMapa, setCarregandoBuscaMapa] = useState(false);
 
+  // 🚀 Estado para o novo alerta customizado
+  const [alertaCustomizado, setAlertaCustomizado] = useState({ visivel: false, titulo: '', mensagem: '' });
+
   const [iconeNeonQuadrado, setIconeNeonQuadrado] = useState<any>(null);
 
   const [resultadoAtual, setResultadoAtual] = useState<ConsultaItem | null>(null);
   const [historico, setHistorico] = useState<ConsultaItem[]>([]);
 
-  useEffect(() => {
-    async function carregarCtosDoSupabase() {
-      if (!supabase) return;
-      try {
-        const { data, error } = await supabase.from('ctos').select('*');
-        if (!error && data) {
-          setCtos(data);
-        }
-      } catch (err) {
-        console.error("Erro ao buscar CTOs para viabilidade:", err);
-      } finally {
-        setCarregandoCtos(false);
-      }
-    }
-    carregarCtosDoSupabase();
-  }, []);
+  const mostrarAlerta = (titulo: string, mensagem: string) => {
+    setAlertaCustomizado({ visivel: true, titulo, mensagem });
+  };
+
+  const fecharAlerta = () => {
+    setAlertaCustomizado({ visivel: false, titulo: '', mensagem: '' });
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -244,7 +244,7 @@ export default function ViabilidadePage() {
         });
         setEnderecoReverso(data[0].display_name);
       } else {
-        alert("Endereço não encontrado.");
+        mostrarAlerta("Aviso", "Endereço não encontrado. Tente buscar de outra forma ou mova o PIN manualmente.");
       }
     } catch (err) {
       console.error(err);
@@ -280,17 +280,17 @@ export default function ViabilidadePage() {
     e.preventDefault();
     
     if (!nomeCliente.trim()) {
-      alert("Por favor, informe o nome do cliente.");
+      mostrarAlerta("Campo Obrigatório", "Por favor, informe o nome do cliente antes de prosseguir com a viabilidade.");
       return;
     }
 
     if (!coordsCliente) {
-      alert("Por favor, posicione o PIN no mapa na casa do cliente.");
+      mostrarAlerta("Localização Ausente", "Por favor, posicione o PIN no mapa na casa do cliente para conseguirmos calcular a distância.");
       return;
     }
 
     if (!ctos || ctos.length === 0) {
-      alert("Atenção: Não há nenhuma caixa CTO cadastrada no sistema ou carregada do Supabase.");
+      mostrarAlerta("Atenção", "Não há nenhuma caixa CTO cadastrada na sua rede. Adicione caixas na aba 'Caixas CTO' primeiro.");
       return;
     }
 
@@ -298,7 +298,7 @@ export default function ViabilidadePage() {
 
     try {
       let menorDistanciaMetros = Infinity;
-      let ctoMaisProxima = ctos[0].identificacao;
+      let ctoMaisProxima = ctos[0]?.identificacao || 'Desconhecida';
       let raioPermitido = 300;
 
       const R = 6371000;
@@ -324,6 +324,8 @@ export default function ViabilidadePage() {
       const statusFinal = temCobertura ? 'COM COBERTURA' : 'SEM COBERTURA';
       const distanciaFinalArredondada = Math.round(menorDistanciaMetros);
 
+      const ctoFinal = temCobertura ? ctoMaisProxima : 'Sem CTO';
+
       const novaConsulta: ConsultaItem = {
         id: Date.now().toString(),
         data: new Date().toLocaleString('pt-BR'),
@@ -335,7 +337,7 @@ export default function ViabilidadePage() {
         bairro: endereco.bairro || 'Centro',
         cidade: `${endereco.cidade} - ${endereco.uf}`,
         status: statusFinal,
-        cto: ctoMaisProxima,
+        cto: ctoFinal,
         distancia: distanciaFinalArredondada
       };
 
@@ -352,7 +354,7 @@ export default function ViabilidadePage() {
           cep: cep,
           endereco: `${endereco.logradouro}, Nº ${numeroLote}`,
           status: statusFinal,
-          cto: ctoMaisProxima,
+          cto: ctoFinal,
           distancia: distanciaFinalArredondada,
           latitude: coordsCliente.lat,
           longitude: coordsCliente.lon,
@@ -365,7 +367,7 @@ export default function ViabilidadePage() {
         cep: cep,
         endereco: `${endereco.logradouro}, Nº ${numeroLote}`,
         status: statusFinal,
-        cto: ctoMaisProxima,
+        cto: temCobertura ? ctoMaisProxima : null,
         plano: 'Fibra V5 - 600 Megas',
         data: new Date().toLocaleDateString('pt-BR'),
         lat: coordsCliente.lat,
@@ -414,7 +416,7 @@ export default function ViabilidadePage() {
   };
 
   return (
-    <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-white font-sans">
+    <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-white font-sans relative">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-black uppercase tracking-tight font-mono text-white flex items-center gap-2">
@@ -437,8 +439,8 @@ export default function ViabilidadePage() {
           <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
             <Search className="w-4 h-4 text-emerald-400" /> 1. Dados do Cliente & Localização no Mapa
           </CardTitle>
-          <span className="text-[10px] font-mono text-emerald-400">
-            {carregandoCtos ? "Carregando caixas do Supabase..." : `✓ ${ctos.length} Caixas CTO ativas no sistema`}
+          <span className={`text-[10px] font-mono ${ctos.length > 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {ctos.length > 0 ? `✓ ${ctos.length} Caixas CTO ativas no sistema` : "⚠️ 0 Caixas CTO ativas no sistema"}
           </span>
         </CardHeader>
         
@@ -454,7 +456,6 @@ export default function ViabilidadePage() {
                 value={nomeCliente}
                 onChange={(e) => setNomeCliente(e.target.value)}
                 placeholder="Ex: João da Silva"
-                required
                 className="w-full bg-black/50 border border-emerald-500/50 rounded-xl px-3.5 py-3 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
               />
             </div>
@@ -536,7 +537,7 @@ export default function ViabilidadePage() {
             <div className="md:col-span-12 mt-2">
               <button 
                 type="submit"
-                disabled={!coordsCliente || calculandoRota || carregandoCtos}
+                disabled={calculandoRota}
                 className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-black uppercase text-xs font-mono transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer"
               >
                 {calculandoRota ? (
@@ -559,7 +560,10 @@ export default function ViabilidadePage() {
           <CardHeader className={`border-b ${resultadoAtual.status === 'COM COBERTURA' ? 'border-emerald-500/20 text-emerald-400' : 'border-red-500/20 text-red-400'} pb-4 flex flex-row items-center justify-between`}>
             <CardTitle className="text-xs uppercase font-mono tracking-wide flex items-center gap-2">
               {resultadoAtual.status === 'COM COBERTURA' ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />} 
-              Resultado da Viabilidade para {resultadoAtual.nomeCliente} (Distância em Linha Reta: {resultadoAtual.distancia}m da CTO)
+              Resultado da Viabilidade para {resultadoAtual.nomeCliente} 
+              {resultadoAtual.status === 'COM COBERTURA' && (
+                <span className="hidden sm:inline">(Distância à rede: {resultadoAtual.distancia}m)</span>
+              )}
             </CardTitle>
 
             <button
@@ -592,7 +596,9 @@ export default function ViabilidadePage() {
                 }`}>
                   {resultadoAtual.status}
                 </span>
-                <span className="text-xs text-emerald-400 font-mono font-bold">{resultadoAtual.cto}</span>
+                <span className={`text-xs font-mono font-bold ${resultadoAtual.status === 'COM COBERTURA' ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {resultadoAtual.status === 'COM COBERTURA' ? resultadoAtual.cto : 'Fora de Área'}
+                </span>
               </div>
             </div>
 
@@ -605,7 +611,7 @@ export default function ViabilidadePage() {
                   </span>
                 ) : (
                   <span className="px-3 py-1.5 rounded-xl bg-red-500 text-white font-bold uppercase text-xs font-mono">
-                    Fora da Área
+                    Área Sem Rede
                   </span>
                 )}
               </div>
@@ -658,8 +664,11 @@ export default function ViabilidadePage() {
                           {item.status}
                         </span>
                       </td>
-                      <td className="p-4 text-right font-bold text-emerald-400">
-                        {item.cto} <span className="text-[11px] text-zinc-500 font-normal">({item.distancia}m)</span>
+                      <td className={`p-4 text-right font-bold ${item.status === 'COM COBERTURA' ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {item.status === 'COM COBERTURA' ? item.cto : 'Sem Alcance'} 
+                        {item.status === 'COM COBERTURA' && (
+                          <span className="text-[11px] text-zinc-500 font-normal ml-1">({item.distancia}m)</span>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -671,7 +680,7 @@ export default function ViabilidadePage() {
       </Card>
 
       {modalMapaAberto && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col">
             
             <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/40">
@@ -738,6 +747,41 @@ export default function ViabilidadePage() {
           </div>
         </div>
       )}
+
+      {/* 🚀 MODAL CUSTOMIZADO DE AVISOS */}
+      {alertaCustomizado.visivel && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-amber-500/30 rounded-2xl max-w-sm w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex justify-between items-start">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <button onClick={fecharAlerta} className="text-zinc-500 hover:text-white transition-colors cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold font-mono text-white uppercase tracking-tight">
+                {alertaCustomizado.titulo}
+              </h3>
+              <p className="text-zinc-400 text-xs font-mono leading-relaxed">
+                {alertaCustomizado.mensagem}
+              </p>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button 
+                onClick={fecharAlerta} 
+                className="px-5 py-2.5 rounded-xl bg-amber-500 text-black hover:bg-amber-400 font-bold uppercase text-xs font-mono transition-all shadow-[0_0_15px_rgba(245,158,11,0.3)] cursor-pointer"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -1,4 +1,7 @@
-//app/tecnico/page.tsx
+// ================================================================================
+// 📋 ROTA DO TÉCNICO (PRINCIPAL) - V5 CLOUD
+// app/tecnico/page.tsx
+// ================================================================================
 
 "use client"
 import React, { useEffect, useState, useRef } from 'react';
@@ -6,6 +9,7 @@ import dynamic from 'next/dynamic';
 import { Wrench, RefreshCw, X, AlertTriangle, CheckCircle2, XCircle, Navigation } from 'lucide-react';
 import { useSettings, SettingsProvider } from '@/context/SettingsContext';
 import { useApp, AppProvider } from '@/context/AppContext';
+import { lerOperacional, salvarOperacional } from '@/lib/operacional';
 
 const Mapa = dynamic(() => import('./Mapa'), { 
   ssr: false,
@@ -37,7 +41,7 @@ function PainelTecnicoMobile() {
     setIsMounted(true);
   }, []);
 
-  const carregarDados = () => {
+  const carregarDados = async () => {
     const ctosNuvem = settings?.ctos;
     const leadsNuvem = leads;
 
@@ -66,23 +70,29 @@ function PainelTecnicoMobile() {
 
     let salvosOperacionais = [];
     try {
-      const operacionais = localStorage.getItem('v5_leads_operacional');
-      if (operacionais) salvosOperacionais = JSON.parse(operacionais);
+      salvosOperacionais = await lerOperacional();
     } catch (e) {}
 
     const listaLeads = (leadsParaUsar || []).map((l: any) => {
       const encontrado = salvosOperacionais.find((p: any) => p.id === l.id);
-      return encontrado ? { ...l, ...encontrado } : l;
+      // 🚀 CORREÇÃO CRÍTICA: Mescla apenas status operacionais, nunca sobreescreve a etapa do PC!
+      if (encontrado) {
+        return {
+          ...l,
+          statusOperacional: encontrado.statusOperacional || l.statusOperacional,
+          status_instalacao: encontrado.status_instalacao || l.status_instalacao,
+          motivo_pendencia: encontrado.motivo_pendencia || l.motivo_pendencia
+        };
+      }
+      return l;
     });
 
-    // 🚀 CORREÇÃO DO FILTRO: Agora exibe todos os leads que têm coordenadas válidas e não foram concluídos
     const apenasAtivosParaInstalacao = listaLeads.filter((item: any) => {
       if (!item || !item.lat || !item.lon) return false;
       
       const jaConcluido = item.status_instalacao === 'CONCLUIDA' || item.statusOperacional === 'CONCLUIDA';
-      const naoConvertido = item.etapa_funil === 'NAO CONVERTIDO';
+      const naoConvertido = String(item.etapa_funil).toUpperCase() === 'NAO CONVERTIDO' || String(item.etapa_funil).toUpperCase() === 'NÃO CONVERTIDO';
 
-      // Se não foi concluído e não foi cancelado, o técnico precisa ver no mapa!
       return !jaConcluido && !naoConvertido;
     });
 
@@ -148,9 +158,24 @@ function PainelTecnicoMobile() {
     setCentroMapa([lat, lon]);
   }, [isMounted, leadsFinais, ctosFinais]);
 
-  const finalizarInstalacao = (statusFinal: string) => {
+  const finalizarInstalacao = async (statusFinal: 'CONCLUIDA' | 'PENDENTE') => {
+    let motivo = '';
+    if (statusFinal === 'PENDENTE') {
+      motivo = window.prompt('Qual o motivo de não ter feito a instalação?') || '';
+      if (!motivo.trim()) return;
+    }
+
+    if (instalacaoAtiva?.id) {
+      await salvarOperacional(instalacaoAtiva.id, {
+        status_instalacao: statusFinal === 'CONCLUIDA' ? 'CONCLUIDA' : 'PENDENTE',
+        statusOperacional: statusFinal === 'CONCLUIDA' ? 'CONCLUIDA' : 'PENDENTE',
+        motivo_pendencia: motivo,
+      });
+    }
+
     localStorage.removeItem('v5_instalacao_em_progresso');
     setInstalacaoAtiva(null);
+    carregarDados();
   };
 
   if (!isMounted) return null; 
@@ -178,13 +203,13 @@ function PainelTecnicoMobile() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <button 
-                onClick={() => finalizarInstalacao('FEITA')}
+                onClick={() => finalizarInstalacao('CONCLUIDA')}
                 style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)', border: '1px solid #10b981', color: '#10b981', padding: '16px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '14px', cursor: 'pointer' }}>
                 <CheckCircle2 size={20} /> INSTALAÇÃO CONCLUÍDA
               </button>
 
               <button 
-                onClick={() => finalizarInstalacao('NÃO FEITA')}
+                onClick={() => finalizarInstalacao('PENDENTE')}
                 style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#ef4444', padding: '16px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '14px', cursor: 'pointer' }}>
                 <XCircle size={20} /> NÃO FOI POSSÍVEL INSTALAR
               </button>
@@ -219,7 +244,7 @@ function PainelTecnicoMobile() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Wrench size={16} color="#10b981" />
           <h1 style={{ fontSize: '10px', fontWeight: 'bold', color: '#fff', margin: 0, fontFamily: 'monospace', textTransform: 'uppercase' }}>
-            V5 Técnico - Campo (Offline Ready)
+            V5 Técnico - Campo (API Synced)
           </h1>
         </div>
 
@@ -228,14 +253,14 @@ function PainelTecnicoMobile() {
             {ctosFinais.length} CTO
           </span>
           <span style={{ fontSize: '9px', fontFamily: 'monospace', backgroundColor: '#18181b', border: '1px solid #27272a', padding: '4px 6px', borderRadius: '6px', color: '#10b981', fontWeight: 'bold' }}>
-            {leadsFinais.length} Instalações
+            {leadsFinais.filter((l: any) => String(l.etapa_funil).toUpperCase() === 'MANDAR PARA INSTALAÇÃO').length} Instalações
           </span>
           <button 
             onClick={carregarDados}
             style={{ background: '#27272a', border: 'none', borderRadius: '6px', padding: '6px', color: '#10b981', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             title="Atualizar dados"
           >
-            <RefreshCw size= {12} />
+            <RefreshCw size={12} />
           </button>
         </div>
       </div>
