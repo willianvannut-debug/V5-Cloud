@@ -8,7 +8,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Compass, MessageSquare, ExternalLink, X, Calculator, CheckCircle2, XCircle, Send, Menu, Users, Navigation, MapPin } from 'lucide-react';
+import { Compass, MessageSquare, ExternalLink, X, Calculator, CheckCircle2, XCircle, Send, Menu, Users, Navigation, MapPin, Layers } from 'lucide-react';
 
 function CentralizadorMapa({ targetPos }: { targetPos: [number, number] | null }) {
   const map = useMap();
@@ -72,8 +72,12 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
   const [iconeLeadVerde, setIconeLeadVerde] = useState<any>(null);
   const [iconeLeadAmarelo, setIconeLeadAmarelo] = useState<any>(null);
   const [iconeCto, setIconeCto] = useState<any>(null);
+  const [iconeCtoAlternativa, setIconeCtoAlternativa] = useState<any>(null);
   
   const [leadSelecionado, setLeadSelecionado] = useState<any | null>(null);
+  const [ctosProximas, setCtosProximas] = useState<any[]>([]); // 🚀 Guarda as 3 caixas mais próximas
+  const [ctoSelecionadaIndex,setCtoSelecionadaIndex] = useState<number>(0); // 🚀 Permite alternar entre as 3 caixas
+  
   const [exibirFormularioNaoFeita, setExibirFormularioNaoFeita] = useState(false);
   const [motivoNaoFeita, setMotivoNaoFeita] = useState('');
   const [rotaAtiva, setRotaAtiva] = useState<{ 
@@ -131,15 +135,24 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
       iconSize: [20, 20], iconAnchor: [10, 10]
     });
 
+    // Ícone da CTO Principal (Mais Próxima / Selecionada)
     const ctoIcon = L.divIcon({
       className: 'custom-cto-marker',
-      html: `<div style="width: 22px; height: 22px; background-color: #3b82f6; border: 2px solid #ffffff; box-shadow: 0 0 10px #3b82f6; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 10px; font-family: monospace;">T</div>`,
-      iconSize: [22, 22], iconAnchor: [11, 11]
+      html: `<div style="width: 26px; height: 26px; background-color: #3b82f6; border: 2px solid #ffffff; box-shadow: 0 0 14px #3b82f6; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; font-family: monospace;">T</div>`,
+      iconSize: [26, 26], iconAnchor: [13, 13]
+    });
+
+    // Ícone das CTOs Alternativas (2ª e 3ª mais próximas)
+    const ctoAlternativaIcon = L.divIcon({
+      className: 'custom-cto-alt-marker',
+      html: `<div style="width: 20px; height: 20px; background-color: #8b5cf6; border: 2px solid #ffffff; box-shadow: 0 0 8px #8b5cf6; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 9px; font-family: monospace;">ALT</div>`,
+      iconSize: [20, 20], iconAnchor: [10, 10]
     });
 
     setIconeLeadVerde(squareIconVerde);
     setIconeLeadAmarelo(squareIconAmarelo);
     setIconeCto(ctoIcon);
+    setIconeCtoAlternativa(ctoAlternativaIcon);
   }, []);
 
   const leadsAtivosNaTela = listaLeads.filter((l: any) => l.statusOperacional !== 'CONCLUIDA' && l.status_instalacao !== 'CONCLUIDA');
@@ -149,7 +162,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     setSegurandoId(lead.id);
     setProgresso(0);
 
-    const tempoTotal = 3000;
+    const tempoTotal = 3000; // 3 segundos exatos
     const intervaloAtualizacao = 30;
     const incremento = (intervaloAtualizacao / tempoTotal) * 100;
 
@@ -178,6 +191,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     setProgresso(0);
   };
 
+  // 🚀 CALCULA AS 3 CAIXAS CTO MAIS PRÓXIMAS DO LEAD SELECIONADO
   const ativarFocoLead = (lead: any) => {
     setLeadSelecionado(lead);
     setRotaAtiva(null);
@@ -185,8 +199,24 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     setMotivoNaoFeita('');
     setModalListaAberto(false);
     setMenuAberto(false);
-    if (lead.lat && lead.lon) {
+    setCtoSelecionadaIndex(0);
+
+    if (lead.lat && lead.lon && ctos && ctos.length > 0) {
+      // Ordena todas as CTOs pela distância euclidiana até o lead
+      const ctosComDistancia = ctos
+        .filter((cto: any) => cto.lat && cto.lon)
+        .map((cto: any) => {
+          const distancia = Math.hypot(cto.lat - lead.lat, cto.lon - lead.lon);
+          return { ...cto, distanciaEuclidiana: distancia };
+        })
+        .sort((a, b) => a.distanciaEuclidiana - b.distanciaEuclidiana);
+
+      // Seleciona as 3 mais próximas para o técnico poder alternar se necessário
+      const top3 = ctosComDistancia.slice(0, 3);
+      setCtosProximas(top3);
       setAlvoMapa([lead.lat, lead.lon]);
+    } else {
+      setCtosProximas([]);
     }
   };
 
@@ -218,7 +248,6 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     }
   };
 
-  // 🚀 SINCRONIZAÇÃO DIRETA COM O SUPABASE: INSTALAÇÃO FEITA
   const confirmarInstalacaoFeita = async () => {
     if (!leadSelecionado) return;
     
@@ -260,10 +289,10 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     salvarNoStorage(novaListaCompleta);
     setLeadSelecionado(null);
     setRotaAtiva(null);
+    setCtosProximas([]);
     alert("Instalação registrada como FEITA! Sincronizado com o Supabase e removida da fila.");
   };
 
-  // 🚀 SINCRONIZAÇÃO DIRETA COM O SUPABASE: INSTALAÇÃO NÃO FEITA
   const enviarMotivoNaoFeita = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!leadSelecionado) return;
@@ -273,7 +302,6 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     }
 
     try {
-      // 🚀 Atualiza diretamente no Supabase enviando perfil "NÃO FEITA" e o motivo da pendência
       await fetch(`/api/leads`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -316,48 +344,42 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     setMotivoNaoFeita('');
     setLeadSelecionado(null);
     setRotaAtiva(null);
+    setCtosProximas([]);
   };
 
-  const calcularFibraRuas = async () => {
+  // 🚀 CALCULA A ROTA USANDO A CTO SELECIONADA ATUALMENTE (DENTRE AS 3 PRÓXIMAS)
+  const calcularFibraRuasComCtoIndex = async (indexParaUsar: number) => {
     if (!leadSelecionado) return;
-    if (!ctos || ctos.length === 0) {
-      alert("Nenhuma CTO cadastrada para calcular rota.");
+    if (!ctosProximas || ctosProximas.length === 0) {
+      alert("Nenhuma CTO próxima mapeada para este cliente.");
       return;
     }
 
-    let melhorCto = null;
-    let menorDistanciaRuas = Infinity;
-    let melhorGeometriaRota: [number, number][] = [];
+    setCtoSelecionadaIndex(indexParaUsar);
+    const ctoEscolhida = ctosProximas[indexParaUsar];
 
-    for (let cto of ctos) {
-      if (cto.lat && cto.lon) {
-        try {
-          const url = `https://router.project-osrm.org/route/v1/foot/${leadSelecionado.lon},${leadSelecionado.lat};${cto.lon},${cto.lat}?overview=full&geometries=geojson`;
-          const res = await fetch(url);
-          const data = await res.json();
-
-          if (data && data.routes && data.routes.length > 0) {
-            const rota = data.routes[0];
-            const distanciaMetros = rota.distance;
-
-            if (distanciaMetros < menorDistanciaRuas) {
-              menorDistanciaRuas = distanciaMetros;
-              melhorCto = cto;
-              melhorGeometriaRota = rota.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
-            }
-          }
-        } catch (e) {}
-      }
+    if (!ctoEscolhida || !ctoEscolhida.lat || !ctoEscolhida.lon) {
+      alert("CTO selecionada inválida.");
+      return;
     }
 
-    if (melhorCto && melhorGeometriaRota.length > 0) {
-      setRotaAtiva({
-        coordenadas: melhorGeometriaRota,
-        distanciaMetros: Math.round(menorDistanciaRuas),
-        ctoNome: melhorCto.identificacao,
-      });
-    } else {
-      alert("Não foi possível calcular o roteamento pelas ruas.");
+    try {
+      const url = `https://router.project-osrm.org/route/v1/foot/${leadSelecionado.lon},${leadSelecionado.lat};${ctoEscolhida.lon},${ctoEscolhida.lat}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (data && data.routes && data.routes.length > 0) {
+        const rota = data.routes[0];
+        setRotaAtiva({
+          coordenadas: rota.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]),
+          distanciaMetros: Math.round(rota.distance),
+          ctoNome: ctoEscolhida.identificacao,
+        });
+      } else {
+        alert("Não foi possível calcular o roteamento pelas ruas para esta CTO.");
+      }
+    } catch (e) {
+      alert("Erro de conexão ao calcular rota OSRM.");
     }
   };
 
@@ -415,14 +437,28 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
 
         <CentralizadorMapa targetPos={alvoMapa} />
 
-        {ctos.map((cto: any) => {
-          if (cto.lat && cto.lon && iconeCto) {
+        {/* 🚀 EXIBIÇÃO INTELIGENTE DE CTOs: Apenas as 3 mais próximas aparecem se houver lead selecionado */}
+        {leadSelecionado && ctosProximas.map((cto: any, idx: number) => {
+          if (cto.lat && cto.lon) {
+            const ePrincipal = idx === ctoSelecionadaIndex;
+            const marcadorIcone = ePrincipal ? iconeCto : iconeCtoAlternativa;
+
             return (
-              <Marker key={cto.id} position={[cto.lat, cto.lon]} icon={iconeCto}>
+              <Marker key={cto.id || idx} position={[cto.lat, cto.lon]} icon={marcadorIcone}>
                 <Popup>
                   <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#fff', padding: '4px' }}>
-                    <strong style={{ color: '#3b82f6', fontSize: '12px', display: 'block', textTransform: 'uppercase' }}>{cto.identificacao}</strong>
+                    <strong style={{ color: ePrincipal ? '#3b82f6' : '#8b5cf6', fontSize: '12px', display: 'block', textTransform: 'uppercase' }}>
+                      {ePrincipal ? `⭐ Principal: ${cto.identificacao}` : `🔄 Alternativa #${idx + 1}: ${cto.identificacao}`}
+                    </strong>
                     <span style={{ color: '#a1a1aa' }}>{cto.endereco || 'Infraestrutura Óptica'}</span>
+                    {!ePrincipal && (
+                      <button 
+                        onClick={() => calcularFibraRuasComCtoIndex(idx)}
+                        style={{ display: 'block', marginTop: '6px', background: '#8b5cf6', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+                      >
+                        Usar esta caixa (Alternativa)
+                      </button>
+                    )}
                   </div>
                 </Popup>
               </Marker>
@@ -511,7 +547,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                       </button>
                     </div>
                     <span style={{ display: 'block', textAlign: 'center', fontSize: '9px', color: '#a1a1aa', marginTop: '4px', fontFamily: 'monospace' }}>
-                      Segure 3s para ocultar os outros
+                      Segure 3s para carregar as 3 caixas próximas
                     </span>
 
                   </div>
@@ -661,7 +697,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
               <p className="text-xs text-zinc-400 font-sans mt-0.5">🏠 {leadSelecionado.endereco || 'Endereço não informado'}</p>
             </div>
             <button 
-              onClick={() => { setLeadSelecionado(null); setRotaAtiva(null); setExibirFormularioNaoFeita(false); }}
+              onClick={() => { setLeadSelecionado(null); setRotaAtiva(null); setCtosProximas([]); setExibirFormularioNaoFeita(false); }}
               className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
               title="Sair do modo foco"
             >
@@ -703,10 +739,36 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
             </form>
           ) : (
             <>
+              {/* 🚀 PAINEL DE SELEÇÃO RÁPIDA ENTRE AS CAIXAS PRÓXIMAS */}
+              {ctosProximas.length > 0 && (
+                <div className="my-2 py-2 border-y border-zinc-800">
+                  <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-1.5">
+                    Caixas CTO Próximas Disponíveis (Toque para alternar se a principal estiver cheia):
+                  </span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {ctosProximas.map((ctoAlt, ctoIdx) => (
+                      <button
+                        key={ctoAlt.id || ctoIdx}
+                        type="button"
+                        onClick={() => calcularFibraRuasComCtoIndex(ctoIdx)}
+                        className={`p-2 rounded-xl text-left font-mono text-[10px] transition-all cursor-pointer border ${
+                          ctoIdx === ctoSelecionadaIndex
+                            ? 'bg-blue-600/30 border-blue-500 text-blue-300 font-bold shadow-[0_0_10px_rgba(59,130,246,0.3)]'
+                            : 'bg-black/40 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                        }`}
+                      >
+                        <div className="truncate font-bold">#{ctoIdx + 1} {ctoAlt.identificacao}</div>
+                        <div className="text-[9px] opacity-75">~{Math.round(ctoAlt.distanciaEuclidiana * 111000)}m</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {rotaAtiva && (
-                <div className="grid grid-cols-2 gap-2 my-2 py-2 border-y border-zinc-800 font-mono text-xs">
+                <div className="grid grid-cols-2 gap-2 my-2 py-1 font-mono text-xs">
                   <div>
-                    <span className="text-zinc-500 text-[10px] block uppercase">CTO Atendimento</span>
+                    <span className="text-zinc-500 text-[10px] block uppercase">CTO Selecionada</span>
                     <span className="text-blue-400 font-bold">{rotaAtiva.ctoNome}</span>
                   </div>
                   <div>
@@ -716,20 +778,20 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                 </div>
               )}
 
-              <div className="flex flex-col gap-2 mt-3">
+              <div className="flex flex-col gap-2 mt-2">
                 {!rotaAtiva ? (
                   <button
-                    onClick={calcularFibraRuas}
+                    onClick={() => calcularFibraRuasComCtoIndex(0)}
                     className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold uppercase text-xs font-mono py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_10px_rgba(59,130,246,0.3)]"
                   >
-                    <Calculator className="w-4 h-4" /> Calcular Quantidade de Fibra
+                    <Calculator className="w-4 h-4" /> Calcular Rota (Caixa Mais Próxima)
                   </button>
                 ) : (
                   <button
-                    onClick={calcularFibraRuas}
+                    onClick={() => calcularFibraRuasComCtoIndex(ctoSelecionadaIndex)}
                     className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold uppercase text-[10px] font-mono py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-700"
                   >
-                    <Calculator className="w-3.5 h-3.5" /> Recalcular Fibra por Ruas
+                    <Calculator className="w-3.5 h-3.5" /> Recalcular Rota com Caixa Atual
                   </button>
                 )}
 

@@ -1,5 +1,5 @@
 // ================================================================================
-// 📋 ROTA DE LEADS (FRONTEND) - V5 CLOUD (OCULTAR CÁLCULO SE NÃO FEITA)
+// 📋 ROTA DE LEADS (FRONTEND) - V5 CLOUD (FRANQUIA CONTA APENAS COM COBERTURA)
 // app/dashboard/leads/page.tsx
 // ================================================================================
 
@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
-  Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Trash2, Globe, Navigation, Loader2, MapPin
+  Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Trash2, Globe, Navigation, Loader2, MapPin, Building2, Gamepad2
 } from 'lucide-react';
 import { useApp, LeadReal } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -91,7 +91,7 @@ const MapWithNoSSR = dynamic(
                   <Marker key={`cto-${item.id}`} position={[item.lat, item.lon]} icon={iconeCto}>
                     <Popup>
                       <div className="font-mono text-xs text-zinc-900 p-1 space-y-1">
-                        <strong className="text-blue-600 block font-black text-sm uppercase">Infra: {item.identificacao}</strong>
+                        <strong className="text-blue-600 block font-black text-sm uppercase">Infra: {item.identificacao || item.nome || item.name || "CTO"}</strong>
                         <span className="font-sans text-zinc-700 block">{item.endereco || "Caixa Óptica"}</span>
                       </div>
                     </Popup>
@@ -156,7 +156,8 @@ export default function LeadsPage() {
     try {
       const resposta = await fetch('/api/leads?origem=pc', {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
       });
       if (resposta.ok) {
         const dados = await resposta.json();
@@ -463,7 +464,7 @@ export default function LeadsPage() {
       return;
     }
 
-    setCtoVinculadaNome(ctoMaisProxima.identificacao || 'CTO Principal');
+    setCtoVinculadaNome(ctoMaisProxima.identificacao || ctoMaisProxima.nome || ctoMaisProxima.name || ctoMaisProxima.titulo || 'CTO Principal');
 
     try {
       const coordenadasTracatadas: [number, number][] = [
@@ -532,6 +533,32 @@ export default function LeadsPage() {
     }
   };
 
+  const getCtoMaisProximaParaTabela = useCallback((leadLat: number, leadLon: number) => {
+    if (!leadLat || !leadLon || !ctos || ctos.length === 0) return 'Sem CTO';
+    
+    let ctoMaisProxima = null;
+    let menorDistancia = Infinity;
+
+    ctos.forEach((cto: any) => {
+      const ctoLat = Number(cto.lat ?? cto.latitude ?? cto.Y);
+      const ctoLon = Number(cto.lon ?? cto.longitude ?? cto.X);
+      if (!isNaN(ctoLat) && !isNaN(ctoLon)) {
+        const dLat = ctoLat - leadLat;
+        const dLon = ctoLon - leadLon;
+        const dist = dLat * dLat + dLon * dLon;
+        if (dist < menorDistancia) {
+          menorDistancia = dist;
+          ctoMaisProxima = cto;
+        }
+      }
+    });
+
+    if (ctoMaisProxima) {
+      return ctoMaisProxima.identificacao || ctoMaisProxima.nome || ctoMaisProxima.name || ctoMaisProxima.codigo || ctoMaisProxima.title || 'Caixa Localizada';
+    }
+    return 'Sem CTO';
+  }, [ctos]);
+
   const planoVindoDaAuth = empresa?.plano || operador?.empresa?.plano || planoAtual || 'essencial';
   const chavePlanoLimpa = String(planoVindoDaAuth).toLowerCase().trim();
   const configPlanoAtual = PLANOS[chavePlanoLimpa] || PLANOS['essencial'];
@@ -542,7 +569,12 @@ export default function LeadsPage() {
   const limiteTotal = configPlanoAtual?.max_leads || 110;
   const precoExcedenteUnitario = configPlanoAtual?.preco_excedente ?? 1.50;
 
-  const leadsUsados = leadsInvertidos.length;
+  // 🚀 FILTRA APENAS OS LEADS QUE POSSUEM COBERTURA PARA CONTAR NA FRANQUIA
+  const leadsComCoberturaLista = useMemo(() => {
+    return leadsInvertidos.filter(l => isLeadVisivel(l) && l.status === 'COM COBERTURA');
+  }, [leadsInvertidos]);
+
+  const leadsUsados = leadsComCoberturaLista.length;
   
   const leadsBaseUsados = Math.min(leadsUsados, limiteBase);
   const leadsBonusUsados = Math.max(0, Math.min(leadsUsados - limiteBase, limiteExtra));
@@ -634,7 +666,7 @@ export default function LeadsPage() {
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-2">
             <span className="text-[11px] font-mono font-bold uppercase tracking-widest text-zinc-400">
-              Franquia de Leads (Plano {nomeExibicaoPlano})
+              Franquia de Leads com Viabilidade (Plano {nomeExibicaoPlano})
             </span>
             
             <span className="text-xs font-mono font-bold text-white">
@@ -667,12 +699,12 @@ export default function LeadsPage() {
           {ultrapassouFranquia ? (
             <div className="flex items-center justify-start pt-1 text-amber-400 text-[11px] font-mono uppercase font-bold">
               <span className="flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> Franquia excedida! Suas consultas continuam livres (Cobrança por uso: R$ {precoExcedenteUnitario.toFixed(2)} / lead extra).
+                <AlertTriangle className="w-3.5 h-3.5" /> Franquia excedida! Apenas leads com viabilidade são contabilizados.
               </span>
             </div>
           ) : (
             <p className="text-zinc-500 text-[11px] font-mono uppercase">
-              Operação fluindo normalmente dentro do pacote contratado.
+              Contagem baseada estritamente em leads com viabilidade técnica aprovada.
             </p>
           )}
         </CardContent>
@@ -727,6 +759,58 @@ export default function LeadsPage() {
               const perfilPainel = String(leadAtivoPainel.perfil || '').toUpperCase();
               const eNaoFeitaPainel = perfilPainel === 'NÃO FEITA';
 
+              let scoreCalculado = leadAtivoPainel.score;
+              const enderecoTextoPainel = leadAtivoPainel.endereco || '';
+              let numeroRua = enderecoTextoPainel;
+              let tipoImovelPainel = 'Não especificado';
+              let perfilUsoPainel = 'Não especificado';
+
+              const fallbackMatch = enderecoTextoPainel.match(/\[(.*?)\s*\/\s*(.*?)\]/);
+              if (fallbackMatch) {
+                numeroRua = enderecoTextoPainel.replace(fallbackMatch[0], '').trim();
+                tipoImovelPainel = fallbackMatch[1].trim();
+                perfilUsoPainel = fallbackMatch[2].trim();
+              }
+
+              if (scoreCalculado === undefined || scoreCalculado === null) {
+                scoreCalculado = 0;
+                
+                if (leadAtivoPainel.status === 'COM COBERTURA') scoreCalculado += 30;
+
+                if (fallbackMatch) {
+                  const tipoImovelRegex = fallbackMatch[1].trim().toUpperCase();
+                  const perfilUsoRegex = fallbackMatch[2].trim().toUpperCase();
+
+                  if (tipoImovelRegex === 'COMERCIO') scoreCalculado += 20;
+                  else if (tipoImovelRegex === 'PREDIO') scoreCalculado += 15;
+                  else if (tipoImovelRegex === 'CASA') scoreCalculado += 10;
+                  else if (tipoImovelRegex === 'GALPAO') scoreCalculado += 5;
+
+                  if (perfilUsoRegex === 'GAMER') scoreCalculado += 30;
+                  else if (perfilUsoRegex === 'TRABALHO') scoreCalculado += 25;
+                  else if (perfilUsoRegex === 'FAMILIA') scoreCalculado += 15;
+                  else if (perfilUsoRegex === 'SOLO') scoreCalculado += 10;
+                }
+              }
+
+              let scoreColor = 'bg-zinc-800 border-zinc-700 text-zinc-400';
+              let scoreIcon = '➖';
+              let scoreText = 'Frio';
+
+              if (scoreCalculado >= 80) {
+                scoreColor = 'bg-orange-500/20 border-orange-500/50 text-orange-400 shadow-[0_0_10px_rgba(249,115,22,0.3)]';
+                scoreIcon = '🔥';
+                scoreText = 'QUENTE';
+              } else if (scoreCalculado >= 50) {
+                scoreColor = 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.2)]';
+                scoreIcon = '☀️';
+                scoreText = 'MORNO';
+              } else if (scoreCalculado > 0) {
+                scoreColor = 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]';
+                scoreIcon = '❄️';
+                scoreText = 'FRIO';
+              }
+
               return (
                 <div className={`absolute top-4 right-4 z-[1000] w-80 bg-zinc-900/95 border rounded-2xl p-5 backdrop-blur-md shadow-2xl space-y-4 font-mono text-zinc-50 animate-fadeIn ${
                   eNaoFeitaPainel ? 'border-amber-500/80 shadow-[0_0_25px_rgba(245,158,11,0.25)]' : 'border-emerald-500/40'
@@ -737,41 +821,64 @@ export default function LeadsPage() {
                         {eNaoFeitaPainel ? '⚠️ Instalação Não Realizada' : 'Lead Selecionado'}
                       </span>
                       <h3 className="text-sm font-bold text-white font-sans mt-0.5">{leadAtivoPainel.nome}</h3>
+                      
+                      <div className={`mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded border text-[10px] font-mono font-bold uppercase tracking-wider ${scoreColor}`}>
+                        <span className="text-xs">{scoreIcon}</span>
+                        <span>{scoreText} ({scoreCalculado} pts)</span>
+                      </div>
                     </div>
                     <button onClick={limparRota} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  <div className="space-y-2 text-xs">
-                    <div className="flex items-start gap-2 text-zinc-300">
+                  <div className="space-y-3 text-xs mt-4 border-b border-zinc-800 pb-4">
+                    <div className="flex items-start gap-2.5 text-zinc-300">
                       <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                      <span>{leadAtivoPainel.endereco || 'Endereço não informado'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-zinc-300">
-                      <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>{leadAtivoPainel.telefone || 'Sem telefone'}</span>
-                    </div>
-
-                    {/* Exibe o motivo no popup do mapa quando for não feita */}
-                    {eNaoFeitaPainel && leadAtivoPainel.motivo_pendencia && (
-                      <div className="mt-3 bg-amber-500/10 border border-amber-500/40 p-2.5 rounded-xl text-amber-300 space-y-1">
-                        <div className="font-bold uppercase text-[10px] text-amber-400">Motivo do Técnico:</div>
-                        <div className="text-xs normal-case">{leadAtivoPainel.motivo_pendencia}</div>
+                      <div>
+                        <span className="text-zinc-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Nº / Endereço</span>
+                        <span className="text-white font-bold">{numeroRua || 'Não informado'}</span>
                       </div>
-                    )}
+                    </div>
+                    <div className="flex items-start gap-2.5 text-zinc-300">
+                      <Building2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-zinc-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Local da Instalação</span>
+                        <span className="text-white font-bold uppercase">{tipoImovelPainel}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5 text-zinc-300">
+                      <Gamepad2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-zinc-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">Perfil de Uso</span>
+                        <span className="text-white font-bold uppercase">{perfilUsoPainel}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5 text-zinc-300">
+                      <Phone className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-zinc-500 block text-[9px] uppercase font-bold tracking-wider mb-0.5">WhatsApp / Contato</span>
+                        <span className="text-white font-bold">{leadAtivoPainel.telefone || 'Sem telefone'}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* 🚀 Oculta o botão de calcular distância se o lead estiver marcado como NÃO FEITA */}
+                  {eNaoFeitaPainel && leadAtivoPainel.motivo_pendencia && (
+                    <div className="mt-3 bg-amber-500/10 border border-amber-500/40 p-2.5 rounded-xl text-amber-300 space-y-1">
+                      <div className="font-bold uppercase text-[10px] text-amber-400">Motivo do Técnico:</div>
+                      <div className="text-xs normal-case">{leadAtivoPainel.motivo_pendencia}</div>
+                    </div>
+                  )}
+
                   {!eNaoFeitaPainel && (
-                    <div className="border-t border-zinc-800 pt-3 space-y-3">
+                    <div className="space-y-3 pt-2">
                       {!distanciaRotaAtiva && !calculandoRota && (
                         <button
                           type="button"
                           onClick={() => calcularRotaDoLead(leadAtivoPainel)}
                           className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.2)]"
                         >
-                          <Navigation className="w-4 h-4" /> Calcular Distância (Linha Reta)
+                          <Navigation className="w-4 h-4" /> Calcular Distância
                         </button>
                       )}
 
@@ -856,6 +963,10 @@ export default function LeadsPage() {
                     
                     const perfilLead = String(lead.perfil || '').toUpperCase();
                     const eNaoFeita = perfilLead === 'NÃO FEITA';
+                    
+                    const endLimpo = (lead.endereco || '').replace(/\[.*?\]/, '').trim();
+                    
+                    const ctoRealNaTabela = (lead.lat && lead.lon) ? getCtoMaisProximaParaTabela(lead.lat, lead.lon) : (lead.cto || 'Sem CTO');
 
                     return (
                       <tr key={lead.id} className="hover:bg-zinc-900/30 transition-colors">
@@ -870,7 +981,7 @@ export default function LeadsPage() {
                         </td>
                         <td className="p-4">
                           <div className="font-bold text-white">{lead.cep}</div>
-                          <div className="text-[11px] text-zinc-500">{lead.endereco}</div>
+                          <div className="text-[11px] text-zinc-500">{endLimpo}</div>
                         </td>
                         <td className="p-4 whitespace-nowrap">
                           <span className={`inline-block px-3 py-1 rounded-lg text-[10px] uppercase font-bold border ${
@@ -889,9 +1000,11 @@ export default function LeadsPage() {
                             }
                           </span>
                         </td>
+                        
                         <td className={`p-4 font-bold ${lead.status === 'COM COBERTURA' ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {lead.cto && lead.cto !== 'Sem CTO' ? lead.cto : 'Sem CTO Vinculada'}
+                          {ctoRealNaTabela !== 'Sem CTO' ? ctoRealNaTabela : 'Sem CTO Vinculada'}
                         </td>
+
                         <td className="p-4">
                           <select 
                             value={eNaoFeita ? 'NÃO FEITA' : etapaAtual}

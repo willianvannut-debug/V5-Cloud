@@ -22,7 +22,7 @@ const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET_KEY || 'v5_cloud_secret_key_super_segura_2026'
 );
 
-const PRICE_ID_EXCEDENTE_UNICO = process.env.STRIPE_PRICE_EXCEDENTE_UNICO || 'price_1UHyoqQmvE3xCUG9IrneXps7';
+const PRICE_ID_EXCEDENTE_UNICO = process.env.STRIPE_PRICE_EXCEDENTE_UNICO || 'price_1UIHCPQmvE3xCUG9mcjS3n2E';
 
 function sanitizarTexto(str: any): string {
   if (typeof str !== 'string') return '';
@@ -30,7 +30,8 @@ function sanitizarTexto(str: any): string {
 }
 
 function formatarLead(l: any) {
-  const temCobertura = l.perfil !== 'SEM COBERTURA' && l.perfil !== 'NAO';
+  const perfilUpper = String(l.perfil || '').toUpperCase();
+  const temCobertura = perfilUpper === 'COM COBERTURA';
 
   return {
     ...l,
@@ -38,7 +39,7 @@ function formatarLead(l: any) {
     endereco: l.numero || '',
     status: temCobertura ? 'COM COBERTURA' : 'SEM COBERTURA',
     etapa_funil: l.perfil || 'NOVO',
-    cto: 'CTO-01', 
+    cto: l.cto || 'CTO-01', 
     lat: l.lat !== null && l.lat !== undefined ? Number(l.lat) : undefined,
     lon: l.lon !== null && l.lon !== undefined ? Number(l.lon) : undefined,
   };
@@ -128,7 +129,6 @@ export async function GET(request: NextRequest) {
     }
 
     if (origem === 'pc') {
-      // Oculta da tela de leads do PC apenas os leads com instalação concluída com sucesso
       query = query.neq('perfil', 'INSTALAÇÃO FEITA');
     }
 
@@ -289,7 +289,6 @@ export async function PUT(request: NextRequest) {
         if (etapaLimpa === 'CONCLUIDA') {
           etapaLimpa = 'INSTALAÇÃO FEITA';
         } else if (etapaLimpa === 'PENDENTE' || etapaLimpa === 'NAO FEITA' || etapaLimpa === 'NÃO FEITA' || etapaLimpa === 'NAO_FEITA') {
-          // 🚀 Padroniza rigorosamente qualquer variação de não feita para "NÃO FEITA"
           etapaLimpa = 'NÃO FEITA';
         }
 
