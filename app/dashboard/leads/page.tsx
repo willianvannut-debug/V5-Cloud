@@ -1,5 +1,5 @@
 // ================================================================================
-// 📋 ROTA DE LEADS (FRONTEND) - V5 CLOUD (FRANQUIA CONTA APENAS COM COBERTURA)
+// 📋 ROTA DE LEADS (FRONTEND) - V5 CLOUD (TEMPO REAL FORÇADO SEM F5)
 // app/dashboard/leads/page.tsx
 // ================================================================================
 
@@ -144,53 +144,55 @@ const MapWithNoSSR = dynamic(
 );
 
 export default function LeadsPage() {
-  const { leads: leadsContexto, atualizarEtapaLead, limparTudo } = useApp();
+  const { atualizarEtapaLead, limparTudo } = useApp();
   const settings = useSettings();
   const { operador, empresa } = useAuth();
   const ctos = settings?.ctos || [];
   
   const [operacional, setOperacional] = useState<any[]>([]);
-  const [leadsApi, setLeadsApi] = useState<any[] | null>(null);
+  const [leadsLista, setLeadsLista] = useState<any[]>([]);
 
-  const carregarLeadsSupabase = useCallback(async () => {
+  // 🚀 Função para buscar dados atualizados diretamente da API de Leads
+  const carregarLeadsDireto = useCallback(async () => {
     try {
       const resposta = await fetch('/api/leads?origem=pc', {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
         credentials: 'include'
       });
       if (resposta.ok) {
         const dados = await resposta.json();
         if (Array.isArray(dados)) {
-          setLeadsApi(dados);
+          setLeadsLista(dados);
         }
       }
     } catch (erro) {
-      console.error("Erro ao carregar leads do Supabase:", erro);
+      console.error("Erro ao carregar leads:", erro);
     }
   }, []);
 
+  // 🚀 WEBSOCKET EM TEMPO REAL: Dispara a atualização imediata assim que o banco sofre alteração
   useEffect(() => {
-    carregarLeadsSupabase();
+    carregarLeadsDireto(); // Carga inicial
 
     if (!supabase) return;
 
-    const canal = supabase
-      .channel('leads-realtime-pc')
+    const canalTempoReal = supabase
+      .channel('tabela-leads-realtime-global')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'leads' },
         (payload) => {
-          console.log('⚡ Atualização do Supabase detectada em tempo real:', payload);
-          carregarLeadsSupabase();
+          console.log('⚡ Alteração em tempo real detetada na tabela leads:', payload);
+          carregarLeadsDireto(); // Atualiza a tela instantaneamente
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(canal);
+      supabase.removeChannel(canalTempoReal);
     };
-  }, [carregarLeadsSupabase]);
+  }, [carregarLeadsDireto]);
 
   useEffect(() => {
     const carregarOperacional = async () => {
@@ -201,19 +203,20 @@ export default function LeadsPage() {
     carregarOperacional();
 
     window.addEventListener('v5-operacional', carregarOperacional);
+    window.addEventListener('storage', carregarOperacional);
+
     return () => {
       window.removeEventListener('v5-operacional', carregarOperacional);
+      window.removeEventListener('storage', carregarOperacional);
     };
   }, []);
 
-  const leadsSource = leadsApi !== null ? leadsApi : leadsContexto;
-
   const leads = useMemo(
-    () => (leadsSource || []).map((l: any) => {
+    () => (leadsLista || []).map((l: any) => {
       const op = operacional.find((p: any) => p.id === l.id);
       return op ? { ...l, ...op } : l;
     }),
-    [leadsSource, operacional]
+    [leadsLista, operacional]
   );
   
   const [planoAtual, setPlanoAtual] = useState<string>('');
@@ -508,7 +511,7 @@ export default function LeadsPage() {
     } else {
       await limparOperacional(id);
       await atualizarEtapaLead(id, etapa);
-      await carregarLeadsSupabase();
+      await carregarLeadsDireto();
     }
   };
 
@@ -516,7 +519,7 @@ export default function LeadsPage() {
     if (leadSelecionado && novaEtapaPendente) {
       await limparOperacional(leadSelecionado);
       await atualizarEtapaLead(leadSelecionado, novaEtapaPendente);
-      await carregarLeadsSupabase();
+      await carregarLeadsDireto();
     }
     fecharModal();
   };
@@ -569,7 +572,6 @@ export default function LeadsPage() {
   const limiteTotal = configPlanoAtual?.max_leads || 110;
   const precoExcedenteUnitario = configPlanoAtual?.preco_excedente ?? 1.50;
 
-  // 🚀 FILTRA APENAS OS LEADS QUE POSSUEM COBERTURA PARA CONTAR NA FRANQUIA
   const leadsComCoberturaLista = useMemo(() => {
     return leadsInvertidos.filter(l => isLeadVisivel(l) && l.status === 'COM COBERTURA');
   }, [leadsInvertidos]);

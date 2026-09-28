@@ -1,14 +1,23 @@
 // ================================================================================
-// 📋 ROTA DO TÉCNICO (MAPA) - V5 CLOUD
+// 📋 ROTA DO TÉCNICO (MAPA) - V5 CLOUD (BLINDADO + MAPCONTAINER SEGURO)
 // app/tecnico/Mapa.tsx
 // ================================================================================
 
 "use client"
 import React, { useEffect, useState, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Compass, MessageSquare, ExternalLink, X, Calculator, CheckCircle2, XCircle, Send, Menu, Users, Navigation, MapPin, Layers } from 'lucide-react';
+import { Compass, MessageSquare, ExternalLink, X, Calculator, CheckCircle2, XCircle, Send, Menu, Users, Navigation, MapPin, LoaderCircle } from 'lucide-react';
+
+// Importações dinâmicas do react-leaflet para evitar erros de SSR no Next.js
+const MapContainer = dynamic(() => import('react-leaflet').then((m) => m.MapContainer), { ssr: false });
+const TileLayer = dynamic(() => import('react-leaflet').then((m) => m.TileLayer), { ssr: false });
+const Marker = dynamic(() => import('react-leaflet').then((m) => m.Marker), { ssr: false });
+const Popup = dynamic(() => import('react-leaflet').then((m) => m.Popup), { ssr: false });
+const Polyline = dynamic(() => import('react-leaflet').then((m) => m.Polyline), { ssr: false });
+
+import { useMap } from 'react-leaflet';
 
 function CentralizadorMapa({ targetPos }: { targetPos: [number, number] | null }) {
   const map = useMap();
@@ -17,6 +26,16 @@ function CentralizadorMapa({ targetPos }: { targetPos: [number, number] | null }
       map.setView(targetPos, 17, { animate: true });
     }
   }, [targetPos, map]);
+  return null;
+}
+
+function ManipuladorEventosMapa({ fecharPopupTrigger }: { fecharPopupTrigger: number }) {
+  const map = useMap();
+  useEffect(() => {
+    if (fecharPopupTrigger > 0) {
+      map.closePopup();
+    }
+  }, [fecharPopupTrigger, map]);
   return null;
 }
 
@@ -43,7 +62,8 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                   ...l,
                   statusOperacional: encontrado.statusOperacional || l.statusOperacional,
                   status_instalacao: encontrado.status_instalacao || l.status_instalacao,
-                  motivo_pendencia: encontrado.motivo_pendencia || l.motivo_pendencia
+                  motivo_pendencia: encontrado.motivo_pendencia || l.motivo_pendencia,
+                  etapa_funil: encontrado.etapa_funil || l.etapa_funil
                 };
               }
               return l;
@@ -52,20 +72,43 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         }
       }
       
-      const apenasConvertidos = baseLeads.filter((l: any) => String(l.etapa_funil).toUpperCase() === 'MANDAR PARA INSTALAÇÃO');
+      const apenasConvertidos = baseLeads.filter((l: any) => {
+        const etapaDoLead = String(l.etapa_funil || '').trim().toUpperCase();
+        return etapaDoLead === 'MANDAR PARA INSTALAÇÃO';
+      });
+
       setListaLeads(apenasConvertidos);
+
+      if (typeof window !== 'undefined' && apenasConvertidos.length > 0) {
+        const ultimosNotificados = localStorage.getItem('v5_leads_notificados_campo');
+        const ultimosIds = ultimosNotificados ? JSON.parse(ultimosNotificados) : [];
+        
+        const novosLeadsParaNotificar = apenasConvertidos.filter(l => !ultimosIds.includes(l.id));
+
+        if (novosLeadsParaNotificar.length > 0) {
+          const novosIdsUnicos = [...new Set([...ultimosIds, ...novosLeadsParaNotificar.map(l => l.id)])];
+          localStorage.setItem('v5_leads_notificados_campo', JSON.stringify(novosIdsUnicos));
+        }
+      }
     };
 
-    atualizarLeadsCampo();
-    window.addEventListener('storage', atualizarLeadsCampo);
-    return () => window.removeEventListener('storage', atualizarLeadsCampo);
+    if (leads.length > 0) {
+      atualizarLeadsCampo();
+      window.addEventListener('storage', atualizarLeadsCampo);
+      return () => window.removeEventListener('storage', atualizarLeadsCampo);
+    } else {
+      setListaLeads([]);
+    }
   }, [leads]);
 
   const salvarNoStorage = (novaListaCompleta: any[]) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('v5_leads_operacional', JSON.stringify(novaListaCompleta));
     }
-    const apenasConvertidos = novaListaCompleta.filter((l: any) => String(l.etapa_funil).toUpperCase() === 'MANDAR PARA INSTALAÇÃO');
+    const apenasConvertidos = novaListaCompleta.filter((l: any) => {
+      const etapaDoLead = String(l.etapa_funil || '').trim().toUpperCase();
+      return etapaDoLead === 'MANDAR PARA INSTALAÇÃO';
+    });
     setListaLeads(apenasConvertidos);
   };
 
@@ -74,9 +117,18 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
   const [iconeCto, setIconeCto] = useState<any>(null);
   const [iconeCtoAlternativa, setIconeCtoAlternativa] = useState<any>(null);
   
-  const [leadSelecionado, setLeadSelecionado] = useState<any | null>(null);
-  const [ctosProximas, setCtosProximas] = useState<any[]>([]); // 🚀 Guarda as 3 caixas mais próximas
-  const [ctoSelecionadaIndex,setCtoSelecionadaIndex] = useState<number>(0); // 🚀 Permite alternar entre as 3 caixas
+  const [leadSelecionado, setLeadSelecionado] = useState<any | null>(() => {
+    if (typeof window !== 'undefined') {
+      const salvo = localStorage.getItem('v5_lead_em_foco');
+      if (salvo) {
+        try { return JSON.parse(salvo); } catch(e) {}
+      }
+    }
+    return null;
+  });
+
+  const [ctosProximas, setCtosProximas] = useState<any[]>([]); 
+  const [ctoSelecionadaIndex, setCtoSelecionadaIndex] = useState<number>(0); 
   
   const [exibirFormularioNaoFeita, setExibirFormularioNaoFeita] = useState(false);
   const [motivoNaoFeita, setMotivoNaoFeita] = useState('');
@@ -87,15 +139,35 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
   } | null>(null);
 
   const [minhaPosicao, setMinhaPosicao] = useState<[number, number] | null>(null);
-  const [alvoMapa, setAlvoMapa] = useState<[number, number] | null>(null);
+  const [alvoMapa, setAlvoMapa] = useState<[number, number] | null>(() => {
+    if (typeof window !== 'undefined') {
+      const salvo = localStorage.getItem('v5_lead_em_foco');
+      if (salvo) {
+        try {
+          const parsed = JSON.parse(salvo);
+          if (parsed.lat && parsed.lon) return [parsed.lat, parsed.lon];
+        } catch(e) {}
+      }
+    }
+    return null;
+  });
 
   const [menuAberto, setMenuAberto] = useState(false);
   const [modalListaAberto, setModalListaAberto] = useState(false);
 
   const [segurandoId, setSegurandoId] = useState<string | null>(null);
   const [progresso, setProgresso] = useState(0);
+  const [fecharPopupTrigger, setFecharPopupTrigger] = useState(0);
+  const [carregandoCaixas, setCarregandoCaixas] = useState(false);
+
   const timerRef = useRef<any>(null);
   const intervaloRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (leadSelecionado && ctos.length > 0 && ctosProximas.length === 0) {
+      ativarFocoLead(leadSelecionado, true);
+    }
+  }, [ctos]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -123,30 +195,29 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
       } catch (e) {}
     }
 
+    const commonIconOptions = { iconSize: [20, 20], iconAnchor: [10, 10] };
     const squareIconVerde = L.divIcon({
       className: 'custom-lead-marker-verde',
       html: `<div style="width: 20px; height: 20px; background-color: #10b981; border: 2px solid #ffffff; box-shadow: 0 0 12px #10b981, 0 0 20px #10b981; border-radius: 4px;"></div>`,
-      iconSize: [20, 20], iconAnchor: [10, 10]
+      ...commonIconOptions
     });
 
     const squareIconAmarelo = L.divIcon({
       className: 'custom-lead-marker-amarelo',
       html: `<div style="width: 20px; height: 20px; background-color: #f59e0b; border: 2px solid #ffffff; box-shadow: 0 0 12px #f59e0b, 0 0 20px #f59e0b; border-radius: 4px;"></div>`,
-      iconSize: [20, 20], iconAnchor: [10, 10]
+      ...commonIconOptions
     });
 
-    // Ícone da CTO Principal (Mais Próxima / Selecionada)
     const ctoIcon = L.divIcon({
       className: 'custom-cto-marker',
       html: `<div style="width: 26px; height: 26px; background-color: #3b82f6; border: 2px solid #ffffff; box-shadow: 0 0 14px #3b82f6; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; font-family: monospace;">T</div>`,
       iconSize: [26, 26], iconAnchor: [13, 13]
     });
 
-    // Ícone das CTOs Alternativas (2ª e 3ª mais próximas)
     const ctoAlternativaIcon = L.divIcon({
       className: 'custom-cto-alt-marker',
       html: `<div style="width: 20px; height: 20px; background-color: #8b5cf6; border: 2px solid #ffffff; box-shadow: 0 0 8px #8b5cf6; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 9px; font-family: monospace;">ALT</div>`,
-      iconSize: [20, 20], iconAnchor: [10, 10]
+      ...commonIconOptions
     });
 
     setIconeLeadVerde(squareIconVerde);
@@ -162,7 +233,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     setSegurandoId(lead.id);
     setProgresso(0);
 
-    const tempoTotal = 3000; // 3 segundos exatos
+    const tempoTotal = 3000; 
     const intervaloAtualizacao = 30;
     const incremento = (intervaloAtualizacao / tempoTotal) * 100;
 
@@ -179,6 +250,8 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     timerRef.current = setTimeout(() => {
       setSegurandoId(null);
       setProgresso(0);
+      
+      setFecharPopupTrigger(prev => prev + 1);
       ativarFocoLead(lead);
     }, tempoTotal);
   };
@@ -191,32 +264,63 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     setProgresso(0);
   };
 
-  // 🚀 CALCULA AS 3 CAIXAS CTO MAIS PRÓXIMAS DO LEAD SELECIONADO
-  const ativarFocoLead = (lead: any) => {
+  const ativarFocoLead = async (lead: any, apenasRestaurar = false) => {
     setLeadSelecionado(lead);
-    setRotaAtiva(null);
-    setExibirFormularioNaoFeita(false);
-    setMotivoNaoFeita('');
-    setModalListaAberto(false);
-    setMenuAberto(false);
-    setCtoSelecionadaIndex(0);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('v5_lead_em_foco', JSON.stringify(lead));
+    }
+
+    if (!apenasRestaurar) {
+      setRotaAtiva(null);
+      setExibirFormularioNaoFeita(false);
+      setMotivoNaoFeita('');
+      setModalListaAberto(false);
+      setMenuAberto(false);
+      setCtoSelecionadaIndex(0);
+    }
+
+    setCarregandoCaixas(true);
 
     if (lead.lat && lead.lon && ctos && ctos.length > 0) {
-      // Ordena todas as CTOs pela distância euclidiana até o lead
-      const ctosComDistancia = ctos
+      const preFiltro = ctos
         .filter((cto: any) => cto.lat && cto.lon)
         .map((cto: any) => {
-          const distancia = Math.hypot(cto.lat - lead.lat, cto.lon - lead.lon);
-          return { ...cto, distanciaEuclidiana: distancia };
+          const distLinhaReta = Math.hypot(cto.lat - lead.lat, cto.lon - lead.lon);
+          return { ...cto, distLinhaReta };
         })
-        .sort((a, b) => a.distanciaEuclidiana - b.distanciaEuclidiana);
+        .sort((a, b) => a.distLinhaReta - b.distLinhaReta)
+        .slice(0, 8);
 
-      // Seleciona as 3 mais próximas para o técnico poder alternar se necessário
-      const top3 = ctosComDistancia.slice(0, 3);
-      setCtosProximas(top3);
+      const ctosComDistanciaReal = await Promise.all(
+        preFiltro.map(async (cto) => {
+          try {
+            const url = `https://router.project-osrm.org/route/v1/foot/${lead.lon},${lead.lat};${cto.lon},${cto.lat}?overview=false`;
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            if (data && data.routes && data.routes.length > 0) {
+              return { ...cto, distanciaRealMetros: data.routes[0].distance };
+            }
+          } catch (e) {}
+          return { ...cto, distanciaRealMetros: cto.distLinhaReta * 111000 + 500 };
+        })
+      );
+
+      const ordenadasPorRua = ctosComDistanciaReal.sort((a, b) => a.distanciaRealMetros - b.distanciaRealMetros);
+      const top3Reais = ordenadasPorRua.slice(0, 3);
+      
+      setCtosProximas(top3Reais);
       setAlvoMapa([lead.lat, lead.lon]);
+      setCarregandoCaixas(false);
+
+      if (top3Reais.length > 0 && !apenasRestaurar) {
+        setTimeout(() => {
+          calcularFibraRuasComCtoIndex(0);
+        }, 100);
+      }
     } else {
       setCtosProximas([]);
+      setCarregandoCaixas(false);
     }
   };
 
@@ -248,18 +352,19 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     }
   };
 
-  const confirmarInstalacaoFeita = async () => {
+  const concluirAtendimentoNoSupabase = async (statusFinal: 'CONCLUIDA' | 'NÃO FEITA', motivo: string = '') => {
     if (!leadSelecionado) return;
-    
+
     try {
       await fetch(`/api/leads`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           id: leadSelecionado.id, 
-          status_instalacao: 'CONCLUIDA', 
-          etapa_funil: 'INSTALAÇÃO FEITA',
-          perfil: 'INSTALAÇÃO FEITA' 
+          status_instalacao: statusFinal, 
+          etapa_funil: statusFinal === 'CONCLUIDA' ? 'INSTALAÇÃO FEITA' : 'NÃO FEITA',
+          perfil: statusFinal === 'CONCLUIDA' ? 'INSTALAÇÃO FEITA' : 'NÃO FEITA',
+          motivo_pendencia: motivo || null
         })
       });
     } catch (e) {
@@ -267,30 +372,39 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     }
 
     let salvos = [];
-    try {
-      salvos = JSON.parse(localStorage.getItem('v5_leads_operacional') || '[]');
-    } catch(err) {}
+    try { salvos = JSON.parse(localStorage.getItem('v5_leads_operacional') || '[]'); } catch(err) {}
 
     const novaListaCompleta = leads.map((l: any) => {
       const encontrado = salvos.find((p: any) => p.id === l.id) || {};
       if (l.id === leadSelecionado.id) {
         return { 
-          ...l, 
-          ...encontrado,
-          statusOperacional: 'CONCLUIDA', 
-          status_instalacao: 'CONCLUIDA', 
-          etapa_funil: 'INSTALAÇÃO FEITA', 
-          motivo_pendencia: null 
+          ...l, ...encontrado,
+          statusOperacional: statusFinal === 'CONCLUIDA' ? 'CONCLUIDA' : 'NAO_FEITA', 
+          status_instalacao: statusFinal, 
+          etapa_funil: statusFinal === 'CONCLUIDA' ? 'INSTALAÇÃO FEITA' : 'NÃO FEITA', 
+          motivo_pendencia: motivo || null 
         };
       }
-      return { ...l, statusOperacional: encontrado.statusOperacional, status_instalacao: encontrado.status_instalacao, motivo_pendencia: encontrado.motivo_pendencia };
+      return { ...l, statusOperacional: encontrado.statusOperacional, status_instalacao: encontrado.status_instalacao, motivo_pendencia: encontrado.motivo_pendencia, etapa_funil: encontrado.etapa_funil };
     });
 
     salvarNoStorage(novaListaCompleta);
+
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('v5_lead_em_foco');
+    }
+
     setLeadSelecionado(null);
     setRotaAtiva(null);
     setCtosProximas([]);
-    alert("Instalação registrada como FEITA! Sincronizado com o Supabase e removida da fila.");
+    setExibirFormularioNaoFeita(false);
+    setMotivoNaoFeita('');
+
+    alert(statusFinal === 'CONCLUIDA' ? "Instalação registrada como CONCLUÍDA com sucesso!" : "Justificativa registrada com sucesso!");
+  };
+
+  const confirmarInstalacaoFeita = async () => {
+    await concluirAtendimentoNoSupabase('CONCLUIDA');
   };
 
   const enviarMotivoNaoFeita = async (e: React.FormEvent) => {
@@ -300,54 +414,9 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
       alert("Por favor, informe o motivo pelo qual a instalação não foi realizada.");
       return;
     }
-
-    try {
-      await fetch(`/api/leads`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          id: leadSelecionado.id, 
-          status_instalacao: 'NÃO FEITA', 
-          motivo_pendencia: motivoNaoFeita,
-          etapa_funil: 'NÃO FEITA',
-          perfil: 'NÃO FEITA' 
-        })
-      });
-    } catch (e) {
-      console.error("Erro ao sincronizar com Supabase:", e);
-    }
-
-    let salvos = [];
-    try {
-      salvos = JSON.parse(localStorage.getItem('v5_leads_operacional') || '[]');
-    } catch(err) {}
-
-    const novaListaCompleta = leads.map((l: any) => {
-      const encontrado = salvos.find((p: any) => p.id === l.id) || {};
-      if (l.id === leadSelecionado.id) {
-        return { 
-          ...l, 
-          ...encontrado,
-          statusOperacional: 'NAO_FEITA', 
-          status_instalacao: 'NÃO FEITA', 
-          motivo_pendencia: motivoNaoFeita,
-          etapa_funil: 'NÃO FEITA'
-        };
-      }
-      return { ...l, statusOperacional: encontrado.statusOperacional, status_instalacao: encontrado.status_instalacao, motivo_pendencia: encontrado.motivo_pendencia };
-    });
-
-    salvarNoStorage(novaListaCompleta);
-
-    alert(`Justificativa registrada: "${motivoNaoFeita}". Salvo no Supabase como NÃO FEITA.`);
-    setExibirFormularioNaoFeita(false);
-    setMotivoNaoFeita('');
-    setLeadSelecionado(null);
-    setRotaAtiva(null);
-    setCtosProximas([]);
+    await concluirAtendimentoNoSupabase('NÃO FEITA', motivoNaoFeita);
   };
 
-  // 🚀 CALCULA A ROTA USANDO A CTO SELECIONADA ATUALMENTE (DENTRE AS 3 PRÓXIMAS)
   const calcularFibraRuasComCtoIndex = async (indexParaUsar: number) => {
     if (!leadSelecionado) return;
     if (!ctosProximas || ctosProximas.length === 0) {
@@ -401,16 +470,12 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
           setMinhaPosicao(pos);
           setAlvoMapa(pos);
         },
-        () => {
-          alert("Não foi possível obter sua localização atual.");
-        }
+        () => { alert("Não foi possível obter sua localização atual."); }
       );
-    } else {
-      alert("Geolocalização não é suportada pelo seu navegador.");
-    }
+    } else { alert("Geolocalização não é suportada pelo seu navegador."); }
   };
 
-  if (!mounted || !centroMapa) {
+  if (!mounted || !centroMapa || !MapContainer) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', backgroundColor: '#0a0a0a', color: '#10b981', fontFamily: 'monospace', fontSize: '12px' }}>
         Carregando mapa tático...
@@ -436,10 +501,10 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         />
 
         <CentralizadorMapa targetPos={alvoMapa} />
+        <ManipuladorEventosMapa fecharPopupTrigger={fecharPopupTrigger} />
 
-        {/* 🚀 EXIBIÇÃO INTELIGENTE DE CTOs: Apenas as 3 mais próximas aparecem se houver lead selecionado */}
         {leadSelecionado && ctosProximas.map((cto: any, idx: number) => {
-          if (cto.lat && cto.lon) {
+          if (cto.lat && cto.lon && Marker) {
             const ePrincipal = idx === ctoSelecionadaIndex;
             const marcadorIcone = ePrincipal ? iconeCto : iconeCtoAlternativa;
 
@@ -467,7 +532,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
           return null;
         })}
 
-        {rotaAtiva && (
+        {rotaAtiva && Polyline && (
           <Polyline 
             positions={rotaAtiva.coordenadas} 
             pathOptions={{ color: '#10b981', weight: 4, opacity: 0.9, dashArray: '8, 8' }} 
@@ -475,7 +540,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         )}
 
         {leadsExibidosNoMapa.map((lead: any) => {
-          if (lead.lat && lead.lon) {
+          if (lead.lat && lead.lon && Marker) {
             const estaSegurando = segurandoId === lead.id;
             const iconeAtivo = (lead.statusOperacional === 'PENDENTE_ANALISE' || lead.status_instalacao === 'PENDENTE' || lead.status_instalacao === 'NÃO FEITA') ? iconeLeadAmarelo : iconeLeadVerde;
 
@@ -504,48 +569,39 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                       </div>
                     )}
 
-                    <div style={{ position: 'relative', width: '100%', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#064e3b', border: '1px solid #059669' }}>
-                      <div 
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          height: '100%',
-                          width: estaSegurando ? `${progresso}%` : '0%',
-                          backgroundColor: '#10b981',
-                          transition: 'width 0.03s linear',
-                          zIndex: 1
-                        }}
-                      />
-                      <button
-                        onMouseDown={(e) => iniciarToqueLongo(e, lead)}
-                        onMouseUp={(e) => cancelarToqueLongo(e)}
-                        onMouseLeave={(e) => cancelarToqueLongo(e)}
-                        onTouchStart={(e) => iniciarToqueLongo(e, lead)}
-                        onTouchEnd={(e) => cancelarToqueLongo(e)}
-                        onContextMenu={(e) => e.preventDefault()}
-                        style={{ 
-                          width: '100%', 
-                          backgroundColor: 'transparent', 
-                          border: 'none', 
-                          color: '#fff', 
-                          padding: '9px', 
-                          fontSize: '11px', 
-                          fontFamily: 'monospace', 
-                          fontWeight: 'bold', 
-                          cursor: 'pointer', 
-                          textAlign: 'center', 
-                          textTransform: 'uppercase', 
-                          position: 'relative', 
-                          zIndex: 2, 
-                          userSelect: 'none',
-                          outline: 'none',
-                          WebkitTouchCallout: 'none'
-                        }}
-                      >
-                        {estaSegurando ? 'Ativando Foco...' : 'Segure para Instalar'}
-                      </button>
-                    </div>
+                    {carregandoCaixas ? (
+                      <div style={{ textAlign: 'center', color: '#10b981', fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px' }}>
+                        <LoaderCircle className="w-4 h-4 animate-spin" /> Calculando Rotas Reais...
+                      </div>
+                    ) : (
+                      <div style={{ position: 'relative', width: '100%', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#064e3b', border: '1px solid #059669' }}>
+                        <div 
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            height: '100%',
+                            width: estaSegurando ? `${progresso}%` : '0%',
+                            backgroundColor: '#10b981',
+                            transition: 'width 0.03s linear',
+                            zIndex: 1
+                          }}
+                        />
+                        <button
+                          onMouseDown={(e) => iniciarToqueLongo(e, lead)}
+                          onMouseUp={(e) => cancelarToqueLongo(e)}
+                          onMouseLeave={(e) => cancelarToqueLongo(e)}
+                          onTouchStart={(e) => iniciarToqueLongo(e, lead)}
+                          onTouchEnd={(e) => cancelarToqueLongo(e)}
+                          onContextMenu={(e) => e.preventDefault()}
+                          style={{ 
+                            width: '100%', backgroundColor: 'transparent', border: 'none', color: '#fff', padding: '9px', fontSize: '11px', fontFamily: 'monospace', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center', textTransform: 'uppercase', position: 'relative', zIndex: 2, userSelect: 'none', outline: 'none', WebkitTouchCallout: 'none'
+                          }}
+                        >
+                          {estaSegurando ? 'Ativando Foco...' : 'Segure para Instalar'}
+                        </button>
+                      </div>
+                    )}
                     <span style={{ display: 'block', textAlign: 'center', fontSize: '9px', color: '#a1a1aa', marginTop: '4px', fontFamily: 'monospace' }}>
                       Segure 3s para carregar as 3 caixas próximas
                     </span>
@@ -658,22 +714,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                           onTouchEnd={(e) => cancelarToqueLongo(e)}
                           onContextMenu={(e) => e.preventDefault()}
                           style={{ 
-                            width: '100%', 
-                            backgroundColor: 'transparent', 
-                            border: 'none', 
-                            color: '#fff', 
-                            padding: '10px', 
-                            fontSize: '11px', 
-                            fontFamily: 'monospace', 
-                            fontWeight: 'bold', 
-                            cursor: 'pointer', 
-                            textAlign: 'center', 
-                            textTransform: 'uppercase', 
-                            position: 'relative', 
-                            zIndex: 2, 
-                            userSelect: 'none',
-                            outline: 'none',
-                            WebkitTouchCallout: 'none'
+                            width: '100%', backgroundColor: 'transparent', border: 'none', color: '#fff', padding: '10px', fontSize: '11px', fontFamily: 'monospace', fontWeight: 'bold', cursor: 'pointer', textAlign: 'center', textTransform: 'uppercase', position: 'relative', zIndex: 2, userSelect: 'none', outline: 'none', WebkitTouchCallout: 'none'
                           }}
                         >
                           {estaSegurandoLista ? 'Ativando Foco...' : 'Instalar'}
@@ -697,7 +738,13 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
               <p className="text-xs text-zinc-400 font-sans mt-0.5">🏠 {leadSelecionado.endereco || 'Endereço não informado'}</p>
             </div>
             <button 
-              onClick={() => { setLeadSelecionado(null); setRotaAtiva(null); setCtosProximas([]); setExibirFormularioNaoFeita(false); }}
+              onClick={() => { 
+                setLeadSelecionado(null); 
+                if (typeof window !== 'undefined') localStorage.removeItem('v5_lead_em_foco');
+                setRotaAtiva(null); 
+                setCtosProximas([]); 
+                setExibirFormularioNaoFeita(false); 
+              }}
               className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
               title="Sair do modo foco"
             >
@@ -739,7 +786,6 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
             </form>
           ) : (
             <>
-              {/* 🚀 PAINEL DE SELEÇÃO RÁPIDA ENTRE AS CAIXAS PRÓXIMAS */}
               {ctosProximas.length > 0 && (
                 <div className="my-2 py-2 border-y border-zinc-800">
                   <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-1.5">
@@ -758,7 +804,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                         }`}
                       >
                         <div className="truncate font-bold">#{ctoIdx + 1} {ctoAlt.identificacao}</div>
-                        <div className="text-[9px] opacity-75">~{Math.round(ctoAlt.distanciaEuclidiana * 111000)}m</div>
+                        <div className="text-[9px] opacity-75">~{Math.round(ctoAlt.distanciaRealMetros)}m rua</div>
                       </button>
                     ))}
                   </div>

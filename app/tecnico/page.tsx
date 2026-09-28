@@ -1,28 +1,35 @@
 // ================================================================================
-// 📋 ROTA DO TÉCNICO (PRINCIPAL) - V5 CLOUD
+// 📋 ROTA DO TÉCNICO (PRINCIPAL) - V5 CLOUD (BLINDADA E SEM BUGS DE LOGIN)
 // app/tecnico/page.tsx
 // ================================================================================
 
 "use client"
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { Wrench, RefreshCw, X, AlertTriangle, CheckCircle2, XCircle, Navigation } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
+import { Wrench, RefreshCw, X, AlertTriangle, CheckCircle2, XCircle, LogOut } from 'lucide-react';
 import { useSettings, SettingsProvider } from '@/context/SettingsContext';
 import { useApp, AppProvider } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext'; // 🚀 IMPORTAMOS O CONTEXTO DE AUTENTICAÇÃO
 import { lerOperacional, salvarOperacional } from '@/lib/operacional';
 
 const Mapa = dynamic(() => import('./Mapa'), { 
   ssr: false,
   loading: () => (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#10b981', fontFamily: 'monospace', fontSize: '12px' }}>
-      Sincronizando coordenadas da rede...
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#10b981', fontFamily: 'monospace', fontSize: '12px', backgroundColor: '#0a0a0a' }}>
+      Sincronizando coordenadas da rede tática...
     </div>
   )
 });
 
 function PainelTecnicoMobile() {
+  const router = useRouter();
   const settings = useSettings() as any;
   const { leads, recarregarLeads } = useApp() as any;
+  
+  // 🚀 PUXAMOS O OPERADOR E O ESTADO DE CARREGAMENTO DO TEU CONTEXTO
+  const { operador, carregando: carregandoAuth } = useAuth(); 
   
   const [ctosFinais, setCtosFinais] = useState<any[]>([]);
   const [leadsFinais, setLeadsFinais] = useState<any[]>([]);
@@ -32,16 +39,32 @@ function PainelTecnicoMobile() {
   const [mapaPronto, setMapaPronto] = useState(false);
 
   const [mostrarAlertaTecnico, setMostrarAlertaTecnico] = useState(false);
-  const totalLeadsAnteriorRef = useRef<number>(0);
-  const isInitialMount = useRef<boolean>(true);
-
   const [instalacaoAtiva, setInstalacaoAtiva] = useState<any>(null);
+
+  const [sessaoConfirmada, setSessaoConfirmada] = useState(false);
+
+  // 🛡️ GUARDA-COSTAS INTELIGENTE: Espera o sistema terminar o login antes de agir
+  useEffect(() => {
+    // 1. Se ainda estiver a processar o login, não faz nada (espera)
+    if (carregandoAuth) return;
+
+    // 2. Terminou de carregar e não encontrou um operador logado? Vai para o login!
+    if (!operador) {
+      router.replace('/login');
+      return;
+    }
+
+    // 3. Tudo certo, utilizador válido. Liberta a tela!
+    setSessaoConfirmada(true);
+  }, [carregandoAuth, operador, router]);
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
   const carregarDados = async () => {
+    if (!sessaoConfirmada) return; 
+
     const ctosNuvem = settings?.ctos;
     const leadsNuvem = leads;
 
@@ -75,13 +98,13 @@ function PainelTecnicoMobile() {
 
     const listaLeads = (leadsParaUsar || []).map((l: any) => {
       const encontrado = salvosOperacionais.find((p: any) => p.id === l.id);
-      // 🚀 CORREÇÃO CRÍTICA: Mescla apenas status operacionais, nunca sobreescreve a etapa do PC!
       if (encontrado) {
         return {
           ...l,
           statusOperacional: encontrado.statusOperacional || l.statusOperacional,
           status_instalacao: encontrado.status_instalacao || l.status_instalacao,
-          motivo_pendencia: encontrado.motivo_pendencia || l.motivo_pendencia
+          motivo_pendencia: encontrado.motivo_pendencia || l.motivo_pendencia,
+          etapa_funil: encontrado.etapa_funil || l.etapa_funil
         };
       }
       return l;
@@ -92,9 +115,26 @@ function PainelTecnicoMobile() {
       
       const jaConcluido = item.status_instalacao === 'CONCLUIDA' || item.statusOperacional === 'CONCLUIDA';
       const naoConvertido = String(item.etapa_funil).toUpperCase() === 'NAO CONVERTIDO' || String(item.etapa_funil).toUpperCase() === 'NÃO CONVERTIDO';
+      const enviadoParaInstalacao = String(item.etapa_funil).toUpperCase() === 'MANDAR PARA INSTALAÇÃO';
 
-      return !jaConcluido && !naoConvertido;
+      return !jaConcluido && !naoConvertido && enviadoParaInstalacao;
     });
+
+    if (typeof window !== 'undefined') {
+      try {
+        const idsConhecidosStr = localStorage.getItem('v5_ids_conhecidos_tecnico');
+        const idsConhecidos: string[] = idsConhecidosStr ? JSON.parse(idsConhecidosStr) : [];
+        
+        const temNovoLeadReal = apenasAtivosParaInstalacao.some((l: any) => !idsConhecidos.includes(String(l.id)));
+
+        if (temNovoLeadReal && idsConhecidos.length > 0) {
+          setMostrarAlertaTecnico(true);
+        }
+
+        const novosIds = apenasAtivosParaInstalacao.map((l: any) => String(l.id));
+        localStorage.setItem('v5_ids_conhecidos_tecnico', JSON.stringify(novosIds));
+      } catch (e) {}
+    }
 
     const idSalvoNaMemoria = localStorage.getItem('v5_instalacao_em_progresso');
     if (idSalvoNaMemoria) {
@@ -104,20 +144,12 @@ function PainelTecnicoMobile() {
       }
     }
 
-    if (isInitialMount.current) {
-      totalLeadsAnteriorRef.current = apenasAtivosParaInstalacao.length;
-      isInitialMount.current = false;
-    } else if (apenasAtivosParaInstalacao.length > totalLeadsAnteriorRef.current) {
-      setMostrarAlertaTecnico(true);
-    }
-    totalLeadsAnteriorRef.current = apenasAtivosParaInstalacao.length;
-
     setCtosFinais(ctosParaUsar);
     setLeadsFinais(apenasAtivosParaInstalacao);
   };
 
   useEffect(() => {
-    if (!isMounted) return; 
+    if (!isMounted || !sessaoConfirmada) return; 
 
     carregarDados();
 
@@ -131,7 +163,7 @@ function PainelTecnicoMobile() {
     }, 4000); 
 
     return () => clearInterval(intervaloAutomatico);
-  }, [settings?.ctos, leads, recarregarLeads, isMounted]);
+  }, [settings?.ctos, leads, recarregarLeads, isMounted, sessaoConfirmada]);
 
   useEffect(() => {
     if (!isMounted) return;
@@ -178,7 +210,30 @@ function PainelTecnicoMobile() {
     carregarDados();
   };
 
-  if (!isMounted) return null; 
+  // 🚀 FUNÇÃO PARA O TÉCNICO SAIR DA CONTA
+  const fazerLogout = async () => {
+    const confirmou = window.confirm("Deseja realmente sair da conta?");
+    if (!confirmou) return;
+
+    try {
+      await supabase.auth.signOut();
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = '/login';
+    } catch (e) {
+      console.error("Erro ao fazer logout:", e);
+      window.location.href = '/login';
+    }
+  };
+
+  // 🚨 TELA DE BLOQUEIO DE PROTEÇÃO: Ninguém acede pela URL!
+  if (carregandoAuth || !isMounted || !sessaoConfirmada) {
+    return (
+      <div style={{ height: '100vh', width: '100vw', backgroundColor: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', fontFamily: 'monospace', fontSize: '12px' }}>
+        Autenticando acesso seguro...
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: '#0a0a0a', zIndex: 99999, display: 'flex', flexDirection: 'column' }}>
@@ -233,34 +288,40 @@ function PainelTecnicoMobile() {
                 </button>
               </div>
               <h4 style={{ fontSize: '11px', fontWeight: 'bold', fontFamily: 'monospace', color: '#fff', margin: '2px 0 0 0' }}>Nova Instalação Disponível!</h4>
-              <p style={{ fontSize: '10px', color: '#a1a1aa', fontFamily: 'monospace', margin: '2px 0 0 0' }}>Um novo cliente foi cadastrado para atendimento.</p>
+              <p style={{ fontSize: '10px', color: '#a1a1aa', fontFamily: 'monospace', margin: '2px 0 0 0' }}>Um novo cliente foi encaminhado para atendimento.</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* HEADER SIMPLES */}
+      {/* HEADER TÉCNICO COM BOTÃO DE SAIR */}
       <div style={{ height: '50px', backgroundColor: '#000', borderBottom: '1px solid #27272a', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Wrench size={16} color="#10b981" />
           <h1 style={{ fontSize: '10px', fontWeight: 'bold', color: '#fff', margin: 0, fontFamily: 'monospace', textTransform: 'uppercase' }}>
-            V5 Técnico - Campo (API Synced)
+            V5 Técnico - Campo
           </h1>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '9px', fontFamily: 'monospace', backgroundColor: '#18181b', border: '1px solid #27272a', padding: '4px 6px', borderRadius: '6px', color: '#60a5fa', fontWeight: 'bold' }}>
-            {ctosFinais.length} CTO
-          </span>
           <span style={{ fontSize: '9px', fontFamily: 'monospace', backgroundColor: '#18181b', border: '1px solid #27272a', padding: '4px 6px', borderRadius: '6px', color: '#10b981', fontWeight: 'bold' }}>
-            {leadsFinais.filter((l: any) => String(l.etapa_funil).toUpperCase() === 'MANDAR PARA INSTALAÇÃO').length} Instalações
+            {leadsFinais.length} Instalações
           </span>
+
           <button 
             onClick={carregarDados}
             style={{ background: '#27272a', border: 'none', borderRadius: '6px', padding: '6px', color: '#10b981', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             title="Atualizar dados"
           >
             <RefreshCw size={12} />
+          </button>
+
+          <button 
+            onClick={fazerLogout}
+            style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', padding: '6px', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: '4px' }}
+            title="Sair da Conta"
+          >
+            <LogOut size={12} />
           </button>
         </div>
       </div>
@@ -274,7 +335,7 @@ function PainelTecnicoMobile() {
         {mapaPronto && centroMapa ? (
           <Mapa centroMapa={centroMapa} ctos={ctosFinais} leads={leadsFinais} />
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#10b981', fontFamily: 'monospace', fontSize: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#10b981', fontFamily: 'monospace', fontSize: '12px', backgroundColor: '#0a0a0a' }}>
             Montando mapa tático offline...
           </div>
         )}

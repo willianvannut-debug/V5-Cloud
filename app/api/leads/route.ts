@@ -24,6 +24,9 @@ const JWT_SECRET = new TextEncoder().encode(
 
 const PRICE_ID_EXCEDENTE_UNICO = process.env.STRIPE_PRICE_EXCEDENTE_UNICO || 'price_1UIHCPQmvE3xCUG9mcjS3n2E';
 
+// 🚀 Memória temporária para Rate Limit por IP (Anti-Spam / Anti-Flood)
+const ipRequests = new Map<string, { count: number; timestamp: number }>();
+
 function sanitizarTexto(str: any): string {
   if (typeof str !== 'string') return '';
   return str.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '').trim();
@@ -31,14 +34,28 @@ function sanitizarTexto(str: any): string {
 
 function formatarLead(l: any) {
   const perfilUpper = String(l.perfil || '').toUpperCase();
-  const temCobertura = perfilUpper === 'COM COBERTURA';
+  
+  // 🛡️ CORREÇÃO DEFINITIVA DE COBERTURA:
+  // Um lead tem cobertura se o perfil explícito indicar ou se pertencer a qualquer etapa válida do funil comercial 
+  // (NOVO, EM CONTATO, AGENDADO, MANDAR PARA INSTALAÇÃO) exceto se for explicitamente NAO CONVERTIDO ou SEM COBERTURA.
+  const temCobertura = 
+    perfilUpper === 'COM COBERTURA' || 
+    perfilUpper === 'LIBERADO P/ VENDA' ||
+    perfilUpper === 'NOVO' || 
+    perfilUpper === 'EM CONTATO' || 
+    perfilUpper === 'AGENDADO' || 
+    perfilUpper === 'MANDAR PARA INSTALAÇÃO';
+
+  const etapaFunilReal = ['COM COBERTURA', 'SEM COBERTURA', 'LIBERADO P/ VENDA'].includes(perfilUpper) 
+    ? 'NOVO' 
+    : (l.perfil || 'NOVO');
 
   return {
     ...l,
     telefone: l.whatsapp || '',
     endereco: l.numero || '',
     status: temCobertura ? 'COM COBERTURA' : 'SEM COBERTURA',
-    etapa_funil: l.perfil || 'NOVO',
+    etapa_funil: etapaFunilReal,
     cto: l.cto || 'CTO-01', 
     lat: l.lat !== null && l.lat !== undefined ? Number(l.lat) : undefined,
     lon: l.lon !== null && l.lon !== undefined ? Number(l.lon) : undefined,
@@ -147,6 +164,31 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // 🚀 1. RATE LIMITING POR IP (Anti-Spam / Anti-Flood)
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const ip = forwardedFor ? forwardedFor.split(',')[0] : '127.0.0.1';
+    
+    const agora = Date.now();
+    const janelaTempo = 60 * 1000; // 1 minuto
+    const limiteMaximo = 5; // Máximo 5 requisições por minuto por IP
+
+    const registroIp = ipRequests.get(ip);
+    if (registroIp) {
+      if (agora - registroIp.timestamp < janelaTempo) {
+        if (registroIp.count >= limiteMaximo) {
+          return NextResponse.json(
+            { error: 'Muitas consultas realizadas em pouco tempo. Aguarde um momento antes de tentar novamente.' },
+            { status: 429 }
+          );
+        }
+        registroIp.count++;
+      } else {
+        ipRequests.set(ip, { count: 1, timestamp: agora });
+      }
+    } else {
+      ipRequests.set(ip, { count: 1, timestamp: agora });
+    }
+
     const auth = await validarAutorizacao(request);
     if (!auth.autorizado) {
       await registrarLog('desconhecido', 'ACESSO_CRIAR_LEAD_NAO_AUTORIZADO', 'WARNING', 'Tentativa de criar lead sem autorização', request, { metodo: 'POST' });
@@ -168,6 +210,8 @@ export async function POST(request: NextRequest) {
       await registrarLog(auth.emailOperador || 'sistema', 'LEADS_LIMPOS', 'WARNING', 'Todos os leads foram removidos', request, { empresaId: empresaIdAlvo });
       return NextResponse.json({ success: true, leads: [] });
     }
+
+    const telefoneBruto = sanitizarTexto(body.telefone || body.whatsapp || '');
 
     if (empresaIdAlvo) {
       const { data: dadosEmpresa } = await supabase
@@ -223,7 +267,7 @@ export async function POST(request: NextRequest) {
     const novoLeadBanco = {
       empresa_id: empresaIdAlvo || null,
       nome: sanitizarTexto(body.nome || 'Cliente'),
-      whatsapp: sanitizarTexto(body.telefone || body.whatsapp || ''),
+      whatsapp: telefoneBruto,
       cep: sanitizarTexto(body.cep || ''),
       numero: sanitizarTexto(body.endereco || body.numero || ''),
       perfil: sanitizarTexto(body.etapa_funil || body.perfil || 'NOVO'),

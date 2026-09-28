@@ -14,17 +14,16 @@ import {
   TrendingUp,
   UserCheck,
   UserPlus,
-  Lock,
-  Rocket,
   AlertTriangle
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { PLANOS } from '@/lib/planLimites';
 
 export default function DashboardPage() {
   const router = useRouter();
+  
+  // 🚀 PUXAMOS O OPERADOR E O ESTADO DE CARREGAMENTO DO TEU CONTEXTO
   const { operador, empresa, carregando: carregandoAuth } = useAuth();
   const { leads = [], carregarLeads } = useApp() || {};
 
@@ -33,16 +32,31 @@ export default function DashboardPage() {
   // Estados de Plano e Status Financeiro
   const [statusAssinatura, setStatusAssinatura] = useState<string>('ativa');
   const [planoAtual, setPlanoAtual] = useState<string>('essencial');
-
-  // 🚀 NOVO: Estado para armazenar os funcionários reais
   const [funcionarios, setFuncionarios] = useState<{id: string, nome: string, role?: string}[]>([]);
 
-  // 🛡️ Proteção de Rota
+  // 🚀 ESTADO PARA LIBERAR A TELA
+  const [sessaoConfirmada, setSessaoConfirmada] = useState(false);
+
+  // 🛡️ GUARDA-COSTAS PACIENTE: Espera o Auth carregar antes de avaliar
   useEffect(() => {
-    if (!carregandoAuth && operador && operador.role === 'atendente') {
-      router.push('/dashboard/leads');
+    // 1. Se ainda estiver a processar o login, não faz nada (espera)
+    if (carregandoAuth) return;
+
+    // 2. Terminou de carregar e não encontrou um operador logado? Vai para o login!
+    if (!operador) {
+      router.replace('/login');
+      return;
     }
-  }, [operador, carregandoAuth, router]);
+
+    // 3. Se for atendente, não pode ver o dashboard gerencial, vai para a tela de leads
+    if (operador.role === 'atendente') {
+      router.replace('/dashboard/leads');
+      return;
+    }
+
+    // 4. Tudo certo, utilizador válido. Liberta a tela!
+    setSessaoConfirmada(true);
+  }, [carregandoAuth, operador, router]);
 
   // 🚀 DETECÇÃO RETORNO STRIPE
   useEffect(() => {
@@ -87,12 +101,12 @@ export default function DashboardPage() {
   // 🚀 BUSCA REAL: PLANO, STATUS E FUNCIONÁRIOS
   useEffect(() => {
     async function sincronizarDadosReais() {
-      if (!supabase) return;
+      // Só busca os dados se a sessão já estiver confirmada
+      if (!supabase || !sessaoConfirmada) return;
       try {
         const idDaEmpresa = operador?.empresaId || operador?.empresa_id;
         if (!idDaEmpresa) return;
 
-        // 1. Busca dados da empresa (plano e status)
         const { data: dadosEmpresa, error: erroEmpresa } = await supabase
           .from('empresas')
           .select('plano, status_assinatura')
@@ -104,12 +118,10 @@ export default function DashboardPage() {
           if (dadosEmpresa.status_assinatura) setStatusAssinatura(String(dadosEmpresa.status_assinatura).toLowerCase().trim());
         }
 
-        // 2. 🚀 BUSCA FUNCIONÁRIOS DINÂMICOS
-        // ATENÇÃO: Confirma se a tua tabela se chama 'operadores' (ou 'usuarios')
         const { data: dadosEquipe, error: erroEquipe } = await supabase
-          .from('operadores') // <--- MUDA AQUI SE A TABELA FOR OUTRA
+          .from('operadores')
           .select('id, nome, role')
-          .eq('empresa_id', idDaEmpresa); // Usa 'empresa_id' ou 'empresaId' dependendo da tua base
+          .eq('empresa_id', idDaEmpresa); 
 
         if (!erroEquipe && dadosEquipe) {
           setFuncionarios(dadosEquipe);
@@ -120,15 +132,20 @@ export default function DashboardPage() {
       }
     }
     sincronizarDadosReais();
-  }, [operador]);
+  }, [operador, sessaoConfirmada]);
 
   const [busca, setBusca] = useState('');
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [funcionarioSelecionado, setFuncionarioSelecionado] = useState('');
   const [mensagemSucesso, setMensagemSucesso] = useState('');
 
-  if (carregandoAuth || (operador && operador.role === 'atendente')) {
-    return null;
+  // 🚨 BLOQUEIO DE TELA ATÉ CONFIRMAR LOGIN (Evita flash e corrida de dados)
+  if (carregandoAuth || !sessaoConfirmada) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-emerald-400 font-mono text-xs">
+        Autenticando acesso seguro...
+      </div>
+    );
   }
 
   // 🚨 BLOQUEIO DE INADIMPLÊNCIA
@@ -156,12 +173,7 @@ export default function DashboardPage() {
     );
   }
 
-  const configPlanoAtual = PLANOS[planoAtual] || PLANOS['essencial'];
-  const limiteLeadsMensal = configPlanoAtual?.max_leads || 100;
-  
   const totalLeadsCadastrados = Array.isArray(leads) ? leads.length : 0;
-  const bateuLimiteLeads = totalLeadsCadastrados >= limiteLeadsMensal;
-  const porcentagemUsoLeads = Math.min((totalLeadsCadastrados / limiteLeadsMensal) * 100, 100);
 
   const dataHojeObj = new Date();
   const diaHojeStr = String(dataHojeObj.getDate()).padStart(2, '0');
@@ -253,7 +265,6 @@ export default function DashboardPage() {
 
     try {
       for (const id of selecionados) {
-        // 🚀 CORREÇÃO: Agora grava o nome do atendente também no banco!
         await supabase
           .from('leads')
           .update({ 
@@ -326,32 +337,6 @@ export default function DashboardPage() {
           <CheckCircle2 className="w-4 h-4" /> {mensagemSucesso}
         </div>
       )}
-
-      {/* CARD FRANQUIA DE LEADS */}
-      <Card className={`border backdrop-blur transition-all ${bateuLimiteLeads ? 'border-red-500/30 bg-red-500/5' : 'border-zinc-900 bg-zinc-900/40'}`}>
-        <CardContent className="p-6 space-y-3">
-          <div className="flex justify-between text-sm font-bold">
-            <span className="text-zinc-300 font-mono uppercase tracking-widest text-xs flex items-center gap-2">
-               Franquia de Leads (Plano {planoAtual.toUpperCase()})
-            </span>
-            <span className={bateuLimiteLeads ? "text-red-400 font-mono" : "text-emerald-400 font-mono"}>
-              {totalLeadsCadastrados} / {limiteLeadsMensal} Leads Registrados
-            </span>
-          </div>
-          
-          <div className="w-full bg-black rounded-full h-2.5 overflow-hidden border border-zinc-800">
-            <div 
-              className={`h-full rounded-full transition-all duration-700 ${bateuLimiteLeads ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]'}`} 
-              style={{ width: `${porcentagemUsoLeads}%` }}
-            ></div>
-          </div>
-          {bateuLimiteLeads && (
-            <p className="text-red-400 text-[11px] font-mono uppercase font-bold pt-1">
-              ⚠️ O limite de leads do seu plano foi atingido. Novas consultas estão bloqueadas até um upgrade.
-            </p>
-          )}
-        </CardContent>
-      </Card>
 
       {/* DASHBOARD GRIDS E GRÁFICOS */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch">
@@ -490,22 +475,6 @@ export default function DashboardPage() {
       </div>
 
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur relative overflow-hidden">
-        {bateuLimiteLeads && (
-          <div className="absolute inset-0 z-20 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
-            <Lock className="w-10 h-10 text-red-400 mb-3 animate-pulse" />
-            <h3 className="text-white font-bold text-lg font-mono mb-1">Franquia de Leads Esgotada</h3>
-            <p className="text-zinc-400 text-xs mb-5 max-w-md font-mono leading-relaxed">
-              Você atingiu o limite de leads do seu plano atual ({limiteLeadsMensal} registros). Faça um upgrade para liberar novas consultas e expandir sua base.
-            </p>
-            <button 
-              onClick={() => router.push('/planos')}
-              className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs font-mono rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 cursor-pointer"
-            >
-              <Rocket className="w-4 h-4" /> Fazer Upgrade de Plano
-            </button>
-          </div>
-        )}
-
         <div className="p-4 border-b border-zinc-900 text-xs font-mono text-zinc-400 uppercase tracking-wider flex justify-between items-center">
           <span>Registros da Operação ({leadsFiltrados.length})</span>
           {selecionados.length > 0 && (

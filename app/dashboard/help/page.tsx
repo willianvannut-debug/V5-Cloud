@@ -1,13 +1,12 @@
 //app/dashboard/help/page.tsx
 
 "use client"
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   HelpCircle, 
   Search, 
   BookOpen, 
   Network, 
-  PhoneCall, 
   ShieldCheck, 
   Terminal, 
   ChevronDown, 
@@ -20,22 +19,97 @@ import {
   Filter,
   Navigation,
   Plus,
-  BarChart3 // ADICIONADO AQUI
+  BarChart3,
+  MessageSquarePlus,
+  Send
 } from 'lucide-react';
-import { useSettings } from '@/context/SettingsContext';
+import { useAuth } from '@/context/AuthContext';
+
+const CATEGORIAS_TICKET = [
+  { valor: 'tecnico', label: 'Suporte Técnico' },
+  { valor: 'financeiro', label: 'Financeiro' },
+  { valor: 'comercial_leads', label: 'Comercial / Leads' },
+  { valor: 'duvida', label: 'Dúvida Geral' },
+  { valor: 'sugestao', label: 'Sugestão de Melhoria' },
+  { valor: 'bug', label: 'Erro / Bug no Sistema' },
+  { valor: 'outro', label: 'Outro' }
+];
 
 export default function HelpPage() {
-  const settings = useSettings();
-  const nomeProvedor = settings?.nomeProvedor || 'V5 Fibra';
-  const telefoneProvedor = settings?.telefone || '(61) 998798859';
-  const emailProvedor = settings?.emailEmpresa || 'contato@v5isp.com.br';
-  const cidadeEmpresa = settings?.cidadeEmpresa || 'Águas lindas - GO';
+  const { operador } = useAuth();
 
   const [termoBusca, setTermoBusca] = useState('');
   const [faqAberto, setFaqAberto] = useState<number | null>(null);
 
+  // Estados dos Tickets
+  const [assuntoTicket, setAssuntoTicket] = useState('');
+  const [mensagemTicket, setMensagemTicket] = useState('');
+  const [categoriaTicket, setCategoriaTicket] = useState('tecnico');
+  const [enviandoTicket, setEnviandoTicket] = useState(false);
+  const [sucessoTicket, setSucessoTicket] = useState(false);
+  const [erroTicket, setErroTicket] = useState('');
+  const [meusTickets, setMeusTickets] = useState<any[]>([]);
+
+  useEffect(() => {
+    async function carregarMeusTickets() {
+      try {
+        if (!operador?.id) return;
+
+        const res = await fetch('/api/tickets');
+        const data = await res.json();
+
+        if (data.sucesso) {
+          setMeusTickets(data.tickets || []);
+        }
+      } catch (err) {
+        console.error("Erro ao carregar tickets:", err);
+      }
+    }
+    carregarMeusTickets();
+  }, [operador, sucessoTicket]);
+
+  const enviarNovoTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEnviandoTicket(true);
+    setSucessoTicket(false);
+    setErroTicket('');
+
+    try {
+      const res = await fetch('/api/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assunto: assuntoTicket,
+          mensagem: mensagemTicket,
+          categoria: categoriaTicket
+        })
+      });
+
+      const data = await res.json();
+
+      if (!data.sucesso) {
+        setErroTicket(data.mensagem || 'Erro ao enviar ticket.');
+        setEnviandoTicket(false);
+        return;
+      }
+
+      setSucessoTicket(true);
+      setAssuntoTicket('');
+      setMensagemTicket('');
+      setCategoriaTicket('tecnico');
+    } catch (err: any) {
+      setErroTicket('Erro ao enviar: ' + err.message);
+    } finally {
+      setEnviandoTicket(false);
+    }
+  };
+
   const toggleFaq = (index: number) => {
     setFaqAberto(faqAberto === index ? null : index);
+  };
+
+  const labelCategoria = (valor: string) => {
+    return CATEGORIAS_TICKET.find(c => c.valor === valor)?.label || 'Outro';
   };
 
   return (
@@ -54,7 +128,6 @@ export default function HelpPage() {
           Documentação completa de operação, infraestrutura de CTOs, viabilidade, leads e diretrizes da rede.
         </p>
 
-        {/* Barra de Pesquisa */}
         <div className="w-full max-w-2xl relative mt-2">
           <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-zinc-500">
             <Search className="w-4 h-4" />
@@ -69,10 +142,8 @@ export default function HelpPage() {
         </div>
       </div>
 
-      {/* CONTEÚDO PRINCIPAL: LAYOUT DE 2 COLUNAS */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
-        {/* COLUNA ESQUERDA (Cards de Categorias Detalhadas) */}
         <div className="lg:col-span-8 space-y-6">
           <h2 className="text-xs font-mono uppercase tracking-widest text-zinc-500 font-bold px-1">
             Módulos do Sistema & Operação
@@ -80,7 +151,6 @@ export default function HelpPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-            {/* ---> PARTE NOVA ADICIONADA: RELATÓRIOS & DESEMPENHO <--- */}
             <div className="p-6 bg-zinc-900/40 hover:bg-zinc-900/70 border border-zinc-900 hover:border-emerald-500/40 rounded-2xl transition-all duration-200 space-y-3 cursor-pointer group md:col-span-2">
               <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
                 <BarChart3 className="w-5 h-5" />
@@ -114,9 +184,7 @@ export default function HelpPage() {
                 </div>
               </div>
             </div>
-            {/* ---> FIM DA PARTE NOVA <--- */}
             
-            {/* Card Gestão de Equipe & Faturamento */}
             <div className="p-6 bg-zinc-900/40 hover:bg-zinc-900/70 border border-zinc-900 hover:border-emerald-500/40 rounded-2xl transition-all duration-200 space-y-3 cursor-pointer group md:col-span-2">
               <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
                 <ShieldCheck className="w-5 h-5" />
@@ -148,7 +216,6 @@ export default function HelpPage() {
               </div>
             </div>
 
-            {/* Card 0D: Gestão de Caixas CTO (Rede Óptica) - ADICIONADO COM DETALHES */}
             <div className="p-6 bg-zinc-900/40 hover:bg-zinc-900/70 border border-zinc-900 hover:border-emerald-500/40 rounded-2xl transition-all duration-200 space-y-3 cursor-pointer group md:col-span-2">
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
                 <Network className="w-5 h-5" />
@@ -173,7 +240,6 @@ export default function HelpPage() {
               </div>
             </div>
 
-            {/* Card 0C: Central de Viabilidade Assistida */}
             <div className="p-6 bg-zinc-900/40 hover:bg-zinc-900/70 border border-zinc-900 hover:border-emerald-500/40 rounded-2xl transition-all duration-200 space-y-3 cursor-pointer group md:col-span-2">
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
                 <Navigation className="w-5 h-5" />
@@ -205,7 +271,6 @@ export default function HelpPage() {
               </div>
             </div>
 
-            {/* Card 0A: Visão Geral da Operação */}
             <div className="p-6 bg-zinc-900/40 hover:bg-zinc-900/70 border border-zinc-900 hover:border-emerald-500/40 rounded-2xl transition-all duration-200 space-y-3 cursor-pointer group md:col-span-2">
               <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
                 <LayoutDashboard className="w-5 h-5" />
@@ -240,7 +305,6 @@ export default function HelpPage() {
               </div>
             </div>
 
-            {/* Card 0B: Histórico de Consultas & Leads (Funil Comercial) */}
             <div className="p-6 bg-zinc-900/40 hover:bg-zinc-900/70 border border-zinc-900 hover:border-emerald-500/40 rounded-2xl transition-all duration-200 space-y-3 cursor-pointer group md:col-span-2">
               <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
                 <Users className="w-5 h-5" />
@@ -274,7 +338,6 @@ export default function HelpPage() {
 
           </div>
 
-          {/* FAQ / PERGUNTAS FREQUENTES INTERNAS */}
           <div className="pt-4 space-y-4">
             <h2 className="text-xs font-mono uppercase tracking-widest text-zinc-500 font-bold px-1">
               Perguntas Frequentes da Operação
@@ -343,34 +406,118 @@ export default function HelpPage() {
 
         </div>
 
-        {/* COLUNA DIREITA (BARRA LATERAL - Estilo Stripe com Conformidade Anatel) */}
         <div className="lg:col-span-4 space-y-6">
           
-          {/* Card SAC / Canais Oficiais */}
-          <div className="p-6 bg-zinc-900/50 border border-zinc-900 rounded-2xl space-y-4">
+          <div className="p-6 bg-zinc-900/60 border border-emerald-500/30 rounded-2xl space-y-4 shadow-xl">
             <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs uppercase font-bold">
-              <PhoneCall className="w-4 h-4" /> Atendimento ao Cliente (SAC)
+              <MessageSquarePlus className="w-4 h-4" /> Abrir Chamado / Ticket
             </div>
             <p className="text-xs text-zinc-400 leading-relaxed font-sans">
-              Em conformidade com as normas setoriais, nossa central de atendimento opera para suporte técnico e comercial.
+              Precisa de suporte técnico ou comercial? Envie sua solicitação diretamente para a nossa equipe.
             </p>
-            <div className="space-y-2 pt-1 font-mono text-xs border-t border-zinc-800/60 pt-3">
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Telefone:</span>
-                <span className="text-white font-bold">{telefoneProvedor}</span>
+
+            {sucessoTicket && (
+              <div className="bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 p-3 rounded-xl text-xs font-mono">
+                Ticket enviado com sucesso! Acompanhe o status abaixo.
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">E-mail:</span>
-                <span className="text-white font-bold truncate max-w-[160px]">{emailProvedor}</span>
+            )}
+
+            {erroTicket && (
+              <div className="bg-red-950/80 border border-red-500/50 text-red-300 p-3 rounded-xl text-xs font-mono">
+                {erroTicket}
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Horário:</span>
-                <span className="text-white font-bold">Seg a Sáb (08h - 20h)</span>
+            )}
+
+            <form onSubmit={enviarNovoTicket} className="space-y-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-mono text-zinc-400 mb-1">Categoria</label>
+                <select
+                  value={categoriaTicket}
+                  onChange={(e) => setCategoriaTicket(e.target.value)}
+                  className="w-full bg-black/60 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                >
+                  {CATEGORIAS_TICKET.map((cat) => (
+                    <option key={cat.valor} value={cat.valor}>{cat.label}</option>
+                  ))}
+                </select>
               </div>
-            </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-zinc-400 mb-1">Assunto</label>
+                <input 
+                  type="text" 
+                  value={assuntoTicket} 
+                  onChange={(e) => setAssuntoTicket(e.target.value)}
+                  required
+                  placeholder="Ex: Instabilidade na rede / Faturamento"
+                  className="w-full bg-black/60 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-zinc-400 mb-1">Mensagem Detalhada</label>
+                <textarea 
+                  value={mensagemTicket} 
+                  onChange={(e) => setMensagemTicket(e.target.value)}
+                  required
+                  rows={3}
+                  placeholder="Descreva o problema..."
+                  className="w-full bg-black/60 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500 resize-none"
+                />
+              </div>
+
+              <button 
+                type="submit"
+                disabled={enviandoTicket}
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-mono font-bold py-2.5 px-4 rounded-xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" /> {enviandoTicket ? 'Enviando...' : 'Enviar Chamado'}
+              </button>
+            </form>
           </div>
 
-          {/* Tópicos Populares / Atalhos */}
+          <div className="p-6 bg-zinc-900/50 border border-zinc-900 rounded-2xl space-y-4">
+            <h3 className="text-xs font-mono uppercase font-bold text-zinc-400 tracking-wider">
+              Meus Chamados Recentes
+            </h3>
+
+            {meusTickets.length === 0 ? (
+              <p className="text-xs text-zinc-500 font-mono">Nenhum ticket aberto no momento.</p>
+            ) : (
+              <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+                {meusTickets.map((t) => (
+                  <div key={t.id} className="p-3 bg-black/40 border border-zinc-800 rounded-xl space-y-1.5 text-xs font-mono">
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="font-bold text-white truncate max-w-[140px]">{t.assunto}</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold shrink-0 ${
+                        t.status === 'resolvido' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-amber-950 text-amber-400 border border-amber-800'
+                      }`}>
+                        {t.status}
+                      </span>
+                    </div>
+
+                    <span className="inline-block px-2 py-0.5 rounded text-[9px] uppercase font-bold bg-zinc-800 text-zinc-400 border border-zinc-700">
+                      {labelCategoria(t.categoria)}
+                    </span>
+
+                    <p className="text-[11px] text-zinc-400 font-sans line-clamp-2">{t.mensagem}</p>
+
+                    {t.resposta && (
+                      <div className="mt-2 bg-emerald-950/30 border border-emerald-800/40 p-2.5 rounded-lg space-y-1">
+                        <span className="text-[9px] font-mono uppercase font-bold text-emerald-400">Resposta do Suporte</span>
+                        <p className="text-[11px] text-emerald-200 font-sans leading-relaxed">{t.resposta}</p>
+                      </div>
+                    )}
+
+                    <span className="text-[10px] text-zinc-600 block pt-1">
+                      {new Date(t.criado_at).toLocaleDateString()} às {new Date(t.criado_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="p-6 bg-zinc-900/50 border border-zinc-900 rounded-2xl space-y-4">
             <h3 className="text-xs font-mono uppercase font-bold text-zinc-400 tracking-wider">
               Tópicos Populares
@@ -409,7 +556,6 @@ export default function HelpPage() {
             </ul>
           </div>
 
-          {/* LGPD e Termos */}
           <div className="p-6 bg-zinc-900/50 border border-zinc-900 rounded-2xl space-y-4">
             <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs uppercase font-bold">
               <ShieldCheck className="w-4 h-4" /> Regulatório & LGPD

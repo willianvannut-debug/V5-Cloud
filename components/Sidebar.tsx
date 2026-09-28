@@ -16,7 +16,8 @@ import {
   HelpCircle,
   Network,
   LogOut,
-  CreditCard
+  CreditCard,
+  LifeBuoy
 } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
@@ -40,6 +41,8 @@ export function Sidebar() {
     { name: 'Caixas CTO', href: '/dashboard/caixa-cto', icon: Network, roles: ['gerente', 'superadmin'] },
     { name: 'Equipe', href: '/dashboard/equipe', icon: ShieldCheck, roles: ['gerente', 'superadmin'] },
     { name: 'Relatórios', href: '/dashboard/relatorios', icon: BarChart3, roles: ['gerente', 'superadmin'] },
+    // 🚀 ATALHO DOS TICKETS DO SUPER ADMIN ADICIONADO AQUI
+    { name: 'Tickets Admin', href: '/dashboard/superadmin/tickets', icon: LifeBuoy, roles: ['superadmin'] },
     // 🚀 Atalho exclusivo da Central Master para o dono do SaaS
     { name: 'Root Master', href: '/dashboard/superadmin', icon: ShieldCheck, roles: ['superadmin'] },
   ];

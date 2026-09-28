@@ -1,12 +1,12 @@
 // ================================================================================
-// 📋 ROTA DE VIABILIDADE (FRONTEND) - V5 CLOUD (ALERTAS CUSTOMIZADOS)
+// 📋 ROTA DE VIABILIDADE E INTEGRAÇÕES - V5 CLOUD
 // app/dashboard/viabilidade/page.tsx
 // ================================================================================
 
 "use client"
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, MapPin, Loader2, CheckCircle2, XCircle, Building, RefreshCw, Navigation, X, User, Phone, PlusCircle, AlertTriangle } from 'lucide-react';
+import { Search, MapPin, Loader2, CheckCircle2, XCircle, Building, RefreshCw, Navigation, X, User, Phone, PlusCircle, AlertTriangle, Globe, Copy, Check, Lock, ExternalLink, Code, Sparkles, Shield } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
@@ -95,13 +95,19 @@ interface ConsultaItem {
 export default function ViabilidadePage() {
   const { adicionarLead } = useApp();
   const settings = useSettings();
-  const { operador, empresa } = useAuth();
+  const { operador } = useAuth();
   
   const ctos = settings?.ctos || [];
 
+  const [empresaDados, setEmpresaDados] = useState<any>(null);
+  const [carregandoEmpresa, setCarregandoEmpresa] = useState(true);
+  const [copiadoLink, setCopiadoLink] = useState(false);
+  const [copiadoIframe, setCopiadoIframe] = useState(false);
+  
+  const [carregandoCheckout, setCarregandoCheckout] = useState(false);
+
   const [nomeCliente, setNomeCliente] = useState('');
   const [telefoneCliente, setTelefoneCliente] = useState('');
-
   const [cep, setCep] = useState('');
   const [numeroLote, setNumeroLote] = useState(''); 
   const [carregandoCep, setCarregandoCep] = useState(false);
@@ -122,13 +128,19 @@ export default function ViabilidadePage() {
   const [enderecoReverso, setEnderecoReverso] = useState('');
   const [carregandoBuscaMapa, setCarregandoBuscaMapa] = useState(false);
 
-  // 🚀 Estado para o novo alerta customizado
   const [alertaCustomizado, setAlertaCustomizado] = useState({ visivel: false, titulo: '', mensagem: '' });
-
   const [iconeNeonQuadrado, setIconeNeonQuadrado] = useState<any>(null);
 
   const [resultadoAtual, setResultadoAtual] = useState<ConsultaItem | null>(null);
   const [historico, setHistorico] = useState<ConsultaItem[]>([]);
+
+  const [baseUrl, setBaseUrl] = useState('https://v5cloud.com.br');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setBaseUrl(window.location.origin);
+    }
+  }, []);
 
   const mostrarAlerta = (titulo: string, mensagem: string) => {
     setAlertaCustomizado({ visivel: true, titulo, mensagem });
@@ -137,6 +149,31 @@ export default function ViabilidadePage() {
   const fecharAlerta = () => {
     setAlertaCustomizado({ visivel: false, titulo: '', mensagem: '' });
   };
+
+  useEffect(() => {
+    async function carregarEmpresaLogada() {
+      if (!supabase) return;
+      try {
+        const empresaId = operador?.empresaId || operador?.empresa_id;
+        if (empresaId) {
+          const { data, error } = await supabase
+            .from('empresas')
+            .select('*')
+            .eq('id', empresaId)
+            .maybeSingle();
+
+          if (!error && data) {
+            setEmpresaDados(data);
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao carregar dados da empresa na página de viabilidade:", err);
+      } finally {
+        setCarregandoEmpresa(false);
+      }
+    }
+    carregarEmpresaLogada();
+  }, [operador]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -210,13 +247,17 @@ export default function ViabilidadePage() {
           });
           setEnderecoBuscaMapa(`${ruaLimpa}, Águas Lindas de Goiás`);
           
-          const resGeo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(ruaLimpa + ", Águas Lindas de Goiás, GO")}&limit=1`);
-          const dataGeo = await resGeo.json();
-          if (dataGeo && dataGeo.length > 0) {
-            setCoordsTemp({
-              lat: parseFloat(dataGeo[0].lat),
-              lon: parseFloat(dataGeo[0].lon)
-            });
+          try {
+            const resGeo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(ruaLimpa + ", Águas Lindas de Goiás, GO")}&limit=1`);
+            const dataGeo = await resGeo.json();
+            if (dataGeo && dataGeo.length > 0) {
+              setCoordsTemp({
+                lat: parseFloat(dataGeo[0].lat),
+                lon: parseFloat(dataGeo[0].lon)
+              });
+            }
+          } catch (geoErr) {
+            console.warn("Geocodificação por CEP ignorada por falha de rede:", geoErr);
           }
         }
       } catch (erro) {
@@ -247,21 +288,32 @@ export default function ViabilidadePage() {
         mostrarAlerta("Aviso", "Endereço não encontrado. Tente buscar de outra forma ou mova o PIN manualmente.");
       }
     } catch (err) {
-      console.error(err);
+      console.warn("Erro ao buscar endereço no mapa:", err);
     } finally {
       setCarregandoBuscaMapa(false);
     }
   };
 
+  // 🛡️ CORREÇÃO BLINDADA: Protegido contra falhas de rede e CORS externos
   const buscarEnderecoReverso = async (novasCoords: { lat: number; lon: number }) => {
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${novasCoords.lat}&lon=${novasCoords.lon}`);
-      const data = await res.json();
-      if (data && data.display_name) {
-        setEnderecoReverso(data.display_name);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000); // Timeout de segurança de 4s
+
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${novasCoords.lat}&lon=${novasCoords.lon}`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.display_name) {
+          setEnderecoReverso(data.display_name);
+        }
       }
     } catch (err) {
-      console.error(err);
+      // Ignora silenciosamente falhas de fetch externas para não quebrar a experiência do atendente
+      console.warn("Aviso: Falha temporária ao obter endereço reverso via Nominatim.");
     }
   };
 
@@ -323,7 +375,6 @@ export default function ViabilidadePage() {
       const temCobertura = menorDistanciaMetros <= raioPermitido;
       const statusFinal = temCobertura ? 'COM COBERTURA' : 'SEM COBERTURA';
       const distanciaFinalArredondada = Math.round(menorDistanciaMetros);
-
       const ctoFinal = temCobertura ? ctoMaisProxima : 'Sem CTO';
 
       const novaConsulta: ConsultaItem = {
@@ -373,12 +424,12 @@ export default function ViabilidadePage() {
         lat: coordsCliente.lat,
         lon: coordsCliente.lon,
         etapa_funil: 'NOVO',
-        status_instalacao: null
+        status_instalacao: null,
+        empresa_id: operador?.empresaId || operador?.empresa_id
       } as any);
 
     } catch (error) {
       console.error("Erro no cálculo de viabilidade:", error);
-
       await logger.erro(
         'ERRO_CONSULTA_VIABILIDADE',
         'leads',
@@ -415,9 +466,175 @@ export default function ViabilidadePage() {
     setEndereco({ logradouro: '', bairro: '', cidade: 'Águas Lindas de Goiás', uf: 'GO' });
   };
 
+  const empresaMock = empresaDados || {
+    nome_empresa: "V5 Fibra Matriz",
+    slug: "v5-fibra-matriz",
+    plano: "pro",
+    addon_iframe: false
+  };
+
+  const planoLower = String(empresaMock.plano || '').toLowerCase().trim();
+  const isScale = planoLower === 'scale';
+  const isPro = planoLower === 'pro';
+  const hasAddonIframe = Boolean(empresaMock.addon_iframe);
+  const iframeLiberado = isScale || hasAddonIframe;
+
+  const linkPublico = isPro || isScale
+    ? `${baseUrl}/viabilidade/${empresaMock.slug || 'sua-empresa'}`
+    : `${baseUrl}/viabilidade/v5-fibra-matriz`;
+
+  const codigoIframe = `<iframe \n  src="${linkPublico}" \n  width="100%" \n  height="850px" \n  frameborder="0" \n  style="border: none; border-radius: 16px; overflow: hidden;"\n></iframe>`;
+
+  const copiarTexto = (texto: string, tipo: 'link' | 'iframe') => {
+    navigator.clipboard.writeText(texto);
+    if (tipo === 'link') {
+      setCopiadoLink(true);
+      setTimeout(() => setCopiadoLink(false), 2000);
+    } else {
+      setCopiadoIframe(true);
+      setTimeout(() => setCopiadoIframe(false), 2000);
+    }
+  };
+
+  const handleCheckoutAddon = async () => {
+    try {
+      setCarregandoCheckout(true);
+      
+      const empresaId = empresaDados?.id || operador?.empresaId || operador?.empresa_id;
+      
+      if (!empresaId) {
+        mostrarAlerta("Erro", "Não foi possível identificar a empresa. Tenta fazer login novamente.");
+        setCarregandoCheckout(false);
+        return;
+      }
+
+      const response = await fetch('/api/stripe/checkout-addon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresaId })
+      });
+
+      const data = await response.json();
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        mostrarAlerta("Erro no Checkout", data.error || "Ocorreu um erro ao gerar o pagamento.");
+        setCarregandoCheckout(false);
+      }
+    } catch (error) {
+      console.error(error);
+      mostrarAlerta("Erro de Conexão", "Não foi possível contactar o servidor de pagamentos.");
+      setCarregandoCheckout(false);
+    }
+  };
+
   return (
     <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-white font-sans relative">
-      <div className="flex justify-between items-center">
+      
+      <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
+        <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
+            <Globe className="w-4 h-4 text-emerald-400" /> Ferramentas de Captura & Incorporação
+          </CardTitle>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-mono px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5 text-emerald-400" /> Plano: <strong className="text-emerald-400 uppercase">{empresaMock.plano}</strong>
+            </span>
+            {isScale && (
+              <span className="text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3" /> ESCALA MÁXIMA
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        
+        <CardContent className="p-6 space-y-6">
+          <div>
+            <label className="text-xs font-mono uppercase text-zinc-400 mb-1.5 block">
+              Link Direto da Página de Viabilidade
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={linkPublico}
+                className="flex-1 bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-3 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+              />
+              <button
+                onClick={() => copiarTexto(linkPublico, 'link')}
+                className="px-4 py-3 rounded-xl border bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer font-mono text-xs uppercase font-bold flex items-center gap-2"
+              >
+                {copiadoLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">{copiadoLink ? 'Copiado!' : 'Copiar'}</span>
+              </button>
+              <a
+                href={linkPublico}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-3 rounded-xl border bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all cursor-pointer flex items-center justify-center"
+                title="Abrir link num novo separador"
+              >
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            </div>
+            {!isPro && !isScale && (
+              <p className="text-[11px] text-zinc-500 mt-2 font-mono">
+                * O plano Essencial utiliza a central padrão. Faça upgrade para o plano PRO para obter o link personalizado com a sua marca.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs font-mono uppercase text-zinc-400 mb-1.5 flex items-center gap-2">
+              <Code className="w-3.5 h-3.5 text-emerald-400" /> Incorporar no seu Próprio Site (iFrame)
+            </label>
+
+            {iframeLiberado ? (
+              <div className="relative bg-black/50 border border-zinc-800 rounded-xl p-4 font-mono text-xs text-zinc-300">
+                <pre className="overflow-x-auto whitespace-pre-wrap">{codigoIframe}</pre>
+                <button
+                  onClick={() => copiarTexto(codigoIframe, 'iframe')}
+                  className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 text-[10px] uppercase font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {copiadoIframe ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiadoIframe ? 'Copiado!' : 'Copiar'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="border border-dashed border-zinc-800 rounded-2xl p-6 bg-black/40 text-center flex flex-col items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-3">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <h4 className="text-sm uppercase font-mono font-bold text-white mb-2">Incorpore a viabilidade no seu domínio</h4>
+                <p className="text-xs text-zinc-500 font-mono mb-4 max-w-lg leading-relaxed">
+                  Mantenha os clientes na sua página oficial sem redirecionamentos externos. Adicione o recurso ao seu plano PRO por apenas mais R$ 49,90/mês ou libere automaticamente no plano SCALE.
+                </p>
+
+                {isPro ? (
+                  <button
+                    onClick={handleCheckoutAddon}
+                    disabled={carregandoCheckout}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-500 text-black hover:bg-emerald-400 disabled:opacity-50 text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.3)] transition-all flex items-center justify-center gap-2"
+                  >
+                    {carregandoCheckout ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> A Processar...</>
+                    ) : (
+                      "Desbloquear iFrame (+ R$ 49,90)"
+                    )}
+                  </button>
+                ) : (
+                  <span className="px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 text-xs font-mono uppercase font-bold">
+                    Disponível a partir do Plano PRO
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-between items-center pt-4">
         <div>
           <h1 className="text-2xl font-black uppercase tracking-tight font-mono text-white flex items-center gap-2">
             <Navigation className="w-6 h-6 text-emerald-400" /> Central de Viabilidade Assistida (Atendente)
@@ -685,7 +902,7 @@ export default function ViabilidadePage() {
             
             <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/40">
               <h3 className="text-xs uppercase font-mono tracking-wider text-emerald-400 font-bold flex items-center gap-2">
-                <Navigation className="w-4 h-4" /> Arraste o PIN Neon para a Casa do Cliente
+                <Navigation className="w-4 h-4" /> Clique no Mapa ou Arraste o PIN Neon para a Casa do Cliente
               </h3>
               <button onClick={() => setModalMapaAberto(false)} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
                 <X className="w-5 h-5" />
@@ -707,7 +924,7 @@ export default function ViabilidadePage() {
               </div>
 
               <p className="text-[11px] text-emerald-400 font-mono">
-                🖱️ <strong>Instrução:</strong> Peça a localização via WhatsApp ao cliente e solte o quadrado neon verde exatamente em cima da residência dele.
+                🖱️ <strong>Instrução:</strong> Basta clicar em qualquer ponto do mapa para mover o pino instantaneamente para a residência do cliente.
               </p>
 
               <div className="relative w-full h-96 bg-[#09090b] border border-emerald-500/50 rounded-2xl overflow-hidden shadow-lg z-10">
@@ -748,7 +965,6 @@ export default function ViabilidadePage() {
         </div>
       )}
 
-      {/* 🚀 MODAL CUSTOMIZADO DE AVISOS */}
       {alertaCustomizado.visivel && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-zinc-900 border border-amber-500/30 rounded-2xl max-w-sm w-full p-6 space-y-5 shadow-2xl">

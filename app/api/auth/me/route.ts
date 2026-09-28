@@ -53,6 +53,7 @@ export async function GET() {
     return NextResponse.json({
       sucesso: true,
       operador: {
+        id: operador.id,
         nome: operador.nome,
         email: operador.email,
         role: operador.role,
