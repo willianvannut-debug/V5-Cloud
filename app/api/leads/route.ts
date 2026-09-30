@@ -35,13 +35,22 @@ function sanitizarTexto(str: any): string {
 function formatarLead(l: any) {
   const perfilUpper = String(l.perfil || '').toUpperCase();
   
-  const temCobertura = 
+  // 🚀 Se a instalação foi feita, o status operacional DEVE ser 'INSTALAÇÃO FEITA'
+  let statusOperacional = 'SEM COBERTURA';
+  
+  if (perfilUpper === 'INSTALAÇÃO FEITA' || perfilUpper === 'INSTALACAO FEITA') {
+    statusOperacional = 'INSTALAÇÃO FEITA';
+  } else if (
     perfilUpper === 'COM COBERTURA' || 
     perfilUpper === 'LIBERADO P/ VENDA' ||
     perfilUpper === 'NOVO' || 
     perfilUpper === 'EM CONTATO' || 
     perfilUpper === 'AGENDADO' || 
-    perfilUpper === 'MANDAR PARA INSTALAÇÃO';
+    perfilUpper === 'MANDAR PARA INSTALAÇÃO' ||
+    l.status === 'COM COBERTURA'
+  ) {
+    statusOperacional = 'COM COBERTURA';
+  }
 
   const etapaFunilReal = ['COM COBERTURA', 'SEM COBERTURA', 'LIBERADO P/ VENDA'].includes(perfilUpper) 
     ? 'NOVO' 
@@ -51,7 +60,7 @@ function formatarLead(l: any) {
     ...l,
     telefone: l.whatsapp || '',
     endereco: l.numero || '',
-    status: temCobertura ? 'COM COBERTURA' : 'SEM COBERTURA',
+    status: statusOperacional, // 🚀 Agora reflete corretamente o estado real
     etapa_funil: etapaFunilReal,
     cto: l.cto || 'CTO-01', 
     lat: l.lat !== null && l.lat !== undefined ? Number(l.lat) : undefined,
