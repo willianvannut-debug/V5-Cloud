@@ -1,4 +1,7 @@
-//app/dashboard/caixa-cto/page.tsx
+// ================================================================================
+// 📋 GESTÃO DE CAIXAS CTO - V5 CLOUD (COM CACHE INTELIGENTE ZERO LAG)
+// app/dashboard/caixa-cto/page.tsx
+// ================================================================================
 
 "use client"
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -45,6 +48,21 @@ export interface CtoItemSupabase {
   provedor_id?: string;
 }
 
+// 🚀 ATUALIZADOR DE CÂMERA DO MAPA (Move para a Sede)
+function AtualizadorCentroMapa({ coordenadas }: { coordenadas: [number, number] }) {
+  const { useMap } = require('react-leaflet');
+  const map = useMap();
+  useEffect(() => {
+    if (coordenadas && coordenadas[0] !== 0) {
+      map.setView(coordenadas, map.getZoom(), {
+        animate: true,
+        duration: 1.5
+      });
+    }
+  }, [coordenadas, map]);
+  return null;
+}
+
 export default function CaixaCtoPage() {
   const settings = useSettings();
   const { operador, empresa } = useAuth();
@@ -52,12 +70,29 @@ export default function CaixaCtoPage() {
   const [RL, setRL] = useState<any>(null); 
   const [L, setL] = useState<any>(null);
   const [planoAtual, setPlanoAtual] = useState<string>('');
+  const [limiteCustomizado, setLimiteCustomizado] = useState<number | null>(null);
 
-  const [listaCtos, setListaCtos] = useState<CtoItemSupabase[]>([]);
+  // 🚀 Tenta carregar do cache local imediatamente para evitar qualquer tela de loading ao abrir
+  const [listaCtos, setListaCtos] = useState<CtoItemSupabase[]>(() => {
+    if (typeof window !== 'undefined') {
+      const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id || 'padrao';
+      const cacheSalvo = localStorage.getItem(`v5_ctos_cache_${idDaEmpresa}`);
+      if (cacheSalvo) {
+        try {
+          const parsed = JSON.parse(cacheSalvo);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {}
+      }
+    }
+    return [];
+  });
+
   const [temAlteracoes, setTemAlteracoes] = useState(false);
   const [salvo, setSalvo] = useState(false);
   const [salvando, setSalvando] = useState(false);
-  const [carregandoBanco, setCarregandoBanco] = useState(true);
+  
+  // Se já temos caixas no cache local ao abrir, o carregandoBanco começa falso para dar Zero Lag!
+  const [carregandoBanco, setCarregandoBanco] = useState(() => listaCtos.length === 0);
   
   const [importandoKmz, setImportandoKmz] = useState(false);
   const [erroSegurancaKmz, setErroSegurancaKmz] = useState<string | null>(null);
@@ -90,6 +125,11 @@ export default function CaixaCtoPage() {
   const [mapModalInstancia, setMapModalInstancia] = useState<any>(null);
 
   const [mascaraMundoGeoJson, setMascaraMundoGeoJson] = useState<any>(null);
+
+  // 🚀 DADOS DINÂMICOS DA EMPRESA
+  const nomeSedeDinamico = empresa?.cidade || settings?.cidadeEmpresa || 'Brasil';
+  const latEmpresa = empresa?.lat || empresa?.latitude || settings?.latEmpresa || -15.7797;
+  const lonEmpresa = empresa?.lon || empresa?.longitude || settings?.lonEmpresa || -47.9297;
 
   useEffect(() => {
     fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries/BRA.geo.json')
@@ -134,18 +174,30 @@ export default function CaixaCtoPage() {
 
     async function sincronizarPlanoReal() {
       const planoDoContexto = empresa?.plano || operador?.empresa?.plano;
+      const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
+      
       if (planoDoContexto) {
         setPlanoAtual(String(planoDoContexto).toLowerCase().trim());
+      }
+      if (!supabase || !idDaEmpresa) {
+        if (!planoDoContexto) setPlanoAtual('ERRO');
         return;
       }
-      if (!supabase) return;
       try {
-        const idDaEmpresa = operador?.empresaId || operador?.empresa_id;
-        if (!idDaEmpresa) return setPlanoAtual('ERRO');
-        const { data } = await supabase.from('empresas').select('plano').eq('id', idDaEmpresa).maybeSingle();
-        if (data && data.plano) setPlanoAtual(String(data.plano).toLowerCase().trim());
+        const { data } = await supabase
+          .from('empresas')
+          .select('plano, limite_customizado_ctos')
+          .eq('id', idDaEmpresa)
+          .maybeSingle();
+
+        if (data) {
+          if (data.plano) setPlanoAtual(String(data.plano).toLowerCase().trim());
+          if (data.limite_customizado_ctos !== null && data.limite_customizado_ctos !== undefined) {
+            setLimiteCustomizado(Number(data.limite_customizado_ctos));
+          }
+        }
       } catch (err) {
-        setPlanoAtual('ERRO');
+        if (!planoDoContexto) setPlanoAtual('ERRO');
       }
     }
     sincronizarPlanoReal();
@@ -237,23 +289,28 @@ export default function CaixaCtoPage() {
     });
   }, [listaCtos, mapBounds, zoomAtual]);
 
-  // 🚀 CACHE INTELIGENTE: Carrega do navegador (localStorage) para evitar requisições repetidas ao Supabase
+  // 🚀 BUSCA INTELIGENTE: Só vai ao servidor se não houver cache na sessão atual ou se for forçado
   const buscarCtosDaApi = useCallback(async (forcarAtualizacao = false) => {
     const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
     if (!idDaEmpresa) return;
 
     const chaveCache = `v5_ctos_cache_${idDaEmpresa}`;
 
+    if (!forcarAtualizacao && listaCtos.length > 0) {
+      setCarregandoBanco(false);
+      return; 
+    }
+
     if (!forcarAtualizacao) {
       const dadosSalvosCache = localStorage.getItem(chaveCache);
       if (dadosSalvosCache) {
         try {
           const ctosParseadas = JSON.parse(dadosSalvosCache);
-          if (Array.isArray(ctosParseadas)) {
+          if (Array.isArray(ctosParseadas) && ctosParseadas.length > 0) {
             setListaCtos(ctosParseadas);
             setCarregandoBanco(false);
             setTemAlteracoes(false);
-            return; // Carregado instantaneamente do navegador!
+            return; 
           }
         } catch (e) {}
       }
@@ -275,17 +332,17 @@ export default function CaixaCtoPage() {
     } finally {
       setCarregandoBanco(false);
     }
-  }, [operador, empresa]);
+  }, [operador, empresa, listaCtos.length]);
 
   useEffect(() => {
     buscarCtosDaApi();
   }, [buscarCtosDaApi]);
 
   useEffect(() => {
-    if (settings && coordsTemp.lat === 0 && coordsTemp.lon === 0) {
-      setCoordsTemp({ lat: settings.latEmpresa ?? -15.7553, lon: settings.lonEmpresa ?? -48.2778 });
+    if (coordsTemp.lat === 0 && coordsTemp.lon === 0) {
+      setCoordsTemp({ lat: latEmpresa, lon: lonEmpresa });
     }
-  }, [settings, coordsTemp.lat, coordsTemp.lon]);
+  }, [latEmpresa, lonEmpresa, coordsTemp.lat, coordsTemp.lon]);
 
   const buscarEnderecoReverso = useCallback(async (novasCoords: { lat: number; lon: number }) => {
     try {
@@ -320,14 +377,11 @@ export default function CaixaCtoPage() {
     },
   }), [buscarEnderecoReverso]);
 
-  if (!settings) return null;
-
-  const cidadeEmpresa = settings.cidadeEmpresa || 'Águas Lindas de Goiás - GO';
-  const latEmpresa = settings.latEmpresa ?? -15.7553;
-  const lonEmpresa = settings.lonEmpresa ?? -48.2778;
-
   const configPlanoAtual = PLANOS[planoAtual];
-  const limiteCtos = configPlanoAtual ? configPlanoAtual.max_ctos : "ERRO";
+  const limitePadraoPlano = configPlanoAtual ? configPlanoAtual.max_ctos : "ERRO";
+  
+  const limiteCtos = limiteCustomizado !== null ? limiteCustomizado : limitePadraoPlano;
+  
   const totalCaixas = listaCtos.length;
   const bateuLimite = typeof limiteCtos === 'number' ? totalCaixas >= limiteCtos : false;
   const porcentagemUso = typeof limiteCtos === 'number' && limiteCtos > 0 ? Math.min((totalCaixas / limiteCtos) * 100, 100) : 0;
@@ -499,7 +553,6 @@ export default function CaixaCtoPage() {
     setListaCtos(novaLista);
     setIdsSelecionados(prev => prev.filter(i => i !== id));
 
-    // Atualiza o cache local
     const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
     if (idDaEmpresa) {
       localStorage.setItem(`v5_ctos_cache_${idDaEmpresa}`, JSON.stringify(novaLista));
@@ -577,7 +630,7 @@ export default function CaixaCtoPage() {
 
   const abrirModalMapa = (cto: CtoItemSupabase) => {
     setCtoEditandoId(cto.id);
-    setEnderecoBuscaMapa(cidadeEmpresa);
+    setEnderecoBuscaMapa(nomeSedeDinamico);
     setCoordsTemp({ lat: cto.lat || latEmpresa, lon: cto.lon || lonEmpresa });
     setEnderecoReverso('');
     setModalMapaAberto(true);
@@ -587,7 +640,7 @@ export default function CaixaCtoPage() {
     if (!enderecoBuscaMapa) return;
     setCarregandoBusca(true);
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(enderecoBuscaMapa + ", " + cidadeEmpresa)}&limit=1`);
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(enderecoBuscaMapa + ", " + nomeSedeDinamico)}&limit=1`);
       const data = await res.json();
       if (data && data.length > 0) {
         setCoordsTemp({ lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) });
@@ -645,7 +698,6 @@ export default function CaixaCtoPage() {
       setSalvo(true);
       setTimeout(() => setSalvo(false), 4000);
       
-      // Atualiza os dados da API e recarrega o cache local fresco
       await buscarCtosDaApi(true);
     } catch (err: any) {
       alert("Erro ao salvar no Supabase: " + (err.message || err));
@@ -677,7 +729,6 @@ export default function CaixaCtoPage() {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Botão para forçar atualização direto da nuvem */}
           <button
             type="button"
             onClick={() => buscarCtosDaApi(true)}
@@ -823,7 +874,7 @@ export default function CaixaCtoPage() {
         <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
           <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-row items-center justify-between">
             <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-emerald-400" /> Caixas Cadastradas ({cidadeEmpresa})
+              <MapPin className="w-4 h-4 text-emerald-400" /> Caixas Cadastradas ({nomeSedeDinamico})
             </CardTitle>
             <span className="text-[10px] font-mono text-zinc-500">Exibindo as 5 primeiras adições</span>
           </CardHeader>
@@ -891,7 +942,7 @@ export default function CaixaCtoPage() {
         <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
           <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-row items-center justify-between">
             <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
-              <Globe className="w-4 h-4 text-emerald-400" /> Mapa Geral de Cobertura - Satélite HD ({cidadeEmpresa})
+              <Globe className="w-4 h-4 text-emerald-400" /> Mapa Geral de Cobertura - Satélite HD ({nomeSedeDinamico})
             </CardTitle>
             <div className="flex items-center gap-2">
               <button 
@@ -932,6 +983,8 @@ export default function CaixaCtoPage() {
                   ref={mapGeralRef}
                   style={{ width: '100%', height: '100%', background: '#09090b' }}
                 >
+                  <AtualizadorCentroMapa coordenadas={centroGeral} />
+                  
                   <ZoomHandler setZoomAtual={setZoomAtual} />
                   <ViewportHandler setBounds={setMapBounds} />
 
@@ -1139,7 +1192,7 @@ export default function CaixaCtoPage() {
             <div className="p-4 border-t border-zinc-800 bg-black/60 rounded-b-2xl flex justify-between items-center">
                <span className="text-[10px] font-mono text-zinc-500 uppercase">{idsSelecionados.length} selecionadas / {ctosFiltradas.length} exibidas</span>
                <button type="button" onClick={() => setModalListaAberto(false)} className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-                 Concluir Edição
+                  Concluir Edição
                </button>
             </div>
           </div>
@@ -1151,7 +1204,7 @@ export default function CaixaCtoPage() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/40">
               <h3 className="text-xs uppercase font-mono tracking-wider text-emerald-400 font-bold flex items-center gap-2">
-                <Navigation className="w-4 h-4" /> Posicionamento Tático em {cidadeEmpresa}
+                <Navigation className="w-4 h-4" /> Posicionamento Tático em {nomeSedeDinamico}
               </h3>
               <button onClick={() => setModalMapaAberto(false)} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
                 <X className="w-5 h-5" />

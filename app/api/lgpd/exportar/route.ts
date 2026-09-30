@@ -5,6 +5,10 @@ import { createClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/logger';
 import { jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+import { Resend } from 'resend';
+
+// Inicializa o Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -139,6 +143,58 @@ export async function GET(request: NextRequest) {
       `Relatório LGPD exportado com segurança para o UUID [${empresaIdSessao}] por [${operadorEmail}]`,
       { empresaId: empresaIdSessao, operadorEmail }
     );
+
+    // 📧 10. DISPARAR O ALERTA DE SEGURANÇA VIA RESEND
+    try {
+      const dataHoraAtual = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const ip = request.headers.get('x-forwarded-for') || 'IP não identificado';
+
+      await resend.emails.send({
+        from: 'V5 Privacidade <onboarding@resend.dev>', // ⚠️ Altere para o seu domínio depois
+        to: [operadorEmail],
+        subject: 'Aviso de Privacidade: Relatório LGPD Exportado 🛡️',
+        html: `
+          <div style="font-family: monospace; background-color: #09090b; color: #f8fafc; padding: 40px; border-radius: 12px; max-width: 600px; margin: 0 auto; border: 1px solid #1e3b29;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <span style="font-size: 40px;">🛡️</span>
+            </div>
+            
+            <h2 style="color: #10b981; text-transform: uppercase; text-align: center;">Exportação de Dados Concluída</h2>
+            
+            <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
+              Olá,
+            </p>
+            <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
+              Em conformidade com a LGPD, informamos que um ficheiro JSON contendo os dados da empresa <strong>${empresaDados.nome_empresa}</strong> e informações associadas foi gerado e descarregado a partir do seu painel de controlo.
+            </p>
+            
+            <div style="background-color: #18181b; padding: 15px; border-radius: 6px; margin: 20px 0; border: 1px solid #333;">
+              <p style="margin: 0; color: #10b981; font-size: 12px; text-transform: uppercase;">Detalhes da Ação:</p>
+              <ul style="color: #94a3b8; font-size: 12px; line-height: 1.8; padding-left: 20px;">
+                <li><strong>Data/Hora:</strong> ${dataHoraAtual}</li>
+                <li><strong>IP de Origem:</strong> ${ip}</li>
+                <li><strong>E-mail Solicitante:</strong> ${operadorEmail}</li>
+              </ul>
+            </div>
+            
+            <div style="background-color: #ef444415; padding: 15px; border-left: 4px solid #ef4444; margin: 25px 0;">
+              <p style="margin: 0; color: #ef4444; font-size: 12px; font-weight: bold; text-transform: uppercase;">
+                ⚠️ Não solicitou esta exportação?
+              </p>
+              <p style="margin: 5px 0 0 0; font-size: 12px; color: #f8fafc;">
+                Se não foi você que clicou no botão para exportar os dados, a sua conta pode estar comprometida. Recomendamos que altere a sua senha imediatamente nas Configurações do sistema e avise a nossa equipa de suporte.
+              </p>
+            </div>
+
+            <p style="margin-top: 30px; font-size: 10px; color: #52525b; border-top: 1px dashed #1e3b29; padding-top: 15px; text-align: center;">
+              V5 Cloud Compliance - Proteção de Dados.
+            </p>
+          </div>
+        `,
+      });
+    } catch (emailError) {
+      console.error("Erro ao enviar alerta LGPD:", emailError);
+    }
 
     const nomeFicheiro = `relatorio-lgpd-${empresaDados.nome_empresa.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.json`;
 

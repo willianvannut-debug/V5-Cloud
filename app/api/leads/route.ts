@@ -1,5 +1,5 @@
 // ================================================================================
-// 🔒 ROTA DE LEADS - SUPABASE (BLINDADA + LOGS + USAGE-BASED PRICING STRIPE UNIFICADO)
+// 🔒 ROTA DE LEADS - SUPABASE (BLINDADA + LOGS + STRIPE + RODÍZIO DE ATENDENTES E TÉCNICOS)
 // app/api/leads/route.ts
 // ================================================================================
 
@@ -35,9 +35,6 @@ function sanitizarTexto(str: any): string {
 function formatarLead(l: any) {
   const perfilUpper = String(l.perfil || '').toUpperCase();
   
-  // 🛡️ CORREÇÃO DEFINITIVA DE COBERTURA:
-  // Um lead tem cobertura se o perfil explícito indicar ou se pertencer a qualquer etapa válida do funil comercial 
-  // (NOVO, EM CONTATO, AGENDADO, MANDAR PARA INSTALAÇÃO) exceto se for explicitamente NAO CONVERTIDO ou SEM COBERTURA.
   const temCobertura = 
     perfilUpper === 'COM COBERTURA' || 
     perfilUpper === 'LIBERADO P/ VENDA' ||
@@ -164,13 +161,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // 🚀 1. RATE LIMITING POR IP (Anti-Spam / Anti-Flood)
     const forwardedFor = request.headers.get('x-forwarded-for');
     const ip = forwardedFor ? forwardedFor.split(',')[0] : '127.0.0.1';
     
     const agora = Date.now();
-    const janelaTempo = 60 * 1000; // 1 minuto
-    const limiteMaximo = 5; // Máximo 5 requisições por minuto por IP
+    const janelaTempo = 60 * 1000; 
+    const limiteMaximo = 5; 
 
     const registroIp = ipRequests.get(ip);
     if (registroIp) {
@@ -212,7 +208,43 @@ export async function POST(request: NextRequest) {
     }
 
     const telefoneBruto = sanitizarTexto(body.telefone || body.whatsapp || '');
+    const perfilDoNovoLead = sanitizarTexto(body.etapa_funil || body.perfil || 'NOVO').toUpperCase();
 
+    // 🚀 RODÍZIO (ROUND-ROBIN) DE ATENDENTES
+    let atendenteSorteado = null;
+
+    if (empresaIdAlvo && perfilDoNovoLead !== 'SEM COBERTURA' && perfilDoNovoLead !== 'NAO CONVERTIDO') {
+      const { data: equipeComercial } = await supabase
+        .from('operadores')
+        .select('nome')
+        .eq('empresa_id', empresaIdAlvo)
+        .in('role', ['atendente', 'vendedor', 'comercial']) // Retirado gerente para focar na equipe comercial
+        .order('nome', { ascending: true });
+
+      if (equipeComercial && equipeComercial.length > 0) {
+        const { data: ultimoLeadAtribuido } = await supabase
+          .from('leads')
+          .select('atendente')
+          .eq('empresa_id', empresaIdAlvo)
+          .not('atendente', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (ultimoLeadAtribuido && ultimoLeadAtribuido.atendente) {
+          const ultimoIndex = equipeComercial.findIndex(op => op.nome === ultimoLeadAtribuido.atendente);
+          if (ultimoIndex !== -1 && ultimoIndex + 1 < equipeComercial.length) {
+            atendenteSorteado = equipeComercial[ultimoIndex + 1].nome;
+          } else {
+            atendenteSorteado = equipeComercial[0].nome;
+          }
+        } else {
+          atendenteSorteado = equipeComercial[0].nome;
+        }
+      }
+    }
+
+    // Validação de Limites de Leads (Stripe)
     if (empresaIdAlvo) {
       const { data: dadosEmpresa } = await supabase
         .from('empresas')
@@ -258,7 +290,7 @@ export async function POST(request: NextRequest) {
               }
             }
           } catch (stripeError) {
-            console.error("❌ Erro ao enviar registro de uso excedente para o Stripe:", stripeError);
+            console.error("❌ Erro Stripe:", stripeError);
           }
         }
       }
@@ -270,9 +302,10 @@ export async function POST(request: NextRequest) {
       whatsapp: telefoneBruto,
       cep: sanitizarTexto(body.cep || ''),
       numero: sanitizarTexto(body.endereco || body.numero || ''),
-      perfil: sanitizarTexto(body.etapa_funil || body.perfil || 'NOVO'),
+      perfil: perfilDoNovoLead,
       lat: body.lat ? Number(body.lat) : null,
       lon: body.lon ? Number(body.lon) : null,
+      atendente: atendenteSorteado,
     };
 
     const { error: insertError } = await supabase
@@ -281,28 +314,22 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('❌ ERRO AO INSERIR:', insertError);
-      await registrarLog(auth.emailOperador || 'sistema', 'ERRO_CRIAR_LEAD', 'ERROR', `Falha ao criar novo lead: ${novoLeadBanco.nome}`, request, { leadNome: novoLeadBanco.nome, cep: novoLeadBanco.cep, erro: insertError.message });
+      await registrarLog(auth.emailOperador || 'sistema', 'ERRO_CRIAR_LEAD', 'ERROR', `Falha ao criar lead`, request, { erro: insertError.message });
       return NextResponse.json({ success: false, error: insertError.message }, { status: 400 });
     }
 
     let fetchQuery = supabase.from('leads').select('*').order('created_at', { ascending: false });
-    if (empresaIdAlvo) {
-      fetchQuery = fetchQuery.eq('empresa_id', empresaIdAlvo);
-    }
-    
-    if (origem === 'pc') {
-      fetchQuery = fetchQuery.neq('perfil', 'INSTALAÇÃO FEITA');
-    }
+    if (empresaIdAlvo) fetchQuery = fetchQuery.eq('empresa_id', empresaIdAlvo);
+    if (origem === 'pc') fetchQuery = fetchQuery.neq('perfil', 'INSTALAÇÃO FEITA');
 
     const { data: leadsAtualizados } = await fetchQuery;
     const leadsMapeados = (leadsAtualizados || []).map(formatarLead);
 
-    await registrarLog(auth.emailOperador || 'sistema', 'LEAD_CRIADO', 'SUCCESS', `Novo lead criado: ${novoLeadBanco.nome}`, request, { leadNome: novoLeadBanco.nome, cep: novoLeadBanco.cep, telefone: novoLeadBanco.whatsapp, empresaId: empresaIdAlvo });
+    await registrarLog(auth.emailOperador || 'sistema', 'LEAD_CRIADO', 'SUCCESS', `Novo lead criado: ${novoLeadBanco.nome}`, request, { atendente: atendenteSorteado });
 
     return NextResponse.json({ success: true, leads: leadsMapeados }, { status: 201 });
   } catch (error: any) {
     console.error('❌ ERRO CRÍTICO NO POST:', error.message);
-    await registrarLog('sistema', 'ERRO_CRITICO_CRIAR_LEAD', 'ERROR', `Erro crítico ao criar lead: ${error.message}`, request, { erro: error.message, stack: error.stack?.slice(0, 200) });
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
@@ -311,40 +338,73 @@ export async function PUT(request: NextRequest) {
   try {
     const auth = await validarAutorizacao(request);
     if (!auth.autorizado) {
-      await registrarLog('desconhecido', 'ACESSO_ATUALIZAR_LEAD_NAO_AUTORIZADO', 'WARNING', 'Tentativa de atualizar lead sem autorização', request, { metodo: 'PUT' });
       return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
     const body = await request.json();
     const empresaIdAlvo = body.empresa_id || auth.empresaIdSessao;
     const origem = body.origem; 
-
     const leadId = body.id;
 
     if (leadId !== undefined && leadId !== null && leadId !== '') {
       const { data: leadAnterior } = await supabase.from('leads').select('*').eq('id', leadId).single();
 
       const dadosAtualizados: any = {};
-      
       const novaEtapa = body.etapa_funil || body.perfil || body.status_instalacao;
+      
       if (novaEtapa !== undefined) {
         let etapaLimpa = sanitizarTexto(novaEtapa).toUpperCase();
         
         if (etapaLimpa === 'CONCLUIDA') {
           etapaLimpa = 'INSTALAÇÃO FEITA';
-        } else if (etapaLimpa === 'PENDENTE' || etapaLimpa === 'NAO FEITA' || etapaLimpa === 'NÃO FEITA' || etapaLimpa === 'NAO_FEITA') {
+        } else if (etapaLimpa === 'PENDENTE' || etapaLimpa === 'NAO FEITA' || etapaLimpa === 'NÃO FEITA') {
           etapaLimpa = 'NÃO FEITA';
         }
 
         dadosAtualizados.perfil = etapaLimpa; 
+
+        // 🚀 ⚡ RODÍZIO AUTOMÁTICO DE TÉCNICOS (Round-Robin)
+        // Se a nova etapa for "MANDAR PARA INSTALAÇÃO" e ainda não tiver técnico atribuído
+        if (etapaLimpa === 'MANDAR PARA INSTALAÇÃO' && empresaIdAlvo) {
+          const { data: equipeTecnica } = await supabase
+            .from('operadores')
+            .select('nome')
+            .eq('empresa_id', empresaIdAlvo)
+            .eq('role', 'tecnico') // Busca estritamente quem é técnico
+            .order('nome', { ascending: true });
+
+          if (equipeTecnica && equipeTecnica.length > 0) {
+            // Procura o último lead que recebeu um técnico de campo
+            const { data: ultimoLeadTecnico } = await supabase
+              .from('leads')
+              .select('tecnico')
+              .eq('empresa_id', empresaIdAlvo)
+              .not('tecnico', 'is', null)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            let tecnicoSorteado = equipeTecnica[0].nome;
+            if (ultimoLeadTecnico && ultimoLeadTecnico.tecnico) {
+              const idxUltimo = equipeTecnica.findIndex(t => t.nome === ultimoLeadTecnico.tecnico);
+              if (idxUltimo !== -1 && idxUltimo + 1 < equipeTecnica.length) {
+                tecnicoSorteado = equipeTecnica[idxUltimo + 1].nome;
+              }
+            }
+            
+            // Atribui o técnico sorteado à atualização
+            dadosAtualizados.tecnico = tecnicoSorteado;
+          }
+        }
       }
       
       if (body.motivo_pendencia !== undefined) {
         dadosAtualizados.motivo_pendencia = sanitizarTexto(body.motivo_pendencia);
       }
-
       if (body.telefone || body.whatsapp) dadosAtualizados.whatsapp = sanitizarTexto(body.telefone || body.whatsapp);
       if (body.endereco || body.numero) dadosAtualizados.numero = sanitizarTexto(body.endereco || body.numero);
+      if (body.atendente !== undefined) dadosAtualizados.atendente = body.atendente;
+      if (body.tecnico !== undefined) dadosAtualizados.tecnico = body.tecnico; // Permite forçar troca manual de técnico
 
       const { error: updateError } = await supabase
         .from('leads')
@@ -352,22 +412,15 @@ export async function PUT(request: NextRequest) {
         .eq('id', leadId);
 
       if (updateError) {
-        console.error('❌ ERRO NO UPDATE DO SUPABASE:', updateError);
+        console.error('❌ ERRO NO UPDATE:', updateError);
       }
 
-      await registrarLog(auth.emailOperador || 'sistema', 'LEAD_ATUALIZADO', 'INFO', `Lead atualizado: ${leadAnterior?.nome}`, request, { leadId: leadId, leadNome: leadAnterior?.nome, etapaAnterior: leadAnterior?.perfil, etapaNova: novaEtapa, alteracoes: dadosAtualizados });
-    } else {
-      console.warn("⚠️ Atualização ignorada: ID ausente no corpo da requisição.");
+      await registrarLog(auth.emailOperador || 'sistema', 'LEAD_ATUALIZADO', 'INFO', `Lead atualizado para instalação: ${leadAnterior?.nome}`, request, { leadId, alteracoes: dadosAtualizados });
     }
 
     let fetchQuery = supabase.from('leads').select('*').order('created_at', { ascending: false });
-    if (empresaIdAlvo) {
-      fetchQuery = fetchQuery.eq('empresa_id', empresaIdAlvo);
-    }
-    
-    if (origem === 'pc') {
-      fetchQuery = fetchQuery.neq('perfil', 'INSTALAÇÃO FEITA');
-    }
+    if (empresaIdAlvo) fetchQuery = fetchQuery.eq('empresa_id', empresaIdAlvo);
+    if (origem === 'pc') fetchQuery = fetchQuery.neq('perfil', 'INSTALAÇÃO FEITA');
 
     const { data: leadsAtualizados } = await fetchQuery;
     const leadsMapeados = (leadsAtualizados || []).map(formatarLead);
@@ -375,7 +428,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: true, leads: leadsMapeados }, { status: 200 });
   } catch (error: any) {
     console.error('❌ ERRO NO PUT:', error.message);
-    await registrarLog('sistema', 'ERRO_ATUALIZAR_LEAD', 'ERROR', `Erro ao atualizar lead: ${error.message}`, request, { erro: error.message });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

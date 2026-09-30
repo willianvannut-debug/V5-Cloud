@@ -17,7 +17,6 @@ import {
   Trash2,
   Tag,
   ShieldCheck,
-  UserPlus,
   Loader2,
   AlertTriangle,
   CreditCard,
@@ -31,11 +30,14 @@ import {
   Layers,
   Monitor,
   Building2 as BuildingIcon,
-  Check
+  Check,
+  Download,
+  Upload,
+  Shield
 } from 'lucide-react';
 import { useSettings, PlanoItem, FuncionarioItem } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
-import { logger } from '@/lib/logger'; // ✅ NOVO LOGGER
+import { logger } from '@/lib/logger';
 import { createClient } from '@supabase/supabase-js';
 
 import dynamic from 'next/dynamic';
@@ -102,6 +104,20 @@ function DraggableMarker({ coords, setCoords, buscarReverso }: { coords: { lat: 
   );
 }
 
+// 🚀 MAPEAR OS IDs REAIS DOS PLANOS NO STRIPE AQUI
+const STRIPE_PRICE_IDS = {
+  mensal: {
+    essencial: process.env.NEXT_PUBLIC_STRIPE_ESSENCIAL_MONTHLY || 'price_1Q5VxxxxxxxxxESSENCIAL_M', 
+    pro: process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY || 'price_1Q5VxxxxxxxxxPRO_M',
+    scale: process.env.NEXT_PUBLIC_STRIPE_SCALE_MONTHLY || 'price_1Q5VxxxxxxxxxSCALE_M',
+  },
+  anual: {
+    essencial: process.env.NEXT_PUBLIC_STRIPE_ESSENCIAL_YEARLY || 'price_1Q5VxxxxxxxxxESSENCIAL_Y',
+    pro: process.env.NEXT_PUBLIC_STRIPE_PRO_YEARLY || 'price_1Q5VxxxxxxxxxPRO_Y',
+    scale: process.env.NEXT_PUBLIC_STRIPE_SCALE_YEARLY || 'price_1Q5VxxxxxxxxxSCALE_Y',
+  }
+};
+
 export default function ConfiguracoesPage() {
   const settings = useSettings();
   const { operador, empresa, carregando: carregandoAuth, atualizarNomeUsuario } = useAuth();
@@ -113,7 +129,7 @@ export default function ConfiguracoesPage() {
   const telefone = settings?.telefone || '';
   const emailEmpresa = settings?.emailEmpresa || '';
   const nomeUsuario = operador?.nome || settings?.nomeUsuario || '';
-  
+   
   const cidadeAtual = settings?.cidadeEmpresa || 'Águas Lindas de Goiás - GO';
   const latAtual = settings?.latEmpresa ?? -15.8193;
   const lonAtual = settings?.lonEmpresa ?? -48.1133;
@@ -121,17 +137,17 @@ export default function ConfiguracoesPage() {
   const ctos = settings?.ctos || [];
   const planos = settings?.planos || [];
   const funcionarios = settings?.funcionarios || [];
-  
+   
   const planoAtivoAtual = empresa?.plano ? String(empresa.plano).toLowerCase().trim() : 'essencial';
   const carregandoPlano = carregandoAuth;
 
   const [salvo, setSalvo] = useState(false);
-  
+   
   const [inputNome, setInputNome] = useState(nomeProvedor);
   const [inputTelefone, setInputTelefone] = useState(telefone);
   const [inputEmailEmpresa, setInputEmailEmpresa] = useState(emailEmpresa);
   const [inputUsuario, setInputUsuario] = useState(nomeUsuario);
-  
+   
   const [inputCep, setInputCep] = useState('');
   const [inputEnderecoLoja, setInputEnderecoLoja] = useState(cidadeAtual);
   const [inputLat, setInputLat] = useState<number>(latAtual);
@@ -140,15 +156,10 @@ export default function ConfiguracoesPage() {
 
   const [listaPlanos, setListaPlanos] = useState<PlanoItem[]>(planos);
   const [listaFuncionarios, setListaFuncionarios] = useState<FuncionarioItem[]>(funcionarios);
-  
+   
   const [exibirCamposSenha, setExibirCamposSenha] = useState(false);
   const [senhaAntiga, setSenhaAntiga] = useState('');
   const [novaSenha, setNovaSenha] = useState('');
-
-  const [novoCargo, setNovoCargo] = useState('Atendente');
-  const [novoEmail, setNovoEmail] = useState('');
-  const [carregandoConvite, setCarregandoConvite] = useState(false);
-  const [mensagemConvite, setMensagemConvite] = useState('');
 
   const [modalMapaAberto, setModalMapaAberto] = useState(false);
   const [enderecoBuscaMapa, setEnderecoBuscaMapa] = useState('');
@@ -163,6 +174,10 @@ export default function ConfiguracoesPage() {
   const [modalPlanosAberto, setModalPlanosAberto] = useState(false);
   const [isAnnual, setIsAnnual] = useState(false);
   const [loadingPlanoStripe, setLoadingPlanoStripe] = useState<string | null>(null);
+
+  // Estados para Backup e Restauração local do Provedor
+  const [carregandoBackup, setCarregandoBackup] = useState(false);
+  const [carregandoRestauracao, setCarregandoRestauracao] = useState(false);
 
   useEffect(() => {
     setInputNome(nomeProvedor);
@@ -314,59 +329,18 @@ export default function ConfiguracoesPage() {
     setListaPlanos(listaPlanos.map(item => item.id === id ? { ...item, [campo]: valor } : item));
   };
 
-  const handleRemoverFuncionario = (id: string) => {
-    setListaFuncionarios(listaFuncionarios.filter(item => item.id !== id));
+  // 🔒 Dono da conta: é o usuário logado ou quem tem "dono" no cargo. Não pode ser removido.
+  const ehDonoDaConta = (func: FuncionarioItem) => {
+    const emailFunc = (func.email || '').toLowerCase().trim();
+    const emailLogado = (operador?.email || '').toLowerCase().trim();
+    const cargoFunc = (func.cargo || '').toLowerCase();
+    return (emailLogado !== '' && emailFunc === emailLogado) || cargoFunc.includes('dono');
   };
 
-  const handleEnviarConvite = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!novoEmail) return;
-
-    setCarregandoConvite(true);
-    setMensagemConvite('');
-
-    const codigoEmpresa = localStorage.getItem('v5_codigo_convite');
-
-    if (!codigoEmpresa) {
-      setMensagemConvite('Erro: Código da empresa não encontrado. Acesse a aba "Equipe" para gerá-lo primeiro.');
-      setCarregandoConvite(false);
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/auth/equipe/convidar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email: novoEmail, 
-          cargo: novoCargo,
-          codigoEmpresa: codigoEmpresa, 
-          empresaId: empresaIdLogado || '00000000-0000-0000-0000-000000000001', 
-          nomeEmpresa: inputNome || 'V5 Fibra' 
-        })
-      });
-
-      const data = await res.json();
-      
-      if (data.sucesso) {
-        const novoFunc: FuncionarioItem = {
-          id: Date.now().toString(),
-          nome: 'Aguardando Cadastro...',
-          cargo: novoCargo,
-          email: novoEmail
-        };
-
-        setListaFuncionarios([...listaFuncionarios, novoFunc]);
-        setMensagemConvite(data.mensagem || `Convite enviado com sucesso para ${novoEmail}!`);
-        setNovoEmail('');
-      } else {
-        setMensagemConvite(data.mensagem || 'Erro ao gerar convite.');
-      }
-    } catch (err) {
-      setMensagemConvite('Erro de conexão ao enviar o convite.');
-    } finally {
-      setCarregandoConvite(false);
-    }
+  const handleRemoverFuncionario = (id: string) => {
+    const alvo = listaFuncionarios.find(item => item.id === id);
+    if (alvo && ehDonoDaConta(alvo)) return;
+    setListaFuncionarios(listaFuncionarios.filter(item => item.id !== id));
   };
 
   const handleSalvar = async (e: React.FormEvent) => {
@@ -377,18 +351,29 @@ export default function ConfiguracoesPage() {
         alert("Para alterar a senha, você deve preencher tanto a Senha Antiga quanto a Nova Senha.");
         return;
       }
-      
-      const senhaSalvaLocal = localStorage.getItem('v5_user_password') || '123456';
-      if (senhaAntiga !== senhaSalvaLocal) {
-        alert("A senha antiga informada está incorreta.");
+       
+      try {
+        const resSenha = await fetch('/api/auth/senha/alterar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ senhaAntiga, novaSenha })
+        });
+         
+        const dataSenha = await resSenha.json();
+         
+        if (!dataSenha.sucesso) {
+          alert("Erro: " + dataSenha.mensagem);
+          return; 
+        }
+
+        alert("Senha alterada com sucesso! Um aviso de segurança foi enviado para o seu e-mail.");
+        setSenhaAntiga('');
+        setNovaSenha('');
+        setExibirCamposSenha(false);
+      } catch (err) {
+        alert("Erro de conexão ao alterar a senha.");
         return;
       }
-
-      localStorage.setItem('v5_user_password', novaSenha);
-    }
-
-    if (inputUsuario) {
-      atualizarNomeUsuario(inputUsuario);
     }
 
     try {
@@ -428,31 +413,51 @@ export default function ConfiguracoesPage() {
     }
   };
 
-  // ✅ NOVO: Função para selecionar plano com LOG
   const handleSelecionarPlanoOficial = async (nomePlano: string, precoMensal: number, precoAnual: number, chavePlano: string) => {
     setLoadingPlanoStripe(chavePlano);
-    
+     
+    const priceId = isAnnual 
+      ? STRIPE_PRICE_IDS.anual[chavePlano as keyof typeof STRIPE_PRICE_IDS.anual] 
+      : STRIPE_PRICE_IDS.mensal[chavePlano as keyof typeof STRIPE_PRICE_IDS.mensal];
+
+    if (planoAtivoAtual !== 'essencial' && empresa?.stripe_customer_id) {
+      try {
+        await logger.info('PLANO_UPGRADE_INICIADO', 'checkout', `Upgrade com pró-rata: ${planoAtivoAtual.toUpperCase()} → ${nomePlano}`);
+
+        const res = await fetch('/api/assinatura/upgrade', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            novo_price_id: priceId,
+            novo_plano: chavePlano
+          })
+        });
+
+        const data = await res.json();
+         
+        if (data.sucesso) {
+          await logger.sucesso('PLANO_UPGRADE_CONCLUIDO', 'checkout', `Upgrade realizado para ${nomePlano}`);
+          alert(`Upgrade para ${nomePlano} realizado com sucesso! O valor proporcional será faturado.`);
+          window.location.reload(); 
+        } else {
+          throw new Error(data.mensagem || "Falha ao processar o upgrade.");
+        }
+      } catch (err: any) {
+        console.error(err);
+        await logger.erro('ERRO_UPGRADE_PLANO', 'checkout', 'Erro ao fazer upgrade', err);
+        alert(err.message || "Erro ao fazer upgrade. Tente novamente.");
+      } finally {
+        setLoadingPlanoStripe(null);
+      }
+      return; 
+    }
+
     const precoFinal = isAnnual ? precoAnual : precoMensal;
     const nomeComCiclo = `V5 SaaS - ${nomePlano} (${isAnnual ? 'Anual' : 'Mensal'})`;
     const ciclo = isAnnual ? 'year' : 'month';
 
     try {
-      // ✅ Log de mudança de plano iniciada
-      await logger.info(
-        'PLANO_ALTERACAO_INICIADA',
-        'checkout',
-        `Mudança de plano iniciada: ${planoAtivoAtual.toUpperCase()} → ${nomePlano}`,
-        {
-          planoAnterior: planoAtivoAtual,
-          planoNovo: nomePlano,
-          precoMensal,
-          precoAnual,
-          precaSelecionado: precoFinal,
-          ciclo: ciclo,
-          email: operador?.email || inputEmailEmpresa,
-          empresaId: empresaIdLogado
-        }
-      );
+      await logger.info('PLANO_ALTERACAO_INICIADA', 'checkout', `Mudança de plano iniciada: ${planoAtivoAtual.toUpperCase()} → ${nomePlano}`);
 
       const res = await fetch('/api/checkout', {
         method: 'POST',
@@ -463,59 +468,23 @@ export default function ConfiguracoesPage() {
           precoCentavos: precoFinal * 100,
           intervalo: ciclo,
           empresaId: empresaIdLogado,
-          chavePlano: chavePlano
+          chavePlano: chavePlano,
+          priceId: priceId 
         })
       });
 
       const data = await res.json();
-      
+       
       if (data.url) {
-        // ✅ Log de sucesso ao gerar link de pagamento
-        await logger.sucesso(
-          'PLANO_LINK_PAGAMENTO_GERADO',
-          'checkout',
-          `Link de pagamento gerado para plano ${nomePlano}`,
-          {
-            planoNovo: nomePlano,
-            preco: precoFinal,
-            ciclo,
-            email: operador?.email || inputEmailEmpresa,
-            empresaId: empresaIdLogado
-          }
-        );
-
+        await logger.sucesso('PLANO_LINK_PAGAMENTO_GERADO', 'checkout', `Link de pagamento gerado para plano ${nomePlano}`);
         window.location.href = data.url;
       } else {
-        // ✅ Log de erro ao gerar link
-        await logger.erro(
-          'ERRO_GERAR_LINK_PAGAMENTO',
-          'checkout',
-          'Erro ao gerar link de pagamento',
-          new Error(data.error || 'Erro desconhecido'),
-          {
-            planoTentativa: nomePlano,
-            email: operador?.email || inputEmailEmpresa,
-            empresaId: empresaIdLogado
-          }
-        );
-
+        await logger.erro('ERRO_GERAR_LINK_PAGAMENTO', 'checkout', 'Erro ao gerar link de pagamento', new Error(data.error || 'Erro desconhecido'));
         alert("Erro no pagamento: " + (data.error || "Tente novamente."));
         setLoadingPlanoStripe(null);
       }
     } catch (err: any) {
-      // ✅ Log de erro geral
-      await logger.erro(
-        'ERRO_CHECKOUT_PLANO',
-        'checkout',
-        'Erro ao processar checkout de plano',
-        err,
-        {
-          planoTentativa: nomePlano,
-          email: operador?.email || inputEmailEmpresa,
-          empresaId: empresaIdLogado
-        }
-      );
-
+      await logger.erro('ERRO_CHECKOUT_PLANO', 'checkout', 'Erro ao processar checkout de plano', err);
       console.error(err);
       alert("Erro de conexão ao processar pagamento.");
       setLoadingPlanoStripe(null);
@@ -528,10 +497,8 @@ export default function ConfiguracoesPage() {
     window.location.href = '/login';
   };
 
-  // ✅ NOVO: Função para exportar dados com LOG
   const handleExportarDados = async () => {
     try {
-      // ✅ Log de exportação iniciada
       await logger.info(
         'EXPORTACAO_DADOS_LGPD_INICIADA',
         'sistema',
@@ -562,7 +529,6 @@ export default function ConfiguracoesPage() {
       a.remove();
       window.URL.revokeObjectURL(url);
 
-      // ✅ Log de sucesso na exportação
       await logger.sucesso(
         'DADOS_EXPORTADOS_LGPD',
         'sistema',
@@ -576,7 +542,6 @@ export default function ConfiguracoesPage() {
       );
 
     } catch (error: any) {
-      // ✅ Log de erro na exportação
       await logger.erro(
         'ERRO_EXPORTAR_DADOS_LGPD',
         'sistema',
@@ -590,6 +555,78 @@ export default function ConfiguracoesPage() {
 
       console.error('❌ Erro ao exportar dados LGPD:', error);
       alert('Erro ao descarregar relatório de dados pessoais. Verifique se possui sessão ativa.');
+    }
+  };
+
+  // 📥 Funções de Backup e Restauração Local do Provedor
+  const baixarBackupProvedor = async () => {
+    try {
+      setCarregandoBackup(true);
+      const resposta = await fetch('/api/admin/backup', { method: 'GET' });
+      
+      if (!resposta.ok) {
+        alert('Erro ao gerar o backup.');
+        return;
+      }
+
+      const blob = await resposta.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `v5-backup-${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (err) {
+      alert('Falha ao descarregar o ficheiro de backup.');
+    } finally {
+      setCarregandoBackup(false);
+    }
+  };
+
+  const restaurarBackupProvedor = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const arquivo = e.target.files?.[0];
+    if (!arquivo) return;
+
+    if (!confirm("ATENÇÃO: Deseja restaurar os dados a partir deste ficheiro JSON? Os registos atuais serão sincronizados de forma inteligente.")) {
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      setCarregandoRestauracao(true);
+      const leitor = new FileReader();
+      
+      leitor.onload = async (evento) => {
+        try {
+          const conteudoJson = JSON.parse(evento.target?.result as string);
+
+          const resposta = await fetch('/api/admin/backup/restaurar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(conteudoJson)
+          });
+
+          const resultado = await resposta.json();
+          if (resposta.ok && resultado.sucesso) {
+            alert('Restauração concluída com sucesso!');
+            window.location.reload();
+          } else {
+            alert('Erro na restauração: ' + (resultado.erro || 'Desconhecido'));
+          }
+        } catch (err) {
+          alert('O ficheiro selecionado não é um JSON válido.');
+        } finally {
+          setCarregandoRestauracao(false);
+          e.target.value = '';
+        }
+      };
+
+      leitor.readAsText(arquivo);
+    } catch (err) {
+      setCarregandoRestauracao(false);
+      alert('Erro ao ler o ficheiro.');
     }
   };
 
@@ -611,7 +648,7 @@ export default function ConfiguracoesPage() {
       )}
 
       <form onSubmit={handleSalvar} className="space-y-6">
-        
+         
         {userRole === 'gerente' && (
           <>
             {/* EMPRESA & LOCALIZAÇÃO DA LOJA */}
@@ -782,57 +819,10 @@ export default function ConfiguracoesPage() {
             <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
               <CardHeader className="border-b border-zinc-900/85 pb-4">
                 <CardTitle className="text-xs uppercase font-mono tracking-wide text-emerald-400 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4" /> Gestão de Equipe & Envio de Convite por E-mail
+                  <ShieldCheck className="w-4 h-4" /> Gestão de Equipe
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-5 space-y-5">
-                <div className="p-4 bg-black/50 border border-zinc-800 rounded-xl space-y-4">
-                  <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-400 block">Convidar Novo Membro (Via Código Mestre)</span>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-mono uppercase text-zinc-500">Cargo</label>
-                      <select 
-                        value={novoCargo}
-                        onChange={(e) => setNovoCargo(e.target.value)}
-                        className="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-emerald-400 font-mono uppercase font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
-                      >
-                        <option value="Atendente">Atendente</option>
-                        <option value="Gerente">Gerente</option>
-                        <option value="Técnico">Técnico</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-mono uppercase text-zinc-500">E-mail do Colaborador</label>
-                      <input 
-                        type="email"
-                        value={novoEmail}
-                        onChange={(e) => setNovoEmail(e.target.value)}
-                        placeholder="colaborador@provedora.com"
-                        className="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="button"
-                      onClick={handleEnviarConvite}
-                      disabled={carregandoConvite}
-                      className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs font-mono rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      {carregandoConvite ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Enviar Convite
-                    </button>
-                  </div>
-                </div>
-
-                {mensagemConvite && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-mono flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 shrink-0" /> {mensagemConvite}
-                  </div>
-                )}
-
                 <div className="space-y-3 pt-2">
                   <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-400 block">Colaboradores na Equipe ({listaFuncionarios.length})</span>
 
@@ -851,14 +841,16 @@ export default function ConfiguracoesPage() {
                             </div>
                             <span className="text-zinc-500 text-[11px]">{func.email}</span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoverFuncionario(func.id)}
-                            className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
-                            title="Remover membro"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {!ehDonoDaConta(func) && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoverFuncionario(func.id)}
+                              className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+                              title="Remover membro"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -983,9 +975,53 @@ export default function ConfiguracoesPage() {
           </CardContent>
         </Card>
 
+        {/* 🔒 SEGURANÇA E BACKUP DE DADOS DO PROVEDOR */}
+        {userRole === 'gerente' && (
+          <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur font-mono">
+            <CardHeader className="border-b border-zinc-900/85 pb-4">
+              <CardTitle className="text-xs uppercase font-mono tracking-wide text-emerald-400 flex items-center gap-2">
+                <Shield className="w-4 h-4" /> Segurança e Backup de Dados do Provedor
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-5 space-y-4">
+              <p className="text-xs text-zinc-400">
+                Guarde uma cópia de segurança local de todas as caixas CTO, leads e operadores do seu provedor em formato JSON.
+              </p>
+
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={baixarBackupProvedor}
+                  disabled={carregandoBackup}
+                  className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-bold uppercase transition-all flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.2)] disabled:opacity-50"
+                >
+                  {carregandoBackup ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  Descarregar Backup (.JSON)
+                </button>
+
+                <label className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase transition-all flex items-center gap-2 cursor-pointer border ${
+                  carregandoRestauracao 
+                    ? 'bg-zinc-800 text-zinc-500 border-zinc-700 cursor-not-allowed' 
+                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                }`}>
+                  {carregandoRestauracao ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4 text-emerald-400" />}
+                  {carregandoRestauracao ? 'A restaurar...' : 'Restaurar Backup'}
+                  <input 
+                    type="file" 
+                    accept=".json" 
+                    onChange={restaurarBackupProvedor} 
+                    disabled={carregandoRestauracao} 
+                    className="hidden" 
+                  />
+                </label>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* BOTÃO DE SALVAR & OPÇÕES EXCLUSIVAS DE GERENTE */}
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t border-zinc-900">
-          
+           
           <div className="flex items-center gap-3 w-full sm:w-auto">
             {userRole === 'gerente' && (
               <>
@@ -1022,7 +1058,7 @@ export default function ConfiguracoesPage() {
       {modalPlanosAberto && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 font-mono overflow-y-auto">
           <div className="bg-[#021708] border border-[#1e3b29] w-full max-w-7xl rounded-2xl p-6 md:p-8 relative text-[#f8fafc] shadow-2xl flex flex-col space-y-6 my-8">
-            
+             
             <div className="flex justify-between items-center border-b border-[#1e3b29] pb-4">
               <div>
                 <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-widest font-bold">Central de Assinaturas V5</span>
@@ -1052,7 +1088,7 @@ export default function ConfiguracoesPage() {
 
             {/* Grid dos 4 Planos Oficiais */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-left">
-              
+               
               {/* Card 1: Essencial */}
               <div className={`relative flex flex-col border rounded-xl bg-[#021708] p-6 transition-all ${planoAtivoAtual === 'essencial' ? 'border-emerald-500 ring-2 ring-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.3)]' : 'border-[#1e3b29]'}`}>
                 {planoAtivoAtual === 'essencial' && (
@@ -1079,15 +1115,15 @@ export default function ConfiguracoesPage() {
                         : 'border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] text-[#f8fafc]'
                     }`}
                   >
-                    {loadingPlanoStripe === 'essencial' ? <Loader2 className="w-4 h-4 animate-spin" /> : planoAtivoAtual === 'essencial' ? 'Plano Ativo' : 'Começar Agora'}
+                    {loadingPlanoStripe === 'essencial' ? <Loader2 className="w-4 h-4 animate-spin" /> : planoAtivoAtual === 'essencial' ? 'Plano Ativo' : 'Mudar para Essencial'}
                   </button>
-                  
+                   
                   <div className="text-left text-sm mt-auto">
                     <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
                     <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1 Usuário (Apenas 1 vendedor)</p>
                     <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1 cidade mapeada</p>
                     <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ 1 Tecnico em campo</p>
-                    
+                     
                     <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                     <ul className="space-y-2.5">
                       <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Widget de Viabilidade</span></li>
@@ -1125,15 +1161,15 @@ export default function ConfiguracoesPage() {
                         : 'border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] text-[#f8fafc]'
                     }`}
                   >
-                    {loadingPlanoStripe === 'pro' ? <Loader2 className="w-4 h-4 animate-spin" /> : planoAtivoAtual === 'pro' ? 'Plano Ativo' : 'Começar Agora'}
+                    {loadingPlanoStripe === 'pro' ? <Loader2 className="w-4 h-4 animate-spin" /> : planoAtivoAtual === 'pro' ? 'Plano Ativo' : 'Mudar para Pro'}
                   </button>
-                  
+                   
                   <div className="text-left text-sm mt-auto">
                     <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
                     <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 3 Usuários</p>
                     <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 10 Cidades mapeadas</p>
                     <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Até 10 Tecnico em campo</p>
-                    
+                     
                     <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                     <ul className="space-y-2.5">
                       <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Tudo do Essencial</span></li>
@@ -1174,14 +1210,14 @@ export default function ConfiguracoesPage() {
                         : 'bg-[#f8fafc] text-[#021708] hover:bg-[#f8fafc]/90'
                     }`}
                   >
-                    {loadingPlanoStripe === 'scale' ? <Loader2 className="w-4 h-4 animate-spin" /> : planoAtivoAtual === 'scale' ? 'Plano Ativo' : 'Assinar Scale'}
+                    {loadingPlanoStripe === 'scale' ? <Loader2 className="w-4 h-4 animate-spin" /> : planoAtivoAtual === 'scale' ? 'Plano Ativo' : 'Mudar para Scale'}
                   </button>
-                  
+                   
                   <div className="text-left text-sm mt-auto">
                     <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
                     <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 10 Usuários</p>
                     <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Áreas de cobertura ilimitadas</p>
-                    
+                     
                     <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                     <ul className="space-y-2.5">
                       <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Tudo do Pro</span></li>
@@ -1218,12 +1254,12 @@ export default function ConfiguracoesPage() {
                   >
                     Falar c/ Vendas
                   </a>
-                  
+                   
                   <div className="text-left text-sm mt-auto">
                     <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
                     <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Usuários Ilimitados</p>
                     <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ Áreas de cobertura ilimitadas</p>
-                    
+                     
                     <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                     <ul className="space-y-2.5">
                       <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Setup VIP (n8n e WhatsApp)</span></li>
@@ -1255,7 +1291,7 @@ export default function ConfiguracoesPage() {
       {modalMapaAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col">
-            
+             
             <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/40">
               <h3 className="text-xs uppercase font-mono tracking-wider text-emerald-400 font-bold flex items-center gap-2">
                 <Navigation className="w-4 h-4" /> Definir Localização Base da Loja (PIN Neon)

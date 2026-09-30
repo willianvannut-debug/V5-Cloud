@@ -1,4 +1,7 @@
-//context/SettingsContext.tsx
+// ================================================================================
+// 📋 SETTINGS CONTEXT - V5 CLOUD (COM CARREGAMENTO DE PLANOS)
+// context/SettingsContext.tsx
+// ================================================================================
 
 "use client"
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
@@ -89,7 +92,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     if (operador?.email) setEmailEmpresa(operador.email);
   }, [empresa, operador]);
 
-  // 🚀 BUSCA INTELIGENTE DO PLANO: Tenta pelo ID, se não achar, busca o último plano atualizado no banco
   const carregarPlanoDoBanco = useCallback(async () => {
     if (!supabase) return;
 
@@ -99,7 +101,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       let data = null;
 
       if (idDaEmpresa) {
-        // Tenta buscar diretamente pela empresa logada
         const resId = await supabase
           .from('empresas')
           .select('plano, nome_empresa, endereco')
@@ -108,7 +109,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         data = resId.data;
       }
 
-      // Se por acaso o ID não veio na sessão, busca a empresa que possui o plano ativo mais recente ou a última alterada
       if (!data) {
         const resUltima = await supabase
           .from('empresas')
@@ -121,7 +121,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
       if (data && data.plano) {
         const planoLimpo = String(data.plano).toLowerCase().trim();
-        console.log("⚡ [SETTINGS] Plano ativo aplicado na tela:", planoLimpo);
         setPlanoAtivo(planoLimpo);
         if (data.nome_empresa) setNomeProvedor(data.nome_empresa);
         if (data.endereco) setCidadeEmpresa(data.endereco);
@@ -130,6 +129,21 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       console.error("Erro ao carregar plano do Supabase:", e);
     }
   }, [operador, empresa]);
+
+  // 🚀 BUSCA OS PLANOS CADASTRADOS NA TABELA / API DE CONFIGURAÇÕES
+  const carregarPlanosDoBanco = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.planos && Array.isArray(data.planos)) {
+          setPlanos(data.planos);
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao carregar planos:", e);
+    }
+  }, []);
 
   const carregarCtosDoBanco = useCallback(async () => {
     const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
@@ -173,12 +187,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         if (data.sucesso && data.operadores) {
-          const listaFormatada: FuncionarioItem[] = data.operadores.map((op: any) => ({
-            id: op.id,
-            nome: op.nome,
-            cargo: op.role === 'gerente' ? 'Gerente / Dono' : (op.cargo || 'Atendente'),
-            email: op.email
-          }));
+          const listaFormatada: FuncionarioItem[] = data.operadores.map((op: any) => {
+            let cargoFinal = op.cargo || op.role || 'Atendente';
+            if (op.role === 'gerente' && !op.cargo) {
+              cargoFinal = 'Gerente / Dono';
+            }
+            if (op.nome && op.nome.toLowerCase().includes('tecnico')) {
+              cargoFinal = 'Técnico de Campo';
+            }
+
+            return {
+              id: op.id,
+              nome: op.nome,
+              cargo: cargoFinal,
+              email: op.email
+            };
+          });
           setFuncionarios(listaFormatada);
         }
       }
@@ -187,9 +211,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     carregarPlanoDoBanco();
+    carregarPlanosDoBanco();
     carregarFuncionariosDoBanco();
     carregarCtosDoBanco();
-  }, [carregarPlanoDoBanco, carregarFuncionariosDoBanco, carregarCtosDoBanco]);
+  }, [carregarPlanoDoBanco, carregarPlanosDoBanco, carregarFuncionariosDoBanco, carregarCtosDoBanco]);
 
   const salvarConfiguracoes = async (
     novoProvedor: string, 

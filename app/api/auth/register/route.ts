@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
+import { Resend } from 'resend';
+
+// 🚀 1. Inicializa o Resend com a sua chave
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
@@ -42,6 +46,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     let empresaIdFinal = '';
+    let isNovoCadastro = false; // Flag para sabermos se devemos mandar o e-mail de boas-vindas
 
     if (operadorExistente) {
       // 🔄 SE O OPERADOR JÁ EXISTE: Atualizamos os dados da empresa (incluindo o plano correto) e a senha de forma limpa
@@ -76,6 +81,7 @@ export async function POST(request: Request) {
 
     } else {
       // 🆕 SE NÃO EXISTE: Criamos a empresa com o plano correto escolhido e depois o operador associado
+      isNovoCadastro = true;
       const codigoConviteGerado = Math.random().toString(36).substring(2, 8).toUpperCase();
       
       const { data: empresaCriada, error: erroEmpresa } = await supabaseAdmin
@@ -121,6 +127,44 @@ export async function POST(request: Request) {
         // Se houver falha ao inserir o operador, removemos a empresa criada para manter a consistência
         await supabaseAdmin.from('empresas').delete().eq('id', empresaIdFinal);
         return NextResponse.json({ sucesso: false, mensagem: `Erro ao criar operador: ${erroOperador.message}` }, { status: 500 });
+      }
+    }
+
+    // 🚀 2. ENVIO DO E-MAIL DE BOAS-VINDAS (Só se for uma conta nova)
+    if (isNovoCadastro) {
+      try {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        
+        await resend.emails.send({
+          from: 'V5 SaaS <onboarding@resend.dev>', // ⚠️ Altere para o seu domínio quando o verificar no Resend
+          to: [emailLimpo],
+          subject: `Bem-vindo à V5 Cloud, ${nomeOperador}! 🚀`,
+          html: `
+            <div style="font-family: monospace; background-color: #09090b; color: #f8fafc; padding: 40px; border-radius: 12px; max-width: 600px; margin: 0 auto; border: 1px solid #1e3b29;">
+              <h2 style="color: #10b981; text-transform: uppercase;">Conta Criada com Sucesso!</h2>
+              <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
+                Olá <strong>${nomeOperador}</strong>,
+              </p>
+              <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
+                É um prazer ter você na V5. A conta da sua empresa <strong>${nomeEmpresa}</strong> foi configurada com o plano <strong style="color: #3b82f6; text-transform: uppercase;">${planoComprado}</strong> e o seu perfil de Gerente já está ativo.
+              </p>
+              
+              <div style="margin: 35px 0;">
+                <a href="${appUrl}/login" 
+                   style="background-color: #10b981; color: #000; font-weight: bold; text-decoration: none; padding: 14px 28px; border-radius: 8px; text-transform: uppercase; font-size: 13px; display: inline-block;">
+                  Acessar o Painel Agora
+                </a>
+              </div>
+
+              <p style="color: #94a3b8; font-size: 12px; border-top: 1px dashed #333; padding-top: 20px;">
+                Dica: Explore a aba de Viabilidade e o Mapa interativo para começar a organizar as suas vendas!
+              </p>
+            </div>
+          `,
+        });
+        console.log(`✅ E-mail de boas-vindas enviado para ${emailLimpo}`);
+      } catch (emailError) {
+        console.error("Aviso: Falha ao enviar e-mail de boas-vindas:", emailError);
       }
     }
 

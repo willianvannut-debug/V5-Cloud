@@ -235,12 +235,12 @@ export default function LoginPage() {
 
           </form>
 
-          {/* RODAPÉ */}
+          {/* RODAPÉ ALTERADO PARA REDIRECIONAR AO CADASTRO */}
           <div className="text-center pt-2 border-t border-zinc-900 font-mono">
             <p className="text-[11px] text-zinc-500">
-              Quer assinar a V5 Telecom?{' '}
-              <Link href="/planos" className="text-emerald-400 hover:underline font-bold">
-                Ver Planos e Preços
+              Quer assinar a V5 cloud?{' '}
+              <Link href="/cadastro" className="text-emerald-400 hover:underline font-bold">
+                Ir para o Cadastro
               </Link>
             </p>
           </div>

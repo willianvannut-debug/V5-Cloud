@@ -1,5 +1,5 @@
 // ================================================================================
-// 📋 ROTA DE LEADS (FRONTEND) - V5 CLOUD (TEMPO REAL FORÇADO SEM F5)
+// 📋 ROTA DE LEADS (FRONTEND) - V5 CLOUD (PADRÃO VISUAL IDÊNTICO + ESCOLHER PLANO)
 // app/dashboard/leads/page.tsx
 // ================================================================================
 
@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
-  Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Trash2, Globe, Navigation, Loader2, MapPin, Building2, Gamepad2
+  Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Trash2, Globe, Navigation, Loader2, MapPin, Building2, Gamepad2, Tag
 } from 'lucide-react';
 import { useApp, LeadReal } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -22,19 +22,54 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-// 🗺️ Carregamento dinâmico do mapa
+// 🗺️ Carregamento dinâmico do mapa com tema escuro preservado
 const MapWithNoSSR = dynamic(
   async () => {
-    if (typeof window !== 'undefined' && !document.getElementById('leaflet-css')) {
-      const link = document.createElement('link');
-      link.id = 'leaflet-css';
-      link.rel = 'stylesheet';
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.appendChild(link);
+    if (typeof window !== 'undefined') {
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+
+      if (!document.getElementById('leaflet-dark-mode')) {
+        const style = document.createElement('style');
+        style.id = 'leaflet-dark-mode';
+        style.innerHTML = `
+          .leaflet-tile-pane {
+            filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(95%) !important;
+          }
+          .leaflet-container {
+            background: #09090b !important;
+          }
+        `;
+        document.head.appendChild(style);
+      }
     }
 
-    const { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } = await import('react-leaflet');
+    const { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } = await import('react-leaflet');
     
+    function AtualizadorCentroMapa({ coordenadas }: { coordenadas: [number, number] }) {
+      const map = useMap();
+      const jaFezAnimacaoInicial = React.useRef(false); 
+
+      useEffect(() => {
+        if (jaFezAnimacaoInicial.current) return;
+
+        if (coordenadas && coordenadas[0] !== 0 && coordenadas[1] !== 0) {
+          map.setView(coordenadas, map.getZoom() || 14, {
+            animate: true,
+            duration: 1.5
+          });
+          jaFezAnimacaoInicial.current = true;
+        }
+      }, [coordenadas[0], coordenadas[1], map]); 
+      
+      return null;
+    }
+
     function MapEventsHandler({ setZoomAtual, setMapBounds }: any) {
       useMapEvents({
         zoomend(e: any) {
@@ -64,6 +99,8 @@ const MapWithNoSSR = dynamic(
           maxBoundsViscosity={1.0}
           style={{ width: '100%', height: '100%', background: '#09090b' }}
         >
+          <AtualizadorCentroMapa coordenadas={centroMapa} />
+          
           <MapEventsHandler setZoomAtual={setZoomAtual} setMapBounds={setMapBounds} />
 
           <TileLayer
@@ -147,12 +184,17 @@ export default function LeadsPage() {
   const { atualizarEtapaLead, limparTudo } = useApp();
   const settings = useSettings();
   const { operador, empresa } = useAuth();
+  
   const ctos = settings?.ctos || [];
+  const planosConfigurados = settings?.planos || [];
   
   const [operacional, setOperacional] = useState<any[]>([]);
   const [leadsLista, setLeadsLista] = useState<any[]>([]);
 
-  // 🚀 Função para buscar dados atualizados diretamente da API de Leads
+  const nomeSedeDinamico = empresa?.cidade || settings?.cidadeEmpresa || 'Brasil';
+  const latEmpresa = empresa?.lat || empresa?.latitude || settings?.latEmpresa || -15.7797;
+  const lonEmpresa = empresa?.lon || empresa?.longitude || settings?.lonEmpresa || -47.9297;
+
   const carregarLeadsDireto = useCallback(async () => {
     try {
       const resposta = await fetch('/api/leads?origem=pc', {
@@ -171,9 +213,8 @@ export default function LeadsPage() {
     }
   }, []);
 
-  // 🚀 WEBSOCKET EM TEMPO REAL: Dispara a atualização imediata assim que o banco sofre alteração
   useEffect(() => {
-    carregarLeadsDireto(); // Carga inicial
+    carregarLeadsDireto();
 
     if (!supabase) return;
 
@@ -183,8 +224,7 @@ export default function LeadsPage() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'leads' },
         (payload) => {
-          console.log('⚡ Alteração em tempo real detetada na tabela leads:', payload);
-          carregarLeadsDireto(); // Atualiza a tela instantaneamente
+          carregarLeadsDireto();
         }
       )
       .subscribe();
@@ -252,7 +292,6 @@ export default function LeadsPage() {
           setPlanoAtual('essencial');
         }
       } catch (err) {
-        console.error("Erro ao buscar plano nos leads:", err);
         setPlanoAtual('essencial');
       }
     }
@@ -280,6 +319,21 @@ export default function LeadsPage() {
   const [ctoVinculadaNome, setCtoVinculadaNome] = useState<string>('');
   const [calculandoRota, setCalculandoRota] = useState(false);
 
+  const handleSelecionarPlanoLead = async (leadId: string, nomePlanoEscolhido: string) => {
+    setLeadsLista(prev => prev.map(l => l.id === leadId ? { ...l, plano_escolhido: nomePlanoEscolhido } : l));
+    
+    if (supabase) {
+      try {
+        await supabase
+          .from('leads')
+          .update({ plano_escolhido: nomePlanoEscolhido })
+          .eq('id', leadId);
+      } catch (err) {
+        console.error("Erro ao salvar plano escolhido no banco:", err);
+      }
+    }
+  };
+
   const limparRota = () => {
     setRotaAtivaCoords([[]]);
     setDistanciaRotaAtiva('');
@@ -290,24 +344,6 @@ export default function LeadsPage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      try {
-        if (!document.getElementById('leaflet-dark-mode')) {
-          const style = document.createElement('style');
-          style.id = 'leaflet-dark-mode';
-          style.innerHTML = `
-            .leaflet-tile-pane {
-              filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(95%) !important;
-            }
-            .leaflet-container {
-              background: #09090b !important;
-            }
-          `;
-          document.head.appendChild(style);
-        }
-      } catch (e) {
-        console.error("Erro ao injetar estilos:", e);
-      }
-
       import('leaflet').then((L) => {
         delete (L.Icon.Default.prototype as any)._getIconUrl;
         
@@ -409,6 +445,14 @@ export default function LeadsPage() {
   const isLeadVisivel = (lead: any) => {
     const etapa = String(lead.etapa_funil || lead.perfil || '').toUpperCase();
     if (etapa === 'INSTALAÇÃO FEITA' || etapa === 'INSTALACAO FEITA') return false;
+
+    const cargo = String(operador?.role || 'atendente').toLowerCase();
+    const isGerente = cargo === 'gerente' || cargo === 'superadmin' || cargo === 'dono';
+    
+    if (!isGerente && lead.status === 'SEM COBERTURA') {
+      return false; 
+    }
+
     return true;
   };
 
@@ -496,7 +540,6 @@ export default function LeadsPage() {
 
       setDistanciaRotaAtiva(textoFormatado);
     } catch (err) {
-      console.error("Erro ao calcular linha reta:", err);
       setDistanciaRotaAtiva('Erro ao calcular distância.');
     } finally {
       setCalculandoRota(false);
@@ -613,7 +656,7 @@ export default function LeadsPage() {
 
   const centroMapa = ctos.length > 0 && ctos[0].lat && ctos[0].lon 
     ? [ctos[0].lat, ctos[0].lon] as [number, number] 
-    : [-15.7641, -48.2743] as [number, number];
+    : [latEmpresa, lonEmpresa] as [number, number];
 
   return (
     <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans w-full relative">
@@ -715,7 +758,7 @@ export default function LeadsPage() {
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
         <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
           <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2 shrink-0">
-            <Globe className="w-4 h-4 text-emerald-400" /> Mapa de Calor & Cobertura de Leads
+            <Globe className="w-4 h-4 text-emerald-400" /> Mapa de Calor & Cobertura de Leads ({nomeSedeDinamico})
           </CardTitle>
           
           <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono text-zinc-400 uppercase font-bold">
@@ -776,9 +819,7 @@ export default function LeadsPage() {
 
               if (scoreCalculado === undefined || scoreCalculado === null) {
                 scoreCalculado = 0;
-                
                 if (leadAtivoPainel.status === 'COM COBERTURA') scoreCalculado += 30;
-
                 if (fallbackMatch) {
                   const tipoImovelRegex = fallbackMatch[1].trim().toUpperCase();
                   const perfilUsoRegex = fallbackMatch[2].trim().toUpperCase();
@@ -940,7 +981,7 @@ export default function LeadsPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-zinc-900 text-[11px] font-mono uppercase tracking-wider text-zinc-500 bg-black/20">
-                  <th className="p-4">Data / Hora</th>
+                  <th className="p-4">Plano de Instalação</th>
                   <th className="p-4">Cliente / Contato</th>
                   <th className="p-4">Localização (CEP & Endereço)</th>
                   <th className="p-4 whitespace-nowrap">Status Operacional</th>
@@ -969,12 +1010,31 @@ export default function LeadsPage() {
                     const endLimpo = (lead.endereco || '').replace(/\[.*?\]/, '').trim();
                     
                     const ctoRealNaTabela = (lead.lat && lead.lon) ? getCtoMaisProximaParaTabela(lead.lat, lead.lon) : (lead.cto || 'Sem CTO');
+                    const planoSelecionadoLead = lead.plano_escolhido || '';
 
                     return (
                       <tr key={lead.id} className="hover:bg-zinc-900/30 transition-colors">
-                        <td className="p-4 text-zinc-400 flex items-center gap-1.5 pt-5">
-                          <Clock className="w-3.5 h-3.5 text-zinc-600" /> {lead.data}
+                        
+                        {/* 🚀 1. SEM PREENCHIMENTO AUTOMÁTICO (EXIBE "ESCOLHER PLANO") + 2. MESMO DESIGN DO FUNIL */}
+                        <td className="p-4">
+                          <select
+                            value={planoSelecionadoLead}
+                            onChange={(e) => handleSelecionarPlanoLead(lead.id, e.target.value)}
+                            className="bg-black/60 border border-zinc-800 text-emerald-400 rounded-lg px-2.5 py-1.5 text-xs font-mono uppercase font-bold focus:outline-none focus:border-emerald-500 cursor-pointer"
+                          >
+                            <option value="" disabled>ESCOLHER PLANO</option>
+                            {(!planosConfigurados || planosConfigurados.length === 0) ? (
+                              <option value="Padrão">PADRÃO</option>
+                            ) : (
+                              planosConfigurados.map((p) => (
+                                <option key={p.id} value={p.nome}>
+                                  {p.nome} ({p.velocidade} - {p.preco})
+                                </option>
+                              ))
+                            )}
+                          </select>
                         </td>
+
                         <td className="p-4">
                           <div className="font-bold font-sans text-sm text-white">{lead.nome}</div>
                           <div className="text-[11px] text-zinc-500 flex items-center gap-1 mt-0.5">

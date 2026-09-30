@@ -50,6 +50,14 @@ export async function GET() {
       }
     }
 
+    // 🚀 O pulo do gato: forçamos o browser a NUNCA fazer cache desta rota. 
+    // Assim, se você mudar o banco, a tela atualiza na hora.
+    const headers = {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    };
+
     return NextResponse.json({
       sucesso: true,
       operador: {
@@ -63,7 +71,8 @@ export async function GET() {
           nome_empresa: empresaData.nome_empresa,
           codigo_convite: empresaData.codigo_convite,
           endereco: empresaData.endereco,
-          plano: empresaData.plano || 'essencial'
+          plano: String(empresaData.plano || 'essencial').toLowerCase().trim(),
+          addon_iframe: empresaData.addon_iframe || false // Adicionado!
         } : null
       },
       empresa: empresaData ? {
@@ -71,9 +80,10 @@ export async function GET() {
         nomeEmpresa: empresaData.nome_empresa,
         codigoConvite: empresaData.codigo_convite,
         endereco: empresaData.endereco,
-        plano: String(empresaData.plano || 'essencial').toLowerCase().trim() // 🚀 Incluído o plano real aqui!
+        plano: String(empresaData.plano || 'essencial').toLowerCase().trim(),
+        addon_iframe: empresaData.addon_iframe || false // Adicionado!
       } : null
-    });
+    }, { headers });
 
   } catch (err) {
     console.error("Erro na API /me:", err);

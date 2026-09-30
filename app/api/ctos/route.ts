@@ -1,10 +1,14 @@
-//app/api/ctos/route.ts
+// ================================================================================
+// 📦 ROTA DE CTOS - SUPABASE (BLINDADA + LIMITES CUSTOMIZADOS + LOTES SEGUROS)
+// app/api/ctos/route.ts
+// ================================================================================
 
 import { NextResponse, NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/logger';
 import { jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+import { PLANOS } from '@/lib/planLimites';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
@@ -31,7 +35,7 @@ async function getUsuarioLogado() {
   }
 }
 
-// 🟡 PUT: SINCRONIZAÇÃO EM LOTE (Criar, Atualizar e Deletar de uma vez - com lotes seguros)
+// 🟡 PUT: SINCRONIZAÇÃO EM LOTE (Com validação rígida de limites de rede)
 export async function PUT(request: NextRequest) {
   const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
   const usuario = await getUsuarioLogado();
@@ -44,7 +48,44 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { novas = [], atualizadas = [], removidas = [] } = body;
 
-    // 1. Processar Exclusões em lotes seguros para evitar erro de limite
+    // 🚀 1. VERIFICAÇÃO INTELIGENTE DE LIMITES (PLANO + CUSTOMIZAÇÃO)
+    if (novas.length > 0) {
+      // Busca dados da empresa (plano contratado e limite customizado opcional)
+      const { data: dadosEmpresa } = await supabaseAdmin
+        .from('empresas')
+        .select('plano, limite_customizado_ctos')
+        .eq('id', usuario.empresaId)
+        .single();
+
+      const planoKey = String(dadosEmpresa?.plano || 'essencial').toLowerCase().trim();
+      const limitePadraoPlano = PLANOS[planoKey]?.max_ctos || 5000;
+      
+      // Se houver um limite customizado no banco, ele tem prioridade absoluta!
+      const limiteMaximoReal = dadosEmpresa?.limite_customizado_ctos ?? limitePadraoPlano;
+
+      // Conta quantas caixas a empresa já tem atualmente no banco
+      const { count: totalCaixasAtuais, error: erroContagem } = await supabaseAdmin
+        .from('ctos')
+        .select('*', { count: 'exact', head: true })
+        .eq('provedor_id', usuario.empresaId);
+
+      if (erroContagem) throw erroContagem;
+
+      const totalFuturo = (totalCaixasAtuais || 0) + novas.length;
+
+      // 🛑 BLOQUEIO REAL: Se ultrapassar o teto, barra a inserção imediatamente
+      if (totalFuturo > limiteMaximoReal) {
+        return NextResponse.json(
+          { 
+            sucesso: false, 
+            erro: `Limite de caixas excedido! Você tem ${totalCaixasAtuais} caixas e tenta adicionar mais ${novas.length} (Teto permitido: ${limiteMaximoReal}). Faça um upgrade ou solicite liberação especial ao suporte.` 
+          }, 
+          { status: 403 }
+        );
+      }
+    }
+
+    // 2. Processar Exclusões em lotes seguros para evitar erro de limite
     if (removidas.length > 0) {
       const tamanhoLoteDel = 500;
       for (let i = 0; i < removidas.length; i += tamanhoLoteDel) {
@@ -62,7 +103,7 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // 2. Processar Criações em lotes seguros (para passar de 1000 registos sem cortes)
+    // 3. Processar Criações em lotes seguros (para passar de 1000 registos sem cortes)
     if (novas.length > 0) {
       const caixasParaInserir = novas.map((c: any) => ({
         identificacao: c.identificacao,
@@ -81,7 +122,7 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // 3. Processar Atualizações em lotes seguros
+    // 4. Processar Atualizações em lotes seguros
     if (atualizadas.length > 0) {
       const tamanhoLoteUpd = 500;
       for (let i = 0; i < atualizadas.length; i += tamanhoLoteUpd) {

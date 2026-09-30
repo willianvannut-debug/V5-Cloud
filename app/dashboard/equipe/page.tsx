@@ -1,4 +1,7 @@
-//app/dashboard/equipe/page.tsx
+// ================================================================================
+// 📋 GESTÃO DE EQUIPE & FATURAMENTO - V5 CLOUD
+// app/dashboard/equipe/page.tsx
+// ================================================================================
 
 "use client"
 import React, { useState, useEffect } from 'react';
@@ -18,7 +21,10 @@ import {
   Lock,
   Rocket,
   Headset,
-  Wrench
+  Wrench,
+  TrendingUp,
+  Percent,
+  Cable
 } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
@@ -36,12 +42,11 @@ export default function EquipePage() {
   const { leads } = useApp();
   const { operador, empresa } = useAuth();
 
-  // 🚀 PLANO DIRETO DA SESSÃO / SUPABASE: Pega com segurança o plano da empresa logada
+  // 🚀 PLANO DIRETO DA SESSÃO / SUPABASE
   const [planoAtual, setPlanoAtual] = useState<string>('');
 
   useEffect(() => {
     async function sincronizarPlanoReal() {
-      // Se o contexto já tiver o plano da empresa, usa ele direto sem query cega!
       const planoDoContexto = empresa?.plano || operador?.empresa?.plano;
       if (planoDoContexto) {
         setPlanoAtual(String(planoDoContexto).toLowerCase().trim());
@@ -76,18 +81,30 @@ export default function EquipePage() {
     sincronizarPlanoReal();
   }, [operador, empresa]);
 
-  // Contagem flexível contemplando Vendedores, Atendentes e Técnicos vindos do Supabase
-  const totalVendedores = funcionarios ? funcionarios.filter(f => {
-    const cargo = f.cargo?.toLowerCase() || '';
-    return cargo.includes('vendedor') || cargo.includes('vendas') || cargo.includes('comercial') || cargo.includes('atendente');
-  }).length : 0;
+  // 🚀 Separação limpa e blindada evitando duplicados e separando corretamente por cargo/nome
+  const funcionariosUnicos = funcionarios ? Array.from(new Map(funcionarios.map(item => [item.email, item])).values()) : [];
 
-  const totalTecnicos = funcionarios ? funcionarios.filter(f => {
-    const cargo = f.cargo?.toLowerCase() || '';
-    return cargo.includes('tecnico') || cargo.includes('técnico') || cargo.includes('campo');
-  }).length : 0;
+  const vendedoresList = funcionariosUnicos.filter(f => {
+    const cargo = (f.cargo || '').toLowerCase();
+    const nome = (f.nome || '').toLowerCase();
+    
+    // Se for explicitamente técnico, não entra no comercial
+    if (cargo.includes('tecnico') || cargo.includes('técnico') || cargo.includes('campo') || nome.includes('tecnico') || nome.includes('técnico')) {
+      return false;
+    }
+    return true;
+  });
 
-  // 🚀 CRUZAMENTO COM PLANLIMITES: Sem números chumbados. Se falhar, retorna "ERRO".
+  const tecnicosList = funcionariosUnicos.filter(f => {
+    const cargo = (f.cargo || '').toLowerCase();
+    const nome = (f.nome || '').toLowerCase();
+    
+    return cargo.includes('tecnico') || cargo.includes('técnico') || cargo.includes('campo') || nome.includes('tecnico') || nome.includes('técnico');
+  });
+
+  const totalVendedores = vendedoresList.length;
+  const totalTecnicos = tecnicosList.length;
+
   const configPlanoAtual = PLANOS[planoAtual];
   const limiteVendedores = configPlanoAtual ? configPlanoAtual.max_vendedores : "ERRO"; 
   const limiteTecnicos = configPlanoAtual ? configPlanoAtual.max_tecnicos : "ERRO";
@@ -224,6 +241,8 @@ export default function EquipePage() {
       });
     }
   }, [faturamentoAtual, metaGlobal, metaBatidaDisparada]);
+
+  const TICKET_MEDIO_BASE = 99.90;
 
   return (
     <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans w-full">
@@ -411,53 +430,132 @@ export default function EquipePage() {
         </CardContent>
       </Card>
 
-      {/* LISTA DE COLABORADORES */}
-      <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-        <CardContent className="p-6 space-y-4">
-          <h3 className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
-            <Award className="w-4 h-4 text-emerald-400" /> Desempenho dos Colaboradores Cadastrados
-          </h3>
-
-          {(!funcionarios || funcionarios.length === 0) ? (
-            <div className="p-8 text-center text-zinc-500 text-xs font-mono border border-dashed border-zinc-800 rounded-xl">
-              Nenhum funcionário cadastrado. Vá em <strong className="text-emerald-400">Configurações</strong> para adicionar sua equipe.
+      {/* SESSÃO: LISTA DE COLABORADORES DIVIDIDA */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        
+        {/* COLUNA 1: ATENDENTES E VENDEDORES */}
+        <Card className="border border-zinc-900 bg-zinc-900/20 backdrop-blur">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-2 pb-3 border-b border-zinc-900/50">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center">
+                <Headset className="w-4 h-4 text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-sm uppercase font-mono font-bold text-white tracking-wide">
+                  Equipe Comercial & CRM
+                </h3>
+                <p className="text-[10px] text-zinc-500 font-mono">Foco em Conversão e Ticket Médio</p>
+              </div>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {funcionarios.map(func => {
-                const leadsAtribuidos = leads.filter(l => l.atendente === func.nome);
-                const instalacoesFunc = leadsAtribuidos.filter(l => l.etapa_funil === 'INSTALACAO_FEITA').length;
-                const receitaFunc = instalacoesFunc * 99.90;
 
-                return (
-                  <div key={func.id} className="p-4 bg-black/40 border border-zinc-900 rounded-2xl space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-bold text-sm text-white">{func.nome}</h4>
-                        <span className="text-[11px] text-emerald-400 font-mono">{func.cargo}</span>
-                      </div>
-                      <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400">
-                        {leadsAtribuidos.length} leads atribuídos
-                      </span>
-                    </div>
+            {vendedoresList.length === 0 ? (
+              <div className="p-6 text-center text-zinc-500 text-xs font-mono border border-dashed border-zinc-800 rounded-xl bg-black/20">
+                Nenhum vendedor cadastrado nesta área.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {vendedoresList.map(func => {
+                  const leadsAtribuidos = leads.filter(l => l.atendente === func.nome);
+                  const instalacoesFunc = leadsAtribuidos.filter(l => l.etapa_funil === 'INSTALACAO_FEITA').length;
+                  const receitaFunc = instalacoesFunc * TICKET_MEDIO_BASE;
+                  const taxaConversao = leadsAtribuidos.length > 0 ? ((instalacoesFunc / leadsAtribuidos.length) * 100).toFixed(1) : '0.0';
 
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-900 text-xs font-mono">
-                      <div>
-                        <span className="text-zinc-500 text-[10px] uppercase">Instalações Feitas</span>
-                        <div className="font-bold text-white mt-0.5">{instalacoesFunc} concluídas</div>
+                  return (
+                    <div key={func.id} className="p-4 bg-black/40 border border-zinc-900 hover:border-blue-500/30 transition-colors rounded-2xl space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-bold text-sm text-white">{func.nome}</h4>
+                          <span className="text-[11px] text-blue-400 font-mono">{func.cargo || 'Atendente'}</span>
+                        </div>
+                        <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400">
+                          {leadsAtribuidos.length} leads atribuídos
+                        </span>
                       </div>
-                      <div className="text-right">
-                        <span className="text-zinc-500 text-[10px] uppercase">Receita Gerada</span>
-                        <div className="font-bold text-emerald-400 mt-0.5">R$ {receitaFunc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+
+                      <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-900/60 text-xs font-mono">
+                        <div>
+                          <span className="text-zinc-500 text-[9px] uppercase flex items-center gap-1"><Check className="w-3 h-3"/> Conversão</span>
+                          <div className="font-bold text-white mt-1">{taxaConversao}%</div>
+                        </div>
+                        <div className="text-center">
+                          <span className="text-zinc-500 text-[9px] uppercase flex justify-center items-center gap-1"><TrendingUp className="w-3 h-3"/> Vendas</span>
+                          <div className="font-bold text-white mt-1">{instalacoesFunc} ativadas</div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-zinc-500 text-[9px] uppercase flex justify-end items-center gap-1"><Award className="w-3 h-3"/> Receita</span>
+                          <div className="font-bold text-blue-400 mt-1">R$ {receitaFunc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* COLUNA 2: TÉCNICOS E CAMPO */}
+        <Card className="border border-zinc-900 bg-zinc-900/20 backdrop-blur">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2 mb-2 pb-3 border-b border-zinc-900/50">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+                <Wrench className="w-4 h-4 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm uppercase font-mono font-bold text-white tracking-wide">
+                  Equipe de Campo & Infra
+                </h3>
+                <p className="text-[10px] text-zinc-500 font-mono">Foco em Produtividade e Ativações</p>
+              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            {tecnicosList.length === 0 ? (
+              <div className="p-6 text-center text-zinc-500 text-xs font-mono border border-dashed border-zinc-800 rounded-xl bg-black/20">
+                Nenhum técnico cadastrado nesta área.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {tecnicosList.map(func => {
+                  const leadsAtribuidos = leads.filter(l => l.atendente === func.nome);
+                  const instalacoesFunc = leadsAtribuidos.filter(l => l.etapa_funil === 'INSTALACAO_FEITA').length;
+                  const pendentesFunc = leadsAtribuidos.filter(l => l.etapa_funil !== 'INSTALACAO_FEITA' && l.status !== 'CANCELADO').length;
+                  const caboGastoEstimado = instalacoesFunc * 150; 
+
+                  return (
+                    <div key={func.id} className="p-4 bg-black/40 border border-zinc-900 hover:border-amber-500/30 transition-colors rounded-2xl space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-bold text-sm text-white">{func.nome}</h4>
+                          <span className="text-[11px] text-amber-400 font-mono">{func.cargo || 'Técnico de Fibra'}</span>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-lg border text-[10px] font-mono ${pendentesFunc > 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}>
+                          {pendentesFunc} OS na Fila
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-900/60 text-xs font-mono">
+                        <div>
+                          <span className="text-zinc-500 text-[9px] uppercase flex items-center gap-1"><Check className="w-3 h-3"/> Concluídas</span>
+                          <div className="font-bold text-white mt-1">{instalacoesFunc} ativadas</div>
+                        </div>
+                        <div className="text-center">
+                          <span className="text-zinc-500 text-[9px] uppercase flex justify-center items-center gap-1"><Wrench className="w-3 h-3"/> Reparos</span>
+                          <div className="font-bold text-zinc-400 mt-1">0 (Em breve)</div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-zinc-500 text-[9px] uppercase flex justify-end items-center gap-1"><Cable className="w-3 h-3"/> Drop Gasto</span>
+                          <div className="font-bold text-amber-400 mt-1">~ {caboGastoEstimado}m</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+      </div>
 
     </div>
   );

@@ -1,22 +1,41 @@
 {
-  "empresaId": "ced517b0-0af7-4608-8663-0541169e2830",
-  "operadorEmail": "123@gmail.com",
-  "nomeProvedor": "empresa fantasma",
+  "empresaId": "ed43046b-ee5f-4e46-b418-fbb2a71110e4",
+  "operadorEmail": "planobase@gmail.com",
+  "nomeProvedor": "Sua empresa",
   "telefone": "",
-  "emailEmpresa": "123@gmail.com",
-  "nomeUsuario": "gerente para teste",
+  "emailEmpresa": "planobase@gmail.com",
+  "nomeUsuario": "Seu nome",
   "cep": "",
-  "cidadeEmpresa": "Rua Araguaia, Mansões Olinda, Águas Lindas de Goiás, Goiás, Região Centro-Oeste, 72920-533, Brasil",
-  "latEmpresa": -15.738355787662977,
-  "lonEmpresa": -48.28688621520997,
+  "cidadeEmpresa": "ceilandia",
+  "latEmpresa": -15.8193,
+  "lonEmpresa": -48.1133,
   "ctos": [],
-  "planos": [],
+  "planos": [
+    {
+      "id": "1790742081219",
+      "nome": "Plano 1",
+      "velocidade": "200 Megas",
+      "preco": "R$ 100,00"
+    },
+    {
+      "id": "1790742482084",
+      "nome": "Plano 2",
+      "velocidade": "500 Megas",
+      "preco": "R$ 130,00"
+    },
+    {
+      "id": "1790743316420",
+      "nome": "Plano 3",
+      "velocidade": "800 Megas",
+      "preco": "R$ 170,00"
+    }
+  ],
   "funcionarios": [
     {
-      "id": "8409bdb4-55f0-425c-bf22-ef37520e0e5e",
-      "nome": "gerente para teste",
+      "id": "c932c136-56d6-43c9-9dd0-23d9848908f4",
+      "nome": "Seu nome",
       "cargo": "Gerente / Dono",
-      "email": "123@gmail.com"
+      "email": "planobase@gmail.com"
     }
   ]
 }

@@ -19,16 +19,21 @@ const customIcon = new L.Icon({
   shadowSize: [41, 41]
 });
 
-// Centraliza o mapa automaticamente quando as props iniciais mudam
-function RecenterAutomatically({ lat, lon }: { lat: number, lon: number }) {
+// 🚀 NOVO: Centraliza o mapa suavemente quando as props da Empresa carregam
+function AtualizadorCentroMapa({ lat, lon }: { lat: number, lon: number }) {
   const map = useMap();
   useEffect(() => {
-    map.setView([lat, lon], 17);
+    if (lat !== 0 && lon !== 0) {
+      map.setView([lat, lon], map.getZoom() || 17, {
+        animate: true,
+        duration: 1.5
+      });
+    }
   }, [lat, lon, map]);
   return null;
 }
 
-// 🖱️ NOVO: Componente para escutar cliques diretos no mapa
+// 🖱️ Componente para escutar cliques diretos no mapa
 function CliqueMapaHandler({ onMapClick }: { onMapClick: (lat: number, lon: number) => void }) {
   useMapEvents({
     click(e) {
@@ -83,7 +88,10 @@ export default function MapaInterativo({ latInicial, lonInicial, onPositionChang
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <RecenterAutomatically lat={latInicial} lon={lonInicial} />
+        
+        {/* 🚀 Adicionada a animação suave */}
+        <AtualizadorCentroMapa lat={latInicial} lon={lonInicial} />
+        
         <CliqueMapaHandler onMapClick={handleMapClick} />
         <Marker draggable={true} eventHandlers={eventHandlers} position={position} ref={markerRef} icon={customIcon} />
       </MapContainer>
