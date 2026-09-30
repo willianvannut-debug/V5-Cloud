@@ -1,5 +1,5 @@
 // ================================================================================
-// 🔒 ROTA DE LEADS - SUPABASE (BLINDADA + LOGS + STRIPE + RODÍZIO DE ATENDENTES E TÉCNICOS)
+// 🔒 ROTA DE LEADS - SUPABASE (BLINDADA + LOGS + STRIPE + RODÍZIO + PLANO ESCOLHIDO)
 // app/api/leads/route.ts
 // ================================================================================
 
@@ -56,6 +56,7 @@ function formatarLead(l: any) {
     cto: l.cto || 'CTO-01', 
     lat: l.lat !== null && l.lat !== undefined ? Number(l.lat) : undefined,
     lon: l.lon !== null && l.lon !== undefined ? Number(l.lon) : undefined,
+    plano_escolhido: l.plano_escolhido || '',
   };
 }
 
@@ -218,7 +219,7 @@ export async function POST(request: NextRequest) {
         .from('operadores')
         .select('nome')
         .eq('empresa_id', empresaIdAlvo)
-        .in('role', ['atendente', 'vendedor', 'comercial']) // Retirado gerente para focar na equipe comercial
+        .in('role', ['atendente', 'vendedor', 'comercial'])
         .order('nome', { ascending: true });
 
       if (equipeComercial && equipeComercial.length > 0) {
@@ -306,6 +307,7 @@ export async function POST(request: NextRequest) {
       lat: body.lat ? Number(body.lat) : null,
       lon: body.lon ? Number(body.lon) : null,
       atendente: atendenteSorteado,
+      plano_escolhido: sanitizarTexto(body.plano_escolhido || ''), // 🚀 Captura o plano escolhido
     };
 
     const { error: insertError } = await supabase
@@ -363,18 +365,16 @@ export async function PUT(request: NextRequest) {
 
         dadosAtualizados.perfil = etapaLimpa; 
 
-        // 🚀 ⚡ RODÍZIO AUTOMÁTICO DE TÉCNICOS (Round-Robin)
-        // Se a nova etapa for "MANDAR PARA INSTALAÇÃO" e ainda não tiver técnico atribuído
+        // 🚀 RODÍZIO AUTOMÁTICO DE TÉCNICOS (Round-Robin)
         if (etapaLimpa === 'MANDAR PARA INSTALAÇÃO' && empresaIdAlvo) {
           const { data: equipeTecnica } = await supabase
             .from('operadores')
             .select('nome')
             .eq('empresa_id', empresaIdAlvo)
-            .eq('role', 'tecnico') // Busca estritamente quem é técnico
+            .eq('role', 'tecnico')
             .order('nome', { ascending: true });
 
           if (equipeTecnica && equipeTecnica.length > 0) {
-            // Procura o último lead que recebeu um técnico de campo
             const { data: ultimoLeadTecnico } = await supabase
               .from('leads')
               .select('tecnico')
@@ -392,7 +392,6 @@ export async function PUT(request: NextRequest) {
               }
             }
             
-            // Atribui o técnico sorteado à atualização
             dadosAtualizados.tecnico = tecnicoSorteado;
           }
         }
@@ -404,7 +403,12 @@ export async function PUT(request: NextRequest) {
       if (body.telefone || body.whatsapp) dadosAtualizados.whatsapp = sanitizarTexto(body.telefone || body.whatsapp);
       if (body.endereco || body.numero) dadosAtualizados.numero = sanitizarTexto(body.endereco || body.numero);
       if (body.atendente !== undefined) dadosAtualizados.atendente = body.atendente;
-      if (body.tecnico !== undefined) dadosAtualizados.tecnico = body.tecnico; // Permite forçar troca manual de técnico
+      if (body.tecnico !== undefined) dadosAtualizados.tecnico = body.tecnico;
+      
+      // 🚀 Captura o plano escolhido no PUT (quando atualizado na tabela)
+      if (body.plano_escolhido !== undefined) {
+        dadosAtualizados.plano_escolhido = sanitizarTexto(body.plano_escolhido);
+      }
 
       const { error: updateError } = await supabase
         .from('leads')
@@ -415,7 +419,7 @@ export async function PUT(request: NextRequest) {
         console.error('❌ ERRO NO UPDATE:', updateError);
       }
 
-      await registrarLog(auth.emailOperador || 'sistema', 'LEAD_ATUALIZADO', 'INFO', `Lead atualizado para instalação: ${leadAnterior?.nome}`, request, { leadId, alteracoes: dadosAtualizados });
+      await registrarLog(auth.emailOperador || 'sistema', 'LEAD_ATUALIZADO', 'INFO', `Lead atualizado: ${leadAnterior?.nome}`, request, { leadId, alteracoes: dadosAtualizados });
     }
 
     let fetchQuery = supabase.from('leads').select('*').order('created_at', { ascending: false });
