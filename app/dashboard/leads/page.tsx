@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
-  Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Trash2, Globe, Navigation, Loader2, MapPin, Building2, Gamepad2, Tag
+  Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Globe, Navigation, Loader2, MapPin, Building2, Gamepad2, Tag
 } from 'lucide-react';
 import { useApp, LeadReal } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -181,11 +181,40 @@ const MapWithNoSSR = dynamic(
 );
 
 export default function LeadsPage() {
-  const { atualizarEtapaLead, limparTudo } = useApp();
+  // 🔥 AGORA INCLUINDO A FUNÇÃO BLINDADA DO CONTEXTO:
+  const { atualizarEtapaLead, atualizarEtapaEPlanoLead } = useApp();
   const settings = useSettings();
   const { operador, empresa } = useAuth();
   
-  const ctos = settings?.ctos || [];
+  const [ctosDaApi, setCtosDaApi] = useState<any[]>([]);
+
+useEffect(() => {
+  let cancelado = false;
+
+  (async () => {
+    try {
+      const resposta = await fetch('/api/ctos', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!resposta.ok) return;
+
+      const dados = await resposta.json();
+      if (!cancelado && dados?.sucesso && Array.isArray(dados.ctos)) {
+        setCtosDaApi(dados.ctos);
+      }
+    } catch (erro) {
+      console.error('Erro ao carregar CTOs:', erro);
+    }
+  })();
+
+  return () => {
+    cancelado = true;
+  };
+}, []);
+
+// Usa as caixas da API (todas); se falhar, cai para as da configuração
+const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
   const planosConfigurados = settings?.planos || [];
   
   const [operacional, setOperacional] = useState<any[]>([]);
@@ -302,6 +331,7 @@ export default function LeadsPage() {
   const [busca, setBusca] = useState('');
 
   const [modalAberto, setModalAberto] = useState(false);
+  const [avisoForaCobertura, setAvisoForaCobertura] = useState(false); // NOVO ESTADO
   const [leadSelecionado, setLeadSelecionado] = useState<string | null>(null);
   const [novaEtapaPendente, setNovaEtapaPendente] = useState<LeadReal['etapa_funil'] | null>(null);
 
@@ -319,19 +349,36 @@ export default function LeadsPage() {
   const [ctoVinculadaNome, setCtoVinculadaNome] = useState<string>('');
   const [calculandoRota, setCalculandoRota] = useState(false);
 
-  const handleSelecionarPlanoLead = async (leadId: string, nomePlanoEscolhido: string) => {
-    setLeadsLista(prev => prev.map(l => l.id === leadId ? { ...l, plano_escolhido: nomePlanoEscolhido } : l));
-    
-    if (supabase) {
-      try {
-        await supabase
-          .from('leads')
-          .update({ plano_escolhido: nomePlanoEscolhido })
-          .eq('id', leadId);
-      } catch (err) {
-        console.error("Erro ao salvar plano escolhido no banco:", err);
-      }
+  // ============================================================================
+  // 🔥 FUNÇÃO PARA SALVAR PLANO QUANDO O USUÁRIO APENAS SELECIONA NO DROPDOWN
+  // ============================================================================
+  const salvarPlanoNoBanco = async (leadId: string, plano: string) => {
+  if (!leadId || !plano) return;
+
+  try {
+    const res = await fetch('/api/leads', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ id: leadId, plano_escolhido: plano }),
+    });
+
+    if (!res.ok) {
+      const erro = await res.json().catch(() => ({}));
+      console.error('❌ Falha ao salvar plano:', res.status, erro);
+      await carregarLeadsDireto(); // desfaz o valor otimista
     }
+  } catch (e) {
+    console.error('❌ Erro de rede ao salvar plano:', e);
+    await carregarLeadsDireto();
+  }
+};
+
+  const handleSelecionarPlanoLead = async (leadId: string, nomePlanoEscolhido: string) => {
+    // 1. Atualiza visualmente na mesma hora
+    setLeadsLista(prev => prev.map(l => l.id === leadId ? { ...l, plano_escolhido: nomePlanoEscolhido } : l));
+    // 2. Tenta salvar no banco de dados
+    await salvarPlanoNoBanco(leadId, nomePlanoEscolhido);
   };
 
   const limparRota = () => {
@@ -437,7 +484,7 @@ export default function LeadsPage() {
           lon: cluster.lon,
           quantidade: cluster.itens.length,
           itens: cluster.itens
-        };
+        }
       }
     });
   }, [ctos, mapBounds, zoomAtual]);
@@ -546,37 +593,67 @@ export default function LeadsPage() {
     }
   };
 
+  // ============================================================================
+  // 🔥 MUDANÇA DE ETAPA BLINDADA USANDO O CONTEXTO COM AVISO CUSTOMIZADO
+  // ============================================================================
   const handleSolicitarMudancaEtapa = async (id: string, etapa: LeadReal['etapa_funil']) => {
     if (etapa === 'MANDAR PARA INSTALAÇÃO' || etapa === 'NAO CONVERTIDO') {
+      const leadNoEstado = leadsLista.find(l => l.id === id) || leadsInvertidos.find(l => l.id === id);
+      
+      // NOVA LÓGICA: Verifica se foi selecionado "MANDAR PARA INSTALAÇÃO" num lead "SEM COBERTURA"
+      if (etapa === 'MANDAR PARA INSTALAÇÃO' && leadNoEstado?.status === 'SEM COBERTURA') {
+        setAvisoForaCobertura(true);
+      } else {
+        setAvisoForaCobertura(false);
+      }
+
       setLeadSelecionado(id);
       setNovaEtapaPendente(etapa);
       setModalAberto(true);
     } else {
       await limparOperacional(id);
-      await atualizarEtapaLead(id, etapa);
-      await carregarLeadsDireto();
+      
+      const leadNoEstado = leadsLista.find(l => l.id === id) || leadsInvertidos.find(l => l.id === id);
+      const planoParaSalvar = leadNoEstado?.plano_escolhido || '';
+      
+      if (atualizarEtapaEPlanoLead && typeof atualizarEtapaEPlanoLead === 'function') {
+         await atualizarEtapaEPlanoLead(id, etapa, planoParaSalvar);
+      } else {
+         await atualizarEtapaLead(id, etapa);
+      }
+      
+      setTimeout(async () => {
+        await carregarLeadsDireto();
+      }, 1000);
     }
   };
 
   const confirmarMudanca = async () => {
     if (leadSelecionado && novaEtapaPendente) {
       await limparOperacional(leadSelecionado);
-      await atualizarEtapaLead(leadSelecionado, novaEtapaPendente);
-      await carregarLeadsDireto();
+      
+      const leadNoEstado = leadsLista.find(l => l.id === leadSelecionado) || leadsInvertidos.find(l => l.id === leadSelecionado);
+      const planoParaSalvar = leadNoEstado?.plano_escolhido || '';
+
+      if (atualizarEtapaEPlanoLead && typeof atualizarEtapaEPlanoLead === 'function') {
+         await atualizarEtapaEPlanoLead(leadSelecionado, novaEtapaPendente, planoParaSalvar);
+      } else {
+         await atualizarEtapaLead(leadSelecionado, novaEtapaPendente);
+      }
+      
+      setTimeout(async () => {
+        await carregarLeadsDireto();
+      }, 1000);
     }
     fecharModal();
   };
+  // ============================================================================
 
   const fecharModal = () => {
     setModalAberto(false);
     setLeadSelecionado(null);
     setNovaEtapaPendente(null);
-  };
-
-  const handleLimparTudo = () => {
-    if (window.confirm("Tem certeza que deseja apagar TODOS os leads e testes cadastrados? Esta ação não pode ser desfeita.")) {
-      limparTudo();
-    }
+    setAvisoForaCobertura(false); // Reseta o aviso customizado ao fechar
   };
 
   const getCtoMaisProximaParaTabela = useCallback((leadLat: number, leadLon: number) => {
@@ -615,8 +692,12 @@ export default function LeadsPage() {
   const limiteTotal = configPlanoAtual?.max_leads || 110;
   const precoExcedenteUnitario = configPlanoAtual?.preco_excedente ?? 1.50;
 
+  // LÓGICA ATUALIZADA: Conta Leads COM COBERTURA OU forçados para MANDAR PARA INSTALAÇÃO
   const leadsComCoberturaLista = useMemo(() => {
-    return leadsInvertidos.filter(l => isLeadVisivel(l) && l.status === 'COM COBERTURA');
+    return leadsInvertidos.filter(l => 
+      isLeadVisivel(l) && 
+      (l.status === 'COM COBERTURA' || l.etapa_funil === 'MANDAR PARA INSTALAÇÃO')
+    );
   }, [leadsInvertidos]);
 
   const leadsUsados = leadsComCoberturaLista.length;
@@ -696,13 +777,6 @@ export default function LeadsPage() {
               Sem Cobertura ({totalSemCobertura})
             </button>
           </div>
-
-          <button
-            onClick={handleLimparTudo}
-            className="px-3.5 py-1.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 text-xs font-mono font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(239,68,68,0.15)]"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Limpar Testes
-          </button>
         </div>
       </div>
 
@@ -744,12 +818,12 @@ export default function LeadsPage() {
           {ultrapassouFranquia ? (
             <div className="flex items-center justify-start pt-1 text-amber-400 text-[11px] font-mono uppercase font-bold">
               <span className="flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> Franquia excedida! Apenas leads com viabilidade são contabilizados.
+                <AlertTriangle className="w-3.5 h-3.5" /> Franquia excedida! Apenas leads com viabilidade (ou agendados) são contabilizados.
               </span>
             </div>
           ) : (
             <p className="text-zinc-500 text-[11px] font-mono uppercase">
-              Contagem baseada estritamente em leads com viabilidade técnica aprovada.
+              Contagem baseada estritamente em leads com viabilidade técnica aprovada e agendamentos diretos.
             </p>
           )}
         </CardContent>
@@ -861,7 +935,7 @@ export default function LeadsPage() {
                   <div className="flex items-start justify-between border-b border-zinc-800 pb-3">
                     <div>
                       <span className={`text-[10px] font-bold uppercase tracking-wider block ${eNaoFeitaPainel ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {eNaoFeitaPainel ? '⚠️ Instalação Não Realizada' : 'Lead Selecionado'}
+                        {eNaoFeitaPainel ? '⚠️️ Instalação Não Realizada' : 'Lead Selecionado'}
                       </span>
                       <h3 className="text-sm font-bold text-white font-sans mt-0.5">{leadAtivoPainel.nome}</h3>
                       
@@ -1015,7 +1089,6 @@ export default function LeadsPage() {
                     return (
                       <tr key={lead.id} className="hover:bg-zinc-900/30 transition-colors">
                         
-                        {/* 🚀 1. SEM PREENCHIMENTO AUTOMÁTICO (EXIBE "ESCOLHER PLANO") + 2. MESMO DESIGN DO FUNIL */}
                         <td className="p-4">
                           <select
                             value={planoSelecionadoLead}
@@ -1056,7 +1129,7 @@ export default function LeadsPage() {
                               : 'bg-red-500/10 text-red-400 border-red-500/30'
                           }`}>
                             {
-                              eNaoFeita ? '⚠️ INSTALAÇÃO NÃO FEITA' :
+                              eNaoFeita ? '⚠️️ INSTALAÇÃO NÃO FEITA' :
                               etapaAtual === 'MANDAR PARA INSTALAÇÃO' ? '🔵 Aguardando Instalação' :
                               lead.status === 'COM COBERTURA' ? 'COM COBERTURA' : 'SEM COBERTURA'
                             }
@@ -1120,9 +1193,15 @@ export default function LeadsPage() {
               <h3 className="text-lg font-bold font-mono text-white uppercase tracking-tight">
                 Confirmação de Alteração
               </h3>
-              <p className="text-zinc-400 text-xs font-mono leading-relaxed">
-                Tem certeza que quer mudar o status para <strong className="text-emerald-400 uppercase">{novaEtapaPendente === 'MANDAR PARA INSTALAÇÃO' ? 'Mandar para Instalação' : 'Não Convertido'}</strong>? O lead será atualizado na central.
-              </p>
+              {avisoForaCobertura ? (
+                <p className="text-amber-400 text-xs font-mono leading-relaxed font-bold">
+                  ⚠️ Tem certeza que quer mandar para instalação, pelos calculos em linha reta estar fora de cobertura da caixa mais proxima? Ao confirmar, este lead consumirá uma cota do seu plano.
+                </p>
+              ) : (
+                <p className="text-zinc-400 text-xs font-mono leading-relaxed">
+                  Tem certeza que quer mudar o status para <strong className="text-emerald-400 uppercase">{novaEtapaPendente === 'MANDAR PARA INSTALAÇÃO' ? 'Mandar para Instalação' : 'Não Convertido'}</strong>? O lead será atualizado na central.
+                </p>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">

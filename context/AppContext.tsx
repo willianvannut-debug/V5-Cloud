@@ -26,12 +26,15 @@ export interface LeadReal {
   data: string;
   lat?: number;
   lon?: number;
+  plano_escolhido?: string;
 }
 
 interface AppContextType {
   leads: LeadReal[];
   adicionarLead: (lead: Omit<LeadReal, 'id' | 'etapa_funil' | 'atendente'>) => Promise<void>;
   atualizarEtapaLead: (id: string, novaEtapa: LeadReal['etapa_funil']) => Promise<void>;
+  // Atualiza etapa e plano na mesma requisição
+  atualizarEtapaEPlanoLead: (id: string, novaEtapa: LeadReal['etapa_funil'], planoEscolhido: string) => Promise<void>;
   atribuirAtendenteLead: (ids: string[], atendente: string) => Promise<void>;
   limparTudo: () => Promise<void>;
   recarregarLeads: () => Promise<void>;
@@ -65,6 +68,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`/api/leads?t=${timestamp}`, {
         method: 'GET',
         cache: 'no-store',
+        credentials: 'include',
         headers: {
           'Pragma': 'no-cache',
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -91,7 +95,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 etapa_funil: leadDoCache.etapa_funil, 
                 status_instalacao: leadDoCache.status_instalacao,
                 motivo_pendencia: leadDoCache.motivo_pendencia,
-                atendente: leadDoCache.atendente
+                atendente: leadDoCache.atendente,
+                // 🚀 O banco é a fonte da verdade para o plano; o cache só entra se o banco estiver vazio
+                plano_escolhido: leadApi.plano_escolhido || leadDoCache.plano_escolhido || ''
               };
             }
             return leadApi;
@@ -129,7 +135,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const metaSalva = localStorage.getItem('v5_meta_global');
     const metaGlobal = metaSalva ? parseFloat(metaSalva) : 10000;
 
-    // 🚀 CORREÇÃO: Monitorar também a palavra com acentuação
     const totalInstalacoesFeitas = leads.filter(l => 
       l.etapa_funil === 'INSTALAÇÃO FEITA' || l.etapa_funil === 'INSTALACAO_FEITA' || l.status_instalacao === 'CONCLUIDA'
     ).length;
@@ -173,6 +178,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await fetch(`/api/leads?t=${Date.now()}`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${API_TOKEN}`,
@@ -195,6 +201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await fetch(`/api/leads?t=${Date.now()}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${API_TOKEN}`,
@@ -202,6 +209,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ id, etapa_funil: novaEtapa, listaCompleta: atualizados })
       });
     } catch (e) {
+      await recarregarLeads();
+    }
+  };
+
+  // 🚀 ENVIA ETAPA + PLANO NA MESMA REQUISIÇÃO, USANDO A ROTA QUE EXISTE (PUT /api/leads)
+  // O PUT já trata o rodízio de técnicos ao mandar para instalação.
+  const atualizarEtapaEPlanoLead = async (id: string, novaEtapa: LeadReal['etapa_funil'], planoEscolhido: string) => {
+    const atualizados = leads.map(l => l.id === id ? { ...l, etapa_funil: novaEtapa, plano_escolhido: planoEscolhido } : l);
+    setLeads(atualizados);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('v5_leads_unificados', JSON.stringify(atualizados));
+        localStorage.setItem('v5_cache_leads', JSON.stringify(atualizados));
+      } catch (e) {}
+    }
+
+    try {
+      const res = await fetch(`/api/leads?t=${Date.now()}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${API_TOKEN}`,
+        },
+        body: JSON.stringify({ id, etapa_funil: novaEtapa, plano_escolhido: planoEscolhido })
+      });
+
+      if (!res.ok) {
+        const erro = await res.json().catch(() => ({}));
+        console.error('❌ Falha ao atualizar etapa/plano:', res.status, erro);
+        await recarregarLeads();
+      }
+    } catch (e) {
+      console.error('❌ Erro de rede ao atualizar etapa/plano:', e);
       await recarregarLeads();
     }
   };
@@ -219,6 +260,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await fetch(`/api/leads?t=${Date.now()}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${API_TOKEN}`,
@@ -239,6 +281,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('v5_leads_operacional');
         await fetch(`/api/leads?t=${Date.now()}`, {
           method: 'POST',
+          credentials: 'include',
           headers: { 
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${API_TOKEN}`,
@@ -251,7 +294,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AppContext.Provider value={{ leads, adicionarLead, atualizarEtapaLead, atribuirAtendenteLead, limparTudo, recarregarLeads }}>
+    <AppContext.Provider value={{ leads, adicionarLead, atualizarEtapaLead, atualizarEtapaEPlanoLead, atribuirAtendenteLead, limparTudo, recarregarLeads }}>
       {children}
 
       {mostrarNotificacaoMeta && (

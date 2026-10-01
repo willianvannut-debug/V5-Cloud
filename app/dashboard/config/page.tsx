@@ -1,4 +1,7 @@
-//app/dashboard/config/page.tsx
+// ================================================================================
+// ⚙️ PÁGINA DE CONFIGURAÇÕES DO SISTEMA - V5 CLOUD (COM CADEADO E BOTÃO DINÂMICO)
+// app/dashboard/config/page.tsx
+// ================================================================================
 
 "use client"
 import React, { useEffect, useState, useRef, useMemo } from 'react';
@@ -33,7 +36,8 @@ import {
   Check,
   Download,
   Upload,
-  Shield
+  Shield,
+  LockKeyhole
 } from 'lucide-react';
 import { useSettings, PlanoItem, FuncionarioItem } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
@@ -104,7 +108,6 @@ function DraggableMarker({ coords, setCoords, buscarReverso }: { coords: { lat: 
   );
 }
 
-// 🚀 MAPEAR OS IDs REAIS DOS PLANOS NO STRIPE AQUI
 const STRIPE_PRICE_IDS = {
   mensal: {
     essencial: process.env.NEXT_PUBLIC_STRIPE_ESSENCIAL_MONTHLY || 'price_1Q5VxxxxxxxxxESSENCIAL_M', 
@@ -120,7 +123,7 @@ const STRIPE_PRICE_IDS = {
 
 export default function ConfiguracoesPage() {
   const settings = useSettings();
-  const { operador, empresa, carregando: carregandoAuth, atualizarNomeUsuario } = useAuth();
+  const { operador, empresa, carregando: carregandoAuth } = useAuth();
 
   const empresaIdLogado = operador?.empresaId || operador?.empresa_id || '';
   const userRole = (operador?.role || 'atendente').toLowerCase();
@@ -128,6 +131,7 @@ export default function ConfiguracoesPage() {
   const nomeProvedor = settings?.nomeProvedor || '';
   const telefone = settings?.telefone || '';
   const emailEmpresa = settings?.emailEmpresa || '';
+  const cepBanco = settings?.cep || '';
   const nomeUsuario = operador?.nome || settings?.nomeUsuario || '';
    
   const cidadeAtual = settings?.cidadeEmpresa || 'Águas Lindas de Goiás - GO';
@@ -148,7 +152,7 @@ export default function ConfiguracoesPage() {
   const [inputEmailEmpresa, setInputEmailEmpresa] = useState(emailEmpresa);
   const [inputUsuario, setInputUsuario] = useState(nomeUsuario);
    
-  const [inputCep, setInputCep] = useState('');
+  const [inputCep, setInputCep] = useState(cepBanco);
   const [inputEnderecoLoja, setInputEnderecoLoja] = useState(cidadeAtual);
   const [inputLat, setInputLat] = useState<number>(latAtual);
   const [inputLon, setInputLon] = useState<number>(lonAtual);
@@ -175,15 +179,35 @@ export default function ConfiguracoesPage() {
   const [isAnnual, setIsAnnual] = useState(false);
   const [loadingPlanoStripe, setLoadingPlanoStripe] = useState<string | null>(null);
 
-  // Estados para Backup e Restauração local do Provedor
   const [carregandoBackup, setCarregandoBackup] = useState(false);
   const [carregandoRestauracao, setCarregandoRestauracao] = useState(false);
+
+  // 🚀 Detetor de alterações: verifica se os valores atuais diferem dos valores originais carregados
+  const houveAlteracoes = useMemo(() => {
+    return (
+      inputNome !== nomeProvedor ||
+      inputTelefone !== telefone ||
+      inputEmailEmpresa !== emailEmpresa ||
+      inputUsuario !== nomeUsuario ||
+      inputCep !== cepBanco ||
+      inputEnderecoLoja !== cidadeAtual ||
+      inputLat !== latAtual ||
+      inputLon !== lonAtual ||
+      JSON.stringify(listaPlanos) !== JSON.stringify(planos || []) ||
+      JSON.stringify(listaFuncionarios) !== JSON.stringify(funcionarios || [])
+    );
+  }, [
+    inputNome, inputTelefone, inputEmailEmpresa, inputUsuario, inputCep, 
+    inputEnderecoLoja, inputLat, inputLon, listaPlanos, listaFuncionarios,
+    nomeProvedor, telefone, emailEmpresa, nomeUsuario, cepBanco, cidadeAtual, latAtual, lonAtual, planos, funcionarios
+  ]);
 
   useEffect(() => {
     setInputNome(nomeProvedor);
     setInputTelefone(telefone);
     setInputEmailEmpresa(emailEmpresa);
     setInputUsuario(nomeUsuario);
+    setInputCep(cepBanco);
     setInputEnderecoLoja(cidadeAtual);
     setInputLat(latAtual);
     setInputLon(lonAtual);
@@ -238,7 +262,7 @@ export default function ConfiguracoesPage() {
         setIconeNeonQuadrado(customSquareIcon);
       });
     }
-  }, [nomeProvedor, telefone, emailEmpresa, nomeUsuario, cidadeAtual, latAtual, lonAtual, planos, funcionarios]);
+  }, [nomeProvedor, telefone, emailEmpresa, cepBanco, nomeUsuario, cidadeAtual, latAtual, lonAtual, planos, funcionarios]);
 
   const handleMudancaCepLoja = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const valor = e.target.value.replace(/\D/g, '');
@@ -329,7 +353,6 @@ export default function ConfiguracoesPage() {
     setListaPlanos(listaPlanos.map(item => item.id === id ? { ...item, [campo]: valor } : item));
   };
 
-  // 🔒 Dono da conta: é o usuário logado ou quem tem "dono" no cargo. Não pode ser removido.
   const ehDonoDaConta = (func: FuncionarioItem) => {
     const emailFunc = (func.email || '').toLowerCase().trim();
     const emailLogado = (operador?.email || '').toLowerCase().trim();
@@ -345,6 +368,7 @@ export default function ConfiguracoesPage() {
 
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!houveAlteracoes) return; // Segurança extra
 
     if (exibirCamposSenha && (senhaAntiga.trim() !== '' || novaSenha.trim() !== '')) {
       if (!senhaAntiga.trim() || !novaSenha.trim()) {
@@ -384,12 +408,12 @@ export default function ConfiguracoesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           empresaId: empresaIdSalvoLocal || null,
-          operadorEmail: operador?.email || 'willianvannut@gmail.com',
+          operadorEmail: operador?.email || '',
           nomeProvedor: inputNome,
           telefone: inputTelefone,
           emailEmpresa: inputEmailEmpresa,
+          cep: inputCep, 
           nomeUsuario: inputUsuario,
-          cep: inputCep,
           cidadeEmpresa: inputEnderecoLoja,
           latEmpresa: inputLat,
           lonEmpresa: inputLon,
@@ -403,6 +427,10 @@ export default function ConfiguracoesPage() {
 
       if (!response.ok || !resultado.success) {
         throw new Error(resultado.error || "Erro ao salvar no servidor.");
+      }
+
+      if (settings?.recarregarDados) {
+        await settings.recarregarDados();
       }
 
       setSalvo(true);
@@ -558,12 +586,11 @@ export default function ConfiguracoesPage() {
     }
   };
 
-  // 📥 Funções de Backup e Restauração Local do Provedor
   const baixarBackupProvedor = async () => {
     try {
       setCarregandoBackup(true);
       const resposta = await fetch('/api/admin/backup', { method: 'GET' });
-      
+       
       if (!resposta.ok) {
         alert('Erro ao gerar o backup.');
         return;
@@ -597,7 +624,7 @@ export default function ConfiguracoesPage() {
     try {
       setCarregandoRestauracao(true);
       const leitor = new FileReader();
-      
+       
       leitor.onload = async (evento) => {
         try {
           const conteudoJson = JSON.parse(evento.target?.result as string);
@@ -651,98 +678,106 @@ export default function ConfiguracoesPage() {
          
         {userRole === 'gerente' && (
           <>
-            {/* EMPRESA & LOCALIZAÇÃO DA LOJA */}
-            <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-              <CardHeader className="border-b border-zinc-900/85 pb-4">
-                <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
+            {/* EMPRESA & LOCALIZAÇÃO DA LOJA (BLOQUEADO COM CADEADO VERMELHO) */}
+            <Card className="border border-red-500/30 bg-zinc-900/40 backdrop-blur relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-red-500/50"></div>
+              <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-300 flex items-center gap-2">
                   <Building2 className="w-4 h-4 text-emerald-400" /> Configurações Iniciais da Empresa & Localização Base
                 </CardTitle>
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-[10px] font-mono font-bold uppercase tracking-wider">
+                  <LockKeyhole className="w-3.5 h-3.5 text-red-500" /> Protegido por Cadeado
+                </div>
               </CardHeader>
               <CardContent className="p-5 space-y-4">
+                <div className="p-3 bg-red-500/5 border border-red-500/20 rounded-xl text-[11px] font-mono text-zinc-400 leading-relaxed flex items-start gap-2.5">
+                  <span className="text-red-400 text-base">🔒</span>
+                  <div>
+                    <strong className="text-red-400 uppercase">Informações Bloqueadas:</strong> Os dados cadastrais da empresa (Nome, WhatsApp, E-mail, CEP e Localização) estão protegidos contra alterações frequentes. Caso necessite de alteração, por favor abra um ticket de suporte com a administração.
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-mono uppercase text-zinc-400">Nome da Empresa</label>
+                    <label className="text-xs font-mono uppercase text-zinc-400 flex items-center justify-between">
+                      <span>Nome da Empresa</span>
+                      <LockKeyhole className="w-3 h-3 text-red-500" />
+                    </label>
                     <input 
                       type="text"
                       value={inputNome}
-                      onChange={(e) => setInputNome(e.target.value)}
-                      placeholder="Ex: V5 Fibra"
-                      className="w-full bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-                      required
+                      disabled
+                      className="w-full bg-black/80 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-400 font-mono cursor-not-allowed select-none"
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-mono uppercase text-zinc-400 flex items-center gap-1">
-                      <Phone className="w-3.5 h-3.5 text-zinc-500" /> Telefone / WhatsApp
+                    <label className="text-xs font-mono uppercase text-zinc-400 flex items-center justify-between">
+                      <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5 text-zinc-500" /> Telefone / WhatsApp</span>
+                      <LockKeyhole className="w-3 h-3 text-red-500" />
                     </label>
                     <input 
                       type="text"
                       value={inputTelefone}
-                      onChange={(e) => setInputTelefone(e.target.value)}
-                      placeholder="(61) 99999-9999"
-                      className="w-full bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                      disabled
+                      className="w-full bg-black/80 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-400 font-mono cursor-not-allowed select-none"
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-mono uppercase text-zinc-400 flex items-center gap-1">
-                      <Mail className="w-3.5 h-3.5 text-zinc-500" /> E-mail de Contato
+                    <label className="text-xs font-mono uppercase text-zinc-400 flex items-center justify-between">
+                      <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5 text-zinc-500" /> E-mail de Contato</span>
+                      <LockKeyhole className="w-3 h-3 text-red-500" />
                     </label>
                     <input 
                       type="email"
                       value={inputEmailEmpresa}
-                      onChange={(e) => setInputEmailEmpresa(e.target.value)}
-                      placeholder="contato@empresa.com.br"
-                      className="w-full bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                      disabled
+                      className="w-full bg-black/80 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-400 font-mono cursor-not-allowed select-none"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 pt-3 border-t border-zinc-900 items-end">
                   <div className="sm:col-span-3 space-y-1.5">
-                    <label className="text-xs font-mono uppercase text-emerald-400 font-bold">CEP da Loja</label>
-                    <div className="relative">
-                      <input 
-                        type="text"
-                        maxLength={8}
-                        value={inputCep}
-                        onChange={handleMudancaCepLoja}
-                        placeholder="Ex: 72210000"
-                        className="w-full bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-                      />
-                      {carregandoCep && (
-                        <div className="absolute right-3 top-2.5">
-                          <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
-                        </div>
-                      )}
-                    </div>
+                    <label className="text-xs font-mono uppercase text-zinc-400 flex items-center justify-between font-bold">
+                      <span>CEP da Loja</span>
+                      <LockKeyhole className="w-3 h-3 text-red-500" />
+                    </label>
+                    <input 
+                      type="text"
+                      value={inputCep}
+                      disabled
+                      className="w-full bg-black/80 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-400 font-mono cursor-not-allowed select-none"
+                    />
                   </div>
 
                   <div className="sm:col-span-6 space-y-1.5">
-                    <label className="text-xs font-mono uppercase text-zinc-400">Endereço Completo da Loja</label>
+                    <label className="text-xs font-mono uppercase text-zinc-400 flex items-center justify-between">
+                      <span>Endereço Completo da Loja</span>
+                      <LockKeyhole className="w-3 h-3 text-red-500" />
+                    </label>
                     <input 
                       type="text"
                       value={inputEnderecoLoja}
-                      onChange={(e) => setInputEnderecoLoja(e.target.value)}
-                      placeholder="Preenchido pelo CEP ou ajuste manual"
-                      className="w-full bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                      disabled
+                      className="w-full bg-black/80 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-zinc-400 font-mono cursor-not-allowed select-none"
                     />
                   </div>
 
                   <div className="sm:col-span-3">
                     <button
                       type="button"
-                      onClick={abrirModalMapaEmpresa}
-                      className="w-full py-2.5 px-3 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/30 font-mono text-xs font-bold uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      disabled
+                      className="w-full py-2.5 px-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-600 font-mono text-xs font-bold uppercase cursor-not-allowed flex items-center justify-center gap-1.5"
                     >
-                      <MapPin className="w-4 h-4 text-emerald-400" /> Alterar PIN da Loja no Mapa
+                      <LockKeyhole className="w-4 h-4 text-red-500" /> PIN Bloqueado
                     </button>
                   </div>
                 </div>
 
                 <div className="text-[11px] text-zinc-500 font-mono">
-                  📍 Coordenadas atuais fixadas: Lat <strong className="text-zinc-300">{inputLat.toFixed(4)}</strong>, Lon <strong className="text-zinc-300">{inputLon.toFixed(4)}</strong>
+                  📍 Coordenadas atuais fixadas: Lat <strong className="text-zinc-400">{inputLat.toFixed(4)}</strong>, Lon <strong className="text-zinc-400">{inputLon.toFixed(4)}</strong>
                 </div>
 
               </CardContent>
@@ -1044,11 +1079,17 @@ export default function ConfiguracoesPage() {
             )}
           </div>
 
+          {/* 🚀 BOTÃO DE SALVAR DINÂMICO: Bloqueado por defeito, só acende se houver alterações reais */}
           <button
             type="submit"
-            className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs px-6 py-3 rounded-xl transition-all font-mono flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer w-full sm:w-auto justify-center"
+            disabled={!houveAlteracoes}
+            className={`font-bold uppercase text-xs px-6 py-3 rounded-xl transition-all font-mono flex items-center gap-2 justify-center w-full sm:w-auto ${
+              houveAlteracoes
+                ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer'
+                : 'bg-zinc-800 text-zinc-500 border border-zinc-700/50 cursor-not-allowed opacity-50'
+            }`}
           >
-            <Save className="w-4 h-4" /> Salvar Configurações
+            <Save className="w-4 h-4" /> {houveAlteracoes ? 'Salvar Configurações' : 'Nenhuma alteração pendente'}
           </button>
         </div>
 
@@ -1069,7 +1110,6 @@ export default function ConfiguracoesPage() {
               </button>
             </div>
 
-            {/* Toggle Mensal/Anual */}
             <div className="flex items-center justify-center gap-3 my-2">
               <label htmlFor="billing-toggle-modal" className="relative inline-flex items-center cursor-pointer">
                 <input 
@@ -1086,7 +1126,6 @@ export default function ConfiguracoesPage() {
               </label>
             </div>
 
-            {/* Grid dos 4 Planos Oficiais */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-left">
                
               {/* Card 1: Essencial */}
@@ -1287,7 +1326,7 @@ export default function ConfiguracoesPage() {
         </div>
       )}
 
-      {/* MODAL DE MAPA */}
+      {/* MODAL DE MAPA (Mantido caso precise para outras coisas) */}
       {modalMapaAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col">

@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET_KEY || 'v5_cloud_secret_key_super_segura_2026');
+const JWT_SECRET = new TextEncoder().encode(   process.env.JWT_SECRET_KEY);
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 
 export async function POST(request: NextRequest) {

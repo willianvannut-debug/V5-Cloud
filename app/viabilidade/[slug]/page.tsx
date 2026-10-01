@@ -339,8 +339,14 @@ export default function ViabilidadeDinamicaPage() {
     );
   }
 
-  // Prepara o link do WhatsApp usando o telefone da empresa (se não houver, usa o padrão)
-  const whatsappEmpresa = empresa.telefone ? empresa.telefone.replace(/\D/g, '') : '556194193617';
+  // 🚀 LÓGICA DE WHATSAPP DINÂMICA E SEGURA
+  let numeroBase = empresa.whatsapp || empresa.telefone || '556194193617';
+  let whatsappEmpresa = String(numeroBase).replace(/\D/g, '');
+  
+  // Se o número só tiver DDD + 8/9 dígitos (10 ou 11 caracteres), garante que metemos o código do Brasil na frente
+  if (whatsappEmpresa.length === 10 || whatsappEmpresa.length === 11) {
+    whatsappEmpresa = '55' + whatsappEmpresa;
+  }
 
   return (
     <>

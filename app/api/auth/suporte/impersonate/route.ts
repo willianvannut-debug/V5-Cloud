@@ -6,7 +6,7 @@ import { jwtVerify, SignJWT } from 'jose';
 import { cookies } from 'next/headers';
 
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET_KEY || 'v5_cloud_secret_key_super_segura_2026'
+     process.env.JWT_SECRET_KEY
 );
 
 const supabaseAdmin = createClient(

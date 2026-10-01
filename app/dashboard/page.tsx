@@ -25,7 +25,7 @@ export default function DashboardPage() {
   
   // 🚀 PUXAMOS O OPERADOR E O ESTADO DE CARREGAMENTO DO TEU CONTEXTO
   const { operador, empresa, carregando: carregandoAuth } = useAuth();
-  const { leads = [], carregarLeads } = useApp() || {};
+  const { leads: leadsBrutos = [], carregarLeads } = useApp() || {};
 
   const [popupSucessoPlano, setPopupSucessoPlano] = useState<string | null>(null);
   
@@ -37,24 +37,37 @@ export default function DashboardPage() {
   // 🚀 ESTADO PARA LIBERAR A TELA
   const [sessaoConfirmada, setSessaoConfirmada] = useState(false);
 
+  // 🕒 FILTRO DE DATA DIÁRIA (Zera após as 00:00)
+  const dataHojeObj = new Date();
+  const diaHojeStr = String(dataHojeObj.getDate()).padStart(2, '0');
+  const mesAtualStr = String(dataHojeObj.getMonth() + 1).padStart(2, '0');
+  const anoAtualStr = String(dataHojeObj.getFullYear());
+  
+  const formatoBrDia = `${diaHojeStr}/${mesAtualStr}/${anoAtualStr}`;
+  const formatoIsoDia = `${anoAtualStr}-${mesAtualStr}-${diaHojeStr}`;
+  const formatoMesAno = `${mesAtualStr}/${anoAtualStr}`;
+
+  // Filtra apenas os leads gerados no dia corrente
+  const leads = Array.isArray(leadsBrutos) ? leadsBrutos.filter(l => {
+    const dataReg = l?.created_at || l?.data || '';
+    if (!dataReg) return false;
+    return dataReg.includes(formatoBrDia) || dataReg.includes(formatoIsoDia);
+  }) : [];
+
   // 🛡️ GUARDA-COSTAS PACIENTE: Espera o Auth carregar antes de avaliar
   useEffect(() => {
-    // 1. Se ainda estiver a processar o login, não faz nada (espera)
     if (carregandoAuth) return;
 
-    // 2. Terminou de carregar e não encontrou um operador logado? Vai para o login!
     if (!operador) {
       router.replace('/login');
       return;
     }
 
-    // 3. Se for atendente, não pode ver o dashboard gerencial, vai para a tela de leads
     if (operador.role === 'atendente') {
       router.replace('/dashboard/leads');
       return;
     }
 
-    // 4. Tudo certo, utilizador válido. Liberta a tela!
     setSessaoConfirmada(true);
   }, [carregandoAuth, operador, router]);
 
@@ -101,7 +114,6 @@ export default function DashboardPage() {
   // 🚀 BUSCA REAL: PLANO, STATUS E FUNCIONÁRIOS
   useEffect(() => {
     async function sincronizarDadosReais() {
-      // Só busca os dados se a sessão já estiver confirmada
       if (!supabase || !sessaoConfirmada) return;
       try {
         const idDaEmpresa = operador?.empresaId || operador?.empresa_id;
@@ -139,7 +151,7 @@ export default function DashboardPage() {
   const [funcionarioSelecionado, setFuncionarioSelecionado] = useState('');
   const [mensagemSucesso, setMensagemSucesso] = useState('');
 
-  // 🚨 BLOQUEIO DE TELA ATÉ CONFIRMAR LOGIN (Evita flash e corrida de dados)
+  // 🚨 BLOQUEIO DE TELA ATÉ CONFIRMAR LOGIN
   if (carregandoAuth || !sessaoConfirmada) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-emerald-400 font-mono text-xs">
@@ -175,16 +187,7 @@ export default function DashboardPage() {
 
   const totalLeadsCadastrados = Array.isArray(leads) ? leads.length : 0;
 
-  const dataHojeObj = new Date();
-  const diaHojeStr = String(dataHojeObj.getDate()).padStart(2, '0');
-  const mesAtualStr = String(dataHojeObj.getMonth() + 1).padStart(2, '0');
-  const anoAtualStr = String(dataHojeObj.getFullYear());
-  
-  const formatoBrDia = `${diaHojeStr}/${mesAtualStr}/${anoAtualStr}`;
-  const formatoIsoDia = `${anoAtualStr}-${mesAtualStr}-${diaHojeStr}`;
-  const formatoMesAno = `${mesAtualStr}/${anoAtualStr}`;
-
-  const totalLeadsMes = Array.isArray(leads) ? leads.filter(l => {
+  const totalLeadsMes = Array.isArray(leadsBrutos) ? leadsBrutos.filter(l => {
     const dataReg = l?.created_at || l?.data || '';
     return dataReg.includes(formatoMesAno) || dataReg.includes(`${anoAtualStr}-${mesAtualStr}`) || !dataReg;
   }).length : 0;
@@ -200,7 +203,7 @@ export default function DashboardPage() {
     l?.status === 'EM ATENDIMENTO' || l?.status === 'AGENDADO' || l?.etapa_funil === 'EM CONTATO'
   ).length : 0;
 
-  const convertidosMes = Array.isArray(leads) ? leads.filter(l => {
+  const convertidosMes = Array.isArray(leadsBrutos) ? leadsBrutos.filter(l => {
     const dataReg = l?.created_at || l?.data || '';
     const ehConvertido = l?.status === 'CONVERTIDO' || l?.etapa_funil === 'CONVERTIDO' || l?.status_instalacao === 'CONCLUIDA';
     return ehConvertido && (dataReg.includes(formatoMesAno) || dataReg.includes(`${anoAtualStr}-${mesAtualStr}`) || !dataReg);
@@ -209,8 +212,8 @@ export default function DashboardPage() {
   const contagemDias: Record<string, number> = { 'Dom': 0, 'Seg': 0, 'Ter': 0, 'Qua': 0, 'Qui': 0, 'Sex': 0, 'Sáb': 0 };
   const diasSemanaMap = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-  if (Array.isArray(leads)) {
-    leads.forEach(l => {
+  if (Array.isArray(leadsBrutos)) {
+    leadsBrutos.forEach(l => {
       const dataStr = l?.created_at || l?.data;
       if (dataStr) {
         const d = new Date(dataStr);
@@ -321,7 +324,7 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-3">
           <span className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-mono text-emerald-400 font-bold uppercase flex items-center gap-2">
-            <Zap className="w-3.5 h-3.5" /> Leads 24h ({totalLeadsGeral})
+            <Zap className="w-3.5 h-3.5" /> Leads Diários ({totalLeadsCadastrados})
           </span>
           <button 
             onClick={() => carregarLeads && carregarLeads()}
@@ -501,7 +504,7 @@ export default function DashboardPage() {
                 {leadsFiltrados.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="p-12 text-center text-zinc-500">
-                      Nenhum registro encontrado no Supabase.
+                      Nenhum registro encontrado para hoje.
                     </td>
                   </tr>
                 ) : (

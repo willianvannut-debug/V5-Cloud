@@ -5,7 +5,7 @@ import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET_KEY || 'v5_cloud_secret_key_super_segura_2026'
+     process.env.JWT_SECRET_KEY
 );
 
 export async function middleware(request: NextRequest) {

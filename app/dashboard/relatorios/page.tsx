@@ -21,6 +21,40 @@ import { useApp } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 
+// Função global para vasculhar qualquer canto do objeto do lead atrás do nome do plano
+const caçarPlanoOculto = (leadObj: any): string | null => {
+  if (!leadObj) return null;
+
+  // 1. Tenta as chaves mais comuns, incluindo sub-objetos (viabilidade, funil, etc)
+  const chaves = [
+    leadObj.plano, leadObj.planoSelecionado, leadObj.planoPretendido, 
+    leadObj.plano_escolhido, leadObj.plano_instalacao, leadObj.plano_nome,
+    leadObj.viabilidade?.plano, leadObj.dados?.plano, leadObj.funil?.plano,
+    leadObj.instalacao?.plano
+  ];
+
+  for (const val of chaves) {
+    if (typeof val === 'string' && val.trim() !== '' && !val.toUpperCase().includes('ESCOLHER')) {
+      return val;
+    } else if (typeof val === 'object' && val !== null && val.nome) {
+      return val.nome;
+    }
+  }
+
+  // 2. BUSCA PROFUNDA (RAIO-X): Se não achou, transforma o lead inteiro em texto e procura o padrão
+  try {
+    const jsonStr = JSON.stringify(leadObj);
+    const matchRegex = jsonStr.match(/"([^"]*?(?:MEGA|GIGA|PLANO).*?R\$.*?)"/i);
+    if (matchRegex && !matchRegex[1].toUpperCase().includes('ESCOLHER')) {
+      return matchRegex[1];
+    }
+  } catch (e) {
+    // Ignora erros de conversão circular
+  }
+
+  return null;
+};
+
 export default function RelatoriosPage() {
   const { leads: leadsContexto } = useApp();
   const { planos, planoAtivo: planoAtivoSettings } = useSettings();
@@ -72,7 +106,6 @@ export default function RelatoriosPage() {
           <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto border border-red-500/20">
             <Lock className="w-8 h-8 text-red-400" />
           </div>
-          
           <h2 className="text-2xl font-black font-mono text-white uppercase tracking-tight">Recurso Indisponível no Plano Essencial</h2>
           <p className="text-zinc-400 text-sm leading-relaxed">
             Os relatórios de conversão e métricas avançadas estão disponíveis a partir do plano <strong className="text-emerald-400">PRO</strong>. 
@@ -93,9 +126,45 @@ export default function RelatoriosPage() {
     );
   });
 
-  const totalVendas = leads.filter(l => l.statusOperacional === 'CONCLUIDA').length;
-  const faturamentoGerado = totalVendas * 99.90; 
+  // ============================================================================
+  // CÁLCULO DE FATURAMENTO COM RAIO-X
+  // ============================================================================
+  const extrairValorPlano = (lead: any) => {
+    const rawValue = lead.valorPlano || lead.valor || lead.preco || lead.viabilidade?.valor;
+    if (rawValue !== undefined && rawValue !== null) {
+      if (typeof rawValue === 'number') return rawValue;
+      const parsed = parseFloat(String(rawValue).replace(/[^\d,.-]/g, '').replace(',', '.'));
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+
+    const textoPlano = caçarPlanoOculto(lead);
+
+    if (typeof textoPlano === 'string') {
+      const match = textoPlano.match(/R\$\s*([\d.,]+)/);
+      if (match) {
+        const numeroLimpo = match[1].replace(/\./g, '').replace(',', '.');
+        const parsed = parseFloat(numeroLimpo);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    }
+
+    if (typeof textoPlano === 'string' && planos && planos.length > 0) {
+      const planoMatch = planos.find((p: any) => textoPlano.includes(p.nome) || p.nome === textoPlano);
+      if (planoMatch && planoMatch.preco) {
+        const parsed = parseFloat(String(planoMatch.preco).replace(/[^\d,.-]/g, '').replace(',', '.'));
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    }
+
+    return 0;
+  };
+
+  const vendasConcluidas = leads.filter(l => l.statusOperacional === 'CONCLUIDA');
+  const totalVendas = vendasConcluidas.length;
+
+  const faturamentoGerado = vendasConcluidas.reduce((acc, lead) => acc + extrairValorPlano(lead), 0);
   const ticketMedio = totalVendas > 0 ? faturamentoGerado / totalVendas : 0;
+  // ============================================================================
 
   return (
     <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans w-full">
@@ -127,9 +196,9 @@ export default function RelatoriosPage() {
             </div>
             <div>
               <h3 className="text-2xl font-black font-mono text-white">
-                R$ {faturamentoGerado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                R$ {faturamentoGerado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h3>
-              <span className="text-[11px] text-zinc-500 font-mono">Baseado em instalações concluídas pelo técnico</span>
+              <span className="text-[11px] text-zinc-500 font-mono">Baseado em instalações concluídas</span>
             </div>
           </CardContent>
         </Card>
@@ -155,7 +224,7 @@ export default function RelatoriosPage() {
             </div>
             <div>
               <h3 className="text-2xl font-black font-mono text-white">
-                R$ {ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                R$ {ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h3>
               <span className="text-[11px] text-zinc-500 font-mono">Média por instalação realizada</span>
             </div>
@@ -174,7 +243,7 @@ export default function RelatoriosPage() {
             <p className="text-xs font-mono text-zinc-500">Nenhum plano cadastrado nas configurações.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
-              {planos.map(p => (
+              {planos.map((p: any) => (
                 <div key={p.id} className="p-4 bg-black/40 border border-zinc-900 rounded-xl space-y-1">
                   <span className="text-[10px] font-mono text-zinc-500 uppercase">{p.velocidade}</span>
                   <div className="font-bold font-sans text-sm text-white">{p.nome}</div>
@@ -220,17 +289,16 @@ export default function RelatoriosPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-zinc-900 text-[11px] font-mono uppercase tracking-wider text-zinc-500 bg-black/20">
-                  <th className="p-4">Cliente / Contato</th>
-                  <th className="p-4">Plano Pretendido</th>
+                  <th className="p-4">Cliente</th>
+                  <th className="p-4">Plano Escolhido</th>
                   <th className="p-4">Status Operacional</th>
-                  <th className="p-4">Data de Conclusão</th>
-                  <th className="p-4 text-right">Atribuído</th>
+                  <th className="p-4 text-right">Equipe (Atend. / Téc.)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900/50 text-xs font-mono">
                 {relatorioItens.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-12 text-center text-zinc-500">
+                    <td colSpan={4} className="p-12 text-center text-zinc-500">
                       Nenhum registro consolidado no momento.
                     </td>
                   </tr>
@@ -244,7 +312,6 @@ export default function RelatoriosPage() {
                       statusLabel = 'Instalação Feita';
                       statusStyle = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
                     } else if (item.statusOperacional === 'NAO_FEITA' || etapaUpper === 'NAO CONVERTIDO' || etapaUpper === 'NÃO CONVERTIDO') {
-                      // 🚀 Alterado para exibir exatamente "NÃO CONVERTIDO" conforme solicitado
                       statusLabel = 'NÃO CONVERTIDO';
                       statusStyle = 'bg-amber-500/10 text-amber-400 border-amber-500/30';
                     } else if (item.status === 'SEM COBERTURA') {
@@ -252,17 +319,19 @@ export default function RelatoriosPage() {
                       statusStyle = 'bg-red-500/10 text-red-400 border-red-500/30';
                     }
 
-                    const exibirData = (item.status === 'SEM COBERTURA') ? '-' : (item.data || '-');
+                    const planoTexto = caçarPlanoOculto(item) || 'Plano não selecionado';
 
                     return (
                       <tr key={item.id} className="hover:bg-zinc-900/30 transition-colors">
                         <td className="p-4">
                           <div className="font-bold font-sans text-sm text-white">{item.nome}</div>
-                          <div className="text-[11px] text-zinc-500">CEP {item.cep} • {item.endereco}</div>
+                          <div className="text-[11px] text-zinc-500">
+                            {item.endereco ? `${item.endereco}${item.cep ? ` • CEP ${item.cep}` : ''}` : (item.cep ? `CEP ${item.cep}` : 'Endereço não informado')}
+                          </div>
                         </td>
                         <td className="p-4">
                           <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px]">
-                            {item.plano || 'Fibra V5 - 600 Megas'}
+                            {planoTexto}
                           </span>
                         </td>
                         <td className="p-4">
@@ -270,8 +339,10 @@ export default function RelatoriosPage() {
                             {statusLabel}
                           </span>
                         </td>
-                        <td className="p-4 text-zinc-400">{exibirData}</td>
-                        <td className="p-4 text-right font-bold text-emerald-400">{item.atendente || 'Técnico de Campo'}</td>
+                        <td className="p-4 text-right">
+                          <div className="text-[11px] font-bold text-emerald-400">Atend: {item.atendente || 'Não informado'}</div>
+                          <div className="text-[10px] text-zinc-500">Téc: {item.tecnico || 'Não informado'}</div>
+                        </td>
                       </tr>
                     );
                   })

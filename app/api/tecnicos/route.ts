@@ -15,7 +15,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const API_SECRET = process.env.API_SECRET;
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET_KEY || 'v5_cloud_secret_key_super_segura_2026'
+     process.env.JWT_SECRET_KEY
 );
 
 // Função para validar a sessão (igual a que usamos nos leads)

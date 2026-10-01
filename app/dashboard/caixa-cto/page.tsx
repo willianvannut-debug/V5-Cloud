@@ -1,5 +1,5 @@
 // ================================================================================
-// 📋 GESTÃO DE CAIXAS CTO - V5 CLOUD (COM CACHE INTELIGENTE ZERO LAG)
+// 📋 GESTÃO DE CAIXAS CTO - V5 CLOUD (COM CACHE INTELIGENTE E ANTI-ZIP BOMB)
 // app/dashboard/caixa-cto/page.tsx
 // ================================================================================
 
@@ -33,6 +33,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { PLANOS } from '@/lib/planLimites';
 import { createClient } from '@supabase/supabase-js';
+import JSZip from 'jszip'; // <--- BIBLIOTECA PARA LIDAR COM KMZ DE FORMA SEGURA
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -91,12 +92,11 @@ export default function CaixaCtoPage() {
   const [salvo, setSalvo] = useState(false);
   const [salvando, setSalvando] = useState(false);
   
-  // Se já temos caixas no cache local ao abrir, o carregandoBanco começa falso para dar Zero Lag!
   const [carregandoBanco, setCarregandoBanco] = useState(() => listaCtos.length === 0);
   
   const [importandoKmz, setImportandoKmz] = useState(false);
   const [erroSegurancaKmz, setErroSegurancaKmz] = useState<string | null>(null);
-  const [mensagemImportacao, setMensagemImportacao] = useState('Selecionar Arquivo KML');
+  const [mensagemImportacao, setMensagemImportacao] = useState('Selecionar Arquivo KML ou KMZ');
 
   const [modalEmpresaAberto, setModalEmpresaAberto] = useState(false);
   const [nomeEmpresaTemp, setNomeEmpresaTemp] = useState('V5 Telecom');
@@ -126,10 +126,14 @@ export default function CaixaCtoPage() {
 
   const [mascaraMundoGeoJson, setMascaraMundoGeoJson] = useState<any>(null);
 
-  // 🚀 DADOS DINÂMICOS DA EMPRESA
   const nomeSedeDinamico = empresa?.cidade || settings?.cidadeEmpresa || 'Brasil';
   const latEmpresa = empresa?.lat || empresa?.latitude || settings?.latEmpresa || -15.7797;
   const lonEmpresa = empresa?.lon || empresa?.longitude || settings?.lonEmpresa || -47.9297;
+
+  // REGRAS DE SEGURANÇA PARA KMZ (Anti-Zip Bomb)
+  const MAX_ZIP_SIZE = 50 * 1024 * 1024; // 50MB (Arquivo original KMZ)
+  const MAX_UNCOMPRESSED_SIZE = 150 * 1024 * 1024; // 150MB (Tamanho descompactado)
+  const MAX_FILES_INSIDE = 100; // Limite de arquivos dentro do ZIP
 
   useEffect(() => {
     fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries/BRA.geo.json')
@@ -289,7 +293,6 @@ export default function CaixaCtoPage() {
     });
   }, [listaCtos, mapBounds, zoomAtual]);
 
-  // 🚀 BUSCA INTELIGENTE: Só vai ao servidor se não houver cache na sessão atual ou se for forçado
   const buscarCtosDaApi = useCallback(async (forcarAtualizacao = false) => {
     const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
     if (!idDaEmpresa) return;
@@ -400,14 +403,15 @@ export default function CaixaCtoPage() {
     setErroSegurancaKmz(null);
     const nomeArquivo = arquivo.name.toLowerCase();
 
-    if (nomeArquivo.endsWith('.kmz')) {
-      setErroSegurancaKmz('Ficheiro ZIPADO: O .KMZ não pode ser lido diretamente. Extraia o ficheiro .KML para continuar.');
-      e.target.value = ''; 
+    // TRAVA DE SEGURANÇA 1: Limite de Tamanho do Arquivo Compactado (KMZ)
+    if (arquivo.size > MAX_ZIP_SIZE) {
+      setErroSegurancaKmz(`Erro: O arquivo não pode ultrapassar ${(MAX_ZIP_SIZE / 1024 / 1024)}MB por motivos de segurança.`);
+      e.target.value = '';
       return;
     }
 
-    if (!nomeArquivo.endsWith('.kml')) {
-      setErroSegurancaKmz('Erro: Formato inválido. Selecione ficheiros .KML');
+    if (!nomeArquivo.endsWith('.kml') && !nomeArquivo.endsWith('.kmz')) {
+      setErroSegurancaKmz('Erro: Formato inválido. Selecione ficheiros .KML ou .KMZ');
       e.target.value = ''; 
       return;
     }
@@ -417,102 +421,135 @@ export default function CaixaCtoPage() {
     e.target.value = '';
   };
 
-  const handleConfirmarImportacaoComEmpresa = () => {
+  // 🚀 FUNÇÃO PRINCIPAL DE EXTRAÇÃO E PROCESSAMENTO (COM TRAVAS)
+  const handleConfirmarImportacaoComEmpresa = async () => {
     if (!arquivoPendente) return;
     setModalEmpresaAberto(false);
 
     const arquivo = arquivoPendente;
-    const bytes = arquivo.size;
-    let tamanhoFormatado = '';
+    const nomeArquivo = arquivo.name.toLowerCase();
     
-    if (bytes >= 1073741824) {
-      tamanhoFormatado = (bytes / 1073741824).toFixed(2) + ' GB';
-    } else if (bytes >= 1048576) {
-      tamanhoFormatado = (bytes / 1048576).toFixed(2) + ' MB';
-    } else {
-      tamanhoFormatado = (bytes / 1024).toFixed(2) + ' KB';
-    }
-
     setImportandoKmz(true);
-    setMensagemImportacao(`A ler ficheiro de ${tamanhoFormatado}...`);
+    setMensagemImportacao('Analisando segurança do arquivo...');
 
     try {
-      const reader = new FileReader();
-      reader.onload = async (evento) => {
-        try {
-          const conteudoTexto = evento.target?.result as string;
-          const parser = new DOMParser();
-          const xmlDoc = parser.parseFromString(conteudoTexto, "text/xml");
-          const placemarks = xmlDoc.getElementsByTagName("Placemark");
-          const todasAsCaixasExtraidas = [];
-          let contador = listaCtos.length + 1;
+      let conteudoTexto = '';
 
-          for (let i = 0; i < placemarks.length; i++) {
-            const placemark = placemarks[i];
-            const point = placemark.getElementsByTagName("Point")[0];
-            if (!point) continue; 
-            const coordsNode = point.getElementsByTagName("coordinates")[0];
-            if (!coordsNode) continue;
-            const nameNode = placemark.getElementsByTagName("name")[0];
-            const nomeCto = nameNode ? nameNode.textContent?.trim() : `CTO-KML-${contador}`;
-            const coordsTexto = coordsNode.textContent?.trim() || "";
-            const partes = coordsTexto.split(',');
+      // 🛠 LÓGICA DE EXTRAÇÃO PARA .KMZ USANDO JSZip
+      if (nomeArquivo.endsWith('.kmz')) {
+        const zip = new JSZip();
+        const conteudo = await zip.loadAsync(arquivo);
+        
+        // TRAVA DE SEGURANÇA 2: Limite de ficheiros dentro do KMZ
+        const numeroDeArquivos = Object.keys(conteudo.files).length;
+        if (numeroDeArquivos > MAX_FILES_INSIDE) {
+          throw new Error('Alerta de Segurança: Arquivo contém demasiados itens. Importação cancelada.');
+        }
 
-            if (partes.length >= 2) {
-              const lon = parseFloat(partes[0]);
-              const lat = parseFloat(partes[1]);
+        let kmlEncontrado = false;
+        let tamanhoTotalDescompactado = 0;
 
-              if (!isNaN(lat) && !isNaN(lon)) {
-                todasAsCaixasExtraidas.push({
-                  id: `temp-${Date.now()}-${contador}`,
-                  identificacao: nomeCto || `CTO-KML-${contador}`,
-                  endereco: nomeEmpresaTemp || 'V5 Telecom',
-                  raio: Number(raioMassa),
-                  lat,
-                  lon
-                });
-                contador++;
-              }
-            }
+        for (const [filename, zipEntry] of Object.entries(conteudo.files)) {
+          if (zipEntry.dir) continue;
+
+          // TRAVA DE SEGURANÇA 3: Limite de Tamanho Descompactado (Anti-Zip Bomb)
+          const tamanhoDescompactado = zipEntry._data.uncompressedSize; 
+          tamanhoTotalDescompactado += tamanhoDescompactado;
+
+          if (tamanhoTotalDescompactado > MAX_UNCOMPRESSED_SIZE) {
+            throw new Error("ALERTA: Possível 'Zip Bomb' detetada. Descompactação abortada por segurança.");
           }
 
-          if (todasAsCaixasExtraidas.length === 0) {
-            setErroSegurancaKmz('Nenhuma caixa encontrada. O KML deve conter pontos válidos.');
-            setImportandoKmz(false);
-            setMensagemImportacao('Selecionar Arquivo KML');
-            return;
+          if (filename.toLowerCase().endsWith('.kml')) {
+            conteudoTexto = await zipEntry.async("text");
+            kmlEncontrado = true;
           }
+        }
 
-          const tamanhoLote = 300;
-          let indiceAtual = 0;
+        if (!kmlEncontrado) {
+          throw new Error("Nenhum ficheiro KML válido foi encontrado dentro do KMZ.");
+        }
+      } 
+      // 🛠 LÓGICA PADRÃO PARA .KML DIRETO
+      else {
+        conteudoTexto = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onerror = () => reject(new Error('Falha ao ler o ficheiro KML.'));
+          reader.readAsText(arquivo);
+        });
+      }
 
-          const carregarProximoLote = () => {
-            if (indiceAtual < todasAsCaixasExtraidas.length) {
-              const lote = todasAsCaixasExtraidas.slice(indiceAtual, indiceAtual + tamanhoLote);
-              setListaCtos(prev => [...prev, ...lote]);
-              setTemAlteracoes(true);
-              indiceAtual += tamanhoLote;
-              setMensagemImportacao(`A carregar... (${Math.min(indiceAtual, todasAsCaixasExtraidas.length)} / ${todasAsCaixasExtraidas.length})`);
-              setTimeout(carregarProximoLote, 30);
-            } else {
-              setImportandoKmz(false);
-              setMensagemImportacao('Selecionar Arquivo KML');
-              setArquivoPendente(null);
-            }
-          };
+      setMensagemImportacao('Descodificando mapas...');
 
-          carregarProximoLote();
+      // 🛠 PROCESSAMENTO DO TEXTO KML (DOMParser)
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(conteudoTexto, "text/xml");
+      const placemarks = xmlDoc.getElementsByTagName("Placemark");
+      const todasAsCaixasExtraidas = [];
+      let contador = listaCtos.length + 1;
 
-        } catch (err) {
-          setErroSegurancaKmz('Falha ao descodificar o arquivo KML.');
+      for (let i = 0; i < placemarks.length; i++) {
+        const placemark = placemarks[i];
+        const point = placemark.getElementsByTagName("Point")[0];
+        if (!point) continue; 
+        
+        const coordsNode = point.getElementsByTagName("coordinates")[0];
+        if (!coordsNode) continue;
+        
+        const nameNode = placemark.getElementsByTagName("name")[0];
+        const nomeCto = nameNode ? nameNode.textContent?.trim() : `CTO-${contador}`;
+        const coordsTexto = coordsNode.textContent?.trim() || "";
+        const partes = coordsTexto.split(',');
+
+        if (partes.length >= 2) {
+          const lon = parseFloat(partes[0]);
+          const lat = parseFloat(partes[1]);
+
+          if (!isNaN(lat) && !isNaN(lon)) {
+            todasAsCaixasExtraidas.push({
+              id: `temp-${Date.now()}-${contador}`,
+              identificacao: nomeCto || `CTO-KML-${contador}`,
+              endereco: nomeEmpresaTemp || 'V5 Telecom',
+              raio: Number(raioMassa),
+              lat,
+              lon
+            });
+            contador++;
+          }
+        }
+      }
+
+      if (todasAsCaixasExtraidas.length === 0) {
+        throw new Error('Nenhuma caixa encontrada. O KML deve conter pontos válidos.');
+      }
+
+      // 🛠 INJEÇÃO EM LOTES PARA EVITAR TRAVAMENTOS DA TELA
+      const tamanhoLote = 300;
+      let indiceAtual = 0;
+
+      const carregarProximoLote = () => {
+        if (indiceAtual < todasAsCaixasExtraidas.length) {
+          const lote = todasAsCaixasExtraidas.slice(indiceAtual, indiceAtual + tamanhoLote);
+          setListaCtos(prev => [...prev, ...lote]);
+          setTemAlteracoes(true);
+          indiceAtual += tamanhoLote;
+          setMensagemImportacao(`A injetar dados... (${Math.min(indiceAtual, todasAsCaixasExtraidas.length)} / ${todasAsCaixasExtraidas.length})`);
+          setTimeout(carregarProximoLote, 30);
+        } else {
           setImportandoKmz(false);
-          setMensagemImportacao('Selecionar Arquivo KML');
+          setMensagemImportacao('Selecionar Arquivo KML ou KMZ');
+          setArquivoPendente(null);
         }
       };
-      reader.readAsText(arquivo);
-    } catch (err) {
+
+      carregarProximoLote();
+
+    } catch (err: any) {
+      setErroSegurancaKmz(err.message || 'Falha crítica ao processar o arquivo.');
       setImportandoKmz(false);
-      setMensagemImportacao('Selecionar Arquivo KML');
+      setMensagemImportacao('Selecionar Arquivo KML ou KMZ');
+      setArquivoPendente(null);
     }
   };
 
@@ -761,9 +798,9 @@ export default function CaixaCtoPage() {
           <CardContent className="p-6 w-full flex flex-col md:flex-row items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-bold font-mono text-white flex items-center gap-2">
-                <Upload className="w-4 h-4 text-emerald-400" /> Importação Expressa via Google Earth (.KML)
+                <Upload className="w-4 h-4 text-emerald-400" /> Importação Expressa via Google Earth (.KML / .KMZ)
               </h3>
-              <p className="text-xs text-zinc-400 font-mono mt-1">Associa automaticamente à empresa informada.</p>
+              <p className="text-xs text-zinc-400 font-mono mt-1">Lê pontos com proteção Anti-Zip Bomb.</p>
             </div>
             <label className={`px-5 py-3 rounded-xl text-xs font-mono font-bold uppercase transition-all flex items-center justify-center gap-2 cursor-pointer ${
               importandoKmz ? 'bg-zinc-800 text-zinc-400' : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]'
@@ -806,7 +843,7 @@ export default function CaixaCtoPage() {
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-emerald-500/40 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col p-6 space-y-4">
             <div className="flex items-center gap-2 text-emerald-400 font-mono text-sm font-bold uppercase">
-              <Building2 className="w-5 h-5" /> Empresa Responsável pelo KML
+              <Building2 className="w-5 h-5" /> Empresa Responsável pelo Mapa
             </div>
             <p className="text-xs text-zinc-400 font-mono">
               Informe o nome da empresa ou provedor dono destas caixas antes de iniciar a importação:
@@ -885,7 +922,7 @@ export default function CaixaCtoPage() {
               </div>
             ) : (!listaCtos || listaCtos.length === 0) ? (
               <div className="p-12 text-center border border-dashed border-zinc-800 rounded-xl text-zinc-500 text-xs font-mono">
-                Nenhuma caixa CTO cadastrada no banco. Importe um arquivo KML ou clique em Adicionar Caixa CTO.
+                Nenhuma caixa CTO cadastrada no banco. Importe um arquivo KML ou KMZ, ou adicione manualmente.
               </div>
             ) : (
               <div className="space-y-3">
@@ -940,7 +977,7 @@ export default function CaixaCtoPage() {
         </Card>
 
         <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-          <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-row items-center justify-between">
+          <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
             <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
               <Globe className="w-4 h-4 text-emerald-400" /> Mapa Geral de Cobertura - Satélite HD ({nomeSedeDinamico})
             </CardTitle>
@@ -1192,7 +1229,7 @@ export default function CaixaCtoPage() {
             <div className="p-4 border-t border-zinc-800 bg-black/60 rounded-b-2xl flex justify-between items-center">
                <span className="text-[10px] font-mono text-zinc-500 uppercase">{idsSelecionados.length} selecionadas / {ctosFiltradas.length} exibidas</span>
                <button type="button" onClick={() => setModalListaAberto(false)} className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-                  Concluir Edição
+                 Concluir Edição
                </button>
             </div>
           </div>

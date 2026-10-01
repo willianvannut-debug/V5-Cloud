@@ -19,7 +19,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const API_SECRET = process.env.API_SECRET;
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET_KEY || 'v5_cloud_secret_key_super_segura_2026'
+  process.env.JWT_SECRET_KEY
 );
 
 const PRICE_ID_EXCEDENTE_UNICO = process.env.STRIPE_PRICE_EXCEDENTE_UNICO || 'price_1UIHCPQmvE3xCUG9mcjS3n2E';
@@ -353,9 +353,13 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
+    console.log("📥 [API - PUT] Recebendo payload:", body);
+
     const empresaIdAlvo = body.empresa_id || auth.empresaIdSessao;
     const origem = body.origem; 
-    const leadId = body.id;
+    
+    // 🔥 FORÇANDO extrair o ID, seja por qual nome tenha vindo
+    const leadId = body.id || body.leadId || body.lead_id;
 
     if (leadId !== undefined && leadId !== null && leadId !== '') {
       const { data: leadAnterior } = await supabase.from('leads').select('*').eq('id', leadId).single();
@@ -406,29 +410,36 @@ export async function PUT(request: NextRequest) {
         }
       }
       
-      if (body.motivo_pendencia !== undefined) {
-        dadosAtualizados.motivo_pendencia = sanitizarTexto(body.motivo_pendencia);
-      }
+      if (body.motivo_pendencia !== undefined) dadosAtualizados.motivo_pendencia = sanitizarTexto(body.motivo_pendencia);
       if (body.telefone || body.whatsapp) dadosAtualizados.whatsapp = sanitizarTexto(body.telefone || body.whatsapp);
       if (body.endereco || body.numero) dadosAtualizados.numero = sanitizarTexto(body.endereco || body.numero);
       if (body.atendente !== undefined) dadosAtualizados.atendente = body.atendente;
       if (body.tecnico !== undefined) dadosAtualizados.tecnico = body.tecnico;
       
-      // 🚀 Captura o plano escolhido no PUT (quando atualizado na tabela)
-      if (body.plano_escolhido !== undefined) {
-        dadosAtualizados.plano_escolhido = sanitizarTexto(body.plano_escolhido);
+      // 🚀 Captura do Plano Blindada
+      if (body.plano_escolhido !== undefined && body.plano_escolhido !== null) {
+        dadosAtualizados.plano_escolhido = typeof body.plano_escolhido === 'string' ? sanitizarTexto(body.plano_escolhido) : '';
       }
 
-      const { error: updateError } = await supabase
-        .from('leads')
-        .update(dadosAtualizados)
-        .eq('id', leadId);
+      console.log("📤 [API - PUT] Dados a serem atualizados no Supabase:", dadosAtualizados);
 
-      if (updateError) {
-        console.error('❌ ERRO NO UPDATE:', updateError);
+      // Evita atualizar se o objeto dadosAtualizados estiver vazio
+      if (Object.keys(dadosAtualizados).length > 0) {
+        const { error: updateError } = await supabase
+          .from('leads')
+          .update(dadosAtualizados)
+          .eq('id', leadId);
+
+        if (updateError) {
+          console.error('❌ ERRO NO UPDATE (PUT):', updateError);
+        } else {
+          console.log(`✅ Update feito no PUT para o lead ${leadId}:`, dadosAtualizados);
+        }
       }
 
       await registrarLog(auth.emailOperador || 'sistema', 'LEAD_ATUALIZADO', 'INFO', `Lead atualizado: ${leadAnterior?.nome}`, request, { leadId, alteracoes: dadosAtualizados });
+    } else {
+        console.warn('⚠️ Requisição PUT ignorada: ID do lead não foi recebido.');
     }
 
     let fetchQuery = supabase.from('leads').select('*').order('created_at', { ascending: false });
@@ -445,12 +456,65 @@ export async function PUT(request: NextRequest) {
   }
 }
 
+// ==========================================================
+// 🚀 METODO PATCH: Específico para atualizações parciais
+// ==========================================================
+export async function PATCH(request: NextRequest) {
+    try {
+        const auth = await validarAutorizacao(request);
+        if (!auth.autorizado) {
+            return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+        }
+
+        const urlParts = request.url.split('/');
+        const possivelId = urlParts[urlParts.length - 1]; // Pega o ID caso venha na URL como /api/leads/123
+        const body = await request.json();
+        const leadId = body.id || body.leadId || (possivelId !== 'leads' ? possivelId : null);
+
+        console.log(`📥 [API - PATCH] ID: ${leadId}, Recebendo payload:`, body);
+
+        if (!leadId) {
+            return NextResponse.json({ error: 'ID do lead não fornecido' }, { status: 400 });
+        }
+
+        const dadosAtualizados: any = {};
+        
+        // Verifica todos os campos parciais
+        if (body.plano_escolhido !== undefined) dadosAtualizados.plano_escolhido = typeof body.plano_escolhido === 'string' ? sanitizarTexto(body.plano_escolhido) : '';
+        if (body.etapa_funil !== undefined) dadosAtualizados.perfil = sanitizarTexto(body.etapa_funil).toUpperCase();
+        if (body.perfil !== undefined) dadosAtualizados.perfil = sanitizarTexto(body.perfil).toUpperCase();
+
+        console.log("📤 [API - PATCH] Dados a serem atualizados no Supabase:", dadosAtualizados);
+
+        if (Object.keys(dadosAtualizados).length > 0) {
+            const { error: updateError } = await supabase
+                .from('leads')
+                .update(dadosAtualizados)
+                .eq('id', leadId);
+
+            if (updateError) {
+                console.error('❌ ERRO NO UPDATE (PATCH):', updateError);
+                return NextResponse.json({ error: updateError.message }, { status: 400 });
+            }
+            
+            console.log(`✅ Update parcial feito no PATCH para o lead ${leadId}:`, dadosAtualizados);
+            return NextResponse.json({ success: true }, { status: 200 });
+        }
+
+        return NextResponse.json({ success: true, message: 'Nenhuma alteração necessária' }, { status: 200 });
+
+    } catch (error: any) {
+        console.error('❌ ERRO NO PATCH:', error.message);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
 export async function OPTIONS() {
   return NextResponse.json(null, {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
   });

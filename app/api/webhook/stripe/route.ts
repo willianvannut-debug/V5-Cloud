@@ -2,7 +2,8 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-import { Resend } from 'resend'; 
+import { Resend } from 'resend';
+import bcrypt from 'bcryptjs';
 
 // Inicializa o Stripe, Supabase Admin e o Resend
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -19,14 +20,12 @@ const resend = new Resend(process.env.RESEND_API_KEY!);
 export async function POST(req: Request) {
   const body = await req.text();
   
-  // Aguarda os headers (boas práticas para o Next.js mais recente)
   const headersList = await headers();
   const signature = headersList.get('stripe-signature') as string;
 
   let event: Stripe.Event;
 
   try {
-    // Verifica se a mensagem veio mesmo do Stripe e não de um hacker
     event = stripe.webhooks.constructEvent(
       body,
       signature,
@@ -46,14 +45,17 @@ export async function POST(req: Request) {
       case 'checkout.session.completed': {
         const metadata = session.metadata || {};
         const empresaId = metadata.empresaId || session.client_reference_id;
-        const tipoProduto = metadata.tipo; // Verifica se veio da compra do iFrame
+        const tipoProduto = metadata.tipo;
         const planoComprado = metadata.plano || 'pro';
         const novoStripeCustomerId = session.customer;
         const emailCliente = session.customer_email || session.customer_details?.email;
-        const nomeCliente = session.customer_details?.name || 'Cliente V5';
+        const nomeCliente = session.customer_details?.name || metadata.nomeGestor || 'Cliente V5';
         const subscriptionId = session.subscription;
 
-        // Verifica se o iFrame foi comprado (seja via metadado ou se estiver presente na assinatura)
+        // 🚀 Recolhe o WhatsApp e o CEP vindos do metadata do Stripe
+        const whatsappCliente = metadata.whatsapp || null;
+        const cepCliente = metadata.cep || null;
+
         let isAddonIframe = tipoProduto === 'addon_iframe';
 
         if (subscriptionId) {
@@ -62,9 +64,7 @@ export async function POST(req: Request) {
               expand: ['items.data.price'],
             });
 
-            // ID do preço do iFrame configurado no teu .env.local
             const ID_PRECO_IFRAME = process.env.STRIPE_IFRAME_PRICE_ID;
-
             const temItemIframe = subscription.items.data.some(
               (item: any) => item.price.id === ID_PRECO_IFRAME
             );
@@ -77,9 +77,6 @@ export async function POST(req: Request) {
           }
         }
 
-        // =========================================================
-        // 🚀 LÓGICA DO ADD-ON IFRAME (Recorrente ou Único)
-        // =========================================================
         if (isAddonIframe) {
           console.log(`🔓 A libertar o Add-on iFrame no Supabase para a empresa: ${empresaId || emailCliente}`);
           
@@ -105,39 +102,76 @@ export async function POST(req: Request) {
             console.log(`🎉 iFrame libertado com sucesso na Base de Dados!`);
           }
         } 
-        
-        // =========================================================
-        // 📦 LÓGICA DO PLANO PRINCIPAL E BOAS-VINDAS (Com Fallback por E-mail)
-        // =========================================================
         else {
           console.log(`📦 A processar plano principal: ${planoComprado}`);
 
-          let updateData = {
-            plano: planoComprado,
-            status_assinatura: 'ativa',
-            ...(novoStripeCustomerId && { stripe_customer_id: novoStripeCustomerId })
-          };
-
-          let query = supabaseAdmin.from('empresas').update(updateData);
-
+          // 🚀 Se a empresa já existir (mudança de plano), atualiza. Se não existir (novo cadastro), criamos logo aqui!
           if (empresaId) {
-            query = query.eq('id', empresaId);
+            let updateData = {
+              plano: planoComprado,
+              status_assinatura: 'ativa',
+              ...(novoStripeCustomerId && { stripe_customer_id: novoStripeCustomerId }),
+              ...(whatsappCliente && { telefone: whatsappCliente }),
+              ...(cepCliente && { cep: cepCliente })
+            };
+
+            const { error } = await supabaseAdmin.from('empresas').update(updateData).eq('id', empresaId);
+
+            if (error) {
+              console.error('❌ Erro ao atualizar o plano no Supabase via Webhook:', error);
+            } else {
+              console.log(`✅ Empresa atualizada com sucesso com o plano ${planoComprado.toUpperCase()}!`);
+            }
           } else if (emailCliente) {
-            query = query.eq('email', emailCliente);
-          } else {
-            console.warn('⚠️ Webhook de plano recebido sem ID nem e-mail.');
-            break;
+            // 🆕 NOVO CADASTRO VIA STRIPE: Procura ou cria a empresa com o WhatsApp e CEP do metadata
+            const { data: empresaExistente } = await supabaseAdmin
+              .from('empresas')
+              .select('id')
+              .eq('email', emailCliente.toLowerCase())
+              .maybeSingle();
+
+            let targetEmpresaId = empresaExistente?.id;
+
+            if (!targetEmpresaId) {
+              const codigoConviteGerado = Math.random().toString(36).substring(2, 8).toUpperCase();
+              const { data: novaEmpresa, error: errEmpresa } = await supabaseAdmin
+                .from('empresas')
+                .insert([{
+                  nome_empresa: nomeCliente ? `Provedor de ${nomeCliente}` : 'Minha Provedora',
+                  plano: planoComprado,
+                  status_assinatura: 'ativa',
+                  codigo_convite: codigoConviteGerado,
+                  ...(novoStripeCustomerId && { stripe_customer_id: novoStripeCustomerId }),
+                  ...(whatsappCliente && { telefone: whatsappCliente }),
+                  ...(cepCliente && { cep: cepCliente })
+                }])
+                .select()
+                .single();
+
+              if (!errEmpresa && novaEmpresa) {
+                targetEmpresaId = novaEmpresa.id;
+
+                // Cria o operador gestor vinculado
+                await supabaseAdmin.from('operadores').insert([{
+                  nome: nomeCliente,
+                  email: emailCliente.toLowerCase(),
+                  senha_hash: await bcrypt.hash('V5@2026Secure', 10), // Senha padrão temporária caso venha direto do checkout
+                  role: 'gerente',
+                  empresa_id: targetEmpresaId
+                }]);
+              }
+            } else {
+              await supabaseAdmin.from('empresas').update({
+                plano: planoComprado,
+                status_assinatura: 'ativa',
+                ...(novoStripeCustomerId && { stripe_customer_id: novoStripeCustomerId }),
+                ...(whatsappCliente && { telefone: whatsappCliente }),
+                ...(cepCliente && { cep: cepCliente })
+              }).eq('id', targetEmpresaId);
+            }
           }
 
-          const { error } = await query;
-
-          if (error) {
-            console.error('❌ Erro ao atualizar o plano no Supabase via Webhook:', error);
-          } else {
-            console.log(`✅ Empresa/Cliente liberado no sistema com o plano ${planoComprado.toUpperCase()}!`);
-          }
-
-          // Dispara o e-mail de boas-vindas logo após confirmar o pagamento do plano
+          // Dispara o e-mail de boas-vindas
           if (emailCliente) {
             try {
               await resend.emails.send({
@@ -168,33 +202,29 @@ export async function POST(req: Request) {
         break;
       }
 
-      // 2️⃣ Quando a mensalidade bate no cartão e FALHA (sem limite, bloqueado, etc)
+      // 2️⃣ Pagamento falhou
       case 'invoice.payment_failed': {
         const failedCustomerId = session.customer;
-        
         if (failedCustomerId) {
           await supabaseAdmin
             .from('empresas')
             .update({ status_assinatura: 'inadimplente' })
             .eq('stripe_customer_id', failedCustomerId);
-            console.log(`⛔ Pagamento falhou! Empresa com Customer ID ${failedCustomerId} bloqueada.`);
         }
         break;
       }
 
-      // 3️⃣ Quando a assinatura é cancelada definitivamente
+      // 3️⃣ Assinatura cancelada
       case 'customer.subscription.deleted': {
         const deletedCustomerId = session.customer;
-        
         if (deletedCustomerId) {
           await supabaseAdmin
             .from('empresas')
             .update({ 
               status_assinatura: 'cancelada',
-              addon_iframe: false // Remove o acesso ao iFrame se cancelar a subscrição
+              addon_iframe: false 
             })
             .eq('stripe_customer_id', deletedCustomerId);
-            console.log(`❌ Assinatura cancelada para o Customer ID ${deletedCustomerId}`);
         }
         break;
       }

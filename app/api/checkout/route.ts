@@ -8,18 +8,17 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { email, nomePlano, precoCentavos, intervalo, empresaId, chavePlano } = body;
+    // 🚀 Incluímos whatsapp e cep no desmembramento do body
+    const { email, nomePlano, precoCentavos, intervalo, empresaId, chavePlano, whatsapp, cep, nome, senha } = body;
 
     const planoNormalizado = String(chavePlano || 'pro').toLowerCase().trim();
 
-    console.log(`🛒 [API CHECKOUT] Empresa ID: ${empresaId} | Email: ${email} | Plano: ${planoNormalizado}`);
+    console.log(`🛒 [API CHECKOUT] Email: ${email} | Plano: ${planoNormalizado}`);
 
-    // 🚀 DETECÇÃO INTELIGENTE DE URL LOCAL OU PRODUÇÃO
     const host = req.headers.get('host') || 'localhost:3000';
     const protocol = host.includes('localhost') ? 'http' : 'https';
     const baseUrl = `${protocol}://${host}`;
 
-    // 🚀 AQUI ESTÁ A MÁGICA: Se tem empresaId, força o redirecionamento para o Dashboard com os parâmetros certos!
     const successUrl = empresaId 
       ? `${baseUrl}/dashboard?mudanca_plano_sucesso=true&novo_plano=${planoNormalizado}&empresa_id=${empresaId}`
       : `${baseUrl}/login?pagamento=sucesso&plano=${planoNormalizado}`;
@@ -45,9 +44,14 @@ export async function POST(req: Request) {
         },
       ],
       mode: 'subscription',
+      // 🚀 Guardamos os dados essenciais de cadastro no metadata do Stripe
       metadata: {
         empresaId: empresaId || '',
         plano: planoNormalizado,
+        whatsapp: whatsapp || '',
+        cep: cep || '',
+        nomeGestor: nome || '',
+        // Nota: A senha não deve ir para o Stripe por segurança, vamos guardá-la de outra forma ou criamos a conta na rota de registo antes.
       },
       success_url: successUrl,
       cancel_url: cancelUrl,
