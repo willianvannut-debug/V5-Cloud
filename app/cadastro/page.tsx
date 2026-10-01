@@ -1,5 +1,5 @@
 // ================================================================================
-// 📝 PÁGINA DE CADASTRO DE PROVEDORA - V5 CLOUD
+// 📝 PÁGINA DE CADASTRO DE PROVEDORA - V5 CLOUD (COM CONTRATO COMPLETO)
 // ================================================================================
 
 "use client"
@@ -582,7 +582,7 @@ function CadastroProvedoraContent() {
 
       </div>
 
-      {/* POPUP DOS TERMOS DE USO */}
+      {/* POPUP DOS TERMOS DE USO COM CONTRATO JURÍDICO COMPLETO */}
       {modalAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#0a0a0a] border border-[#1e3b29] w-full max-w-2xl rounded-2xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
@@ -605,28 +605,122 @@ function CadastroProvedoraContent() {
               className="w-full h-80 bg-black/90 border border-zinc-800 rounded-xl p-4 text-xs text-zinc-300 overflow-y-auto space-y-4 select-none leading-relaxed"
             >
               <div className="text-center space-y-1 pb-2 border-b border-zinc-800">
-                <p className="font-bold text-emerald-400 text-sm">TERMO DE USO E CONTRATO DE SERVIÇO V5 CLOUD</p>
+                <p className="font-bold text-emerald-400 text-sm">TERMO DE USO E CONTRATO DE SERVIÇO</p>
                 <p className="text-[11px] text-zinc-400">Perfil de Gerente - Administrador da Plataforma</p>
+                <p className="text-[10px] text-zinc-500">V5 Cloud Enterprise - Plataforma SaaS de Gestão de Infraestrutura ISP</p>
               </div>
+
               <div>
-                <p className="font-bold text-emerald-400 uppercase">1. OBJETO DO CONTRATO</p>
-                <p className="mt-1">O presente instrumento rege a concessão de licença de uso da plataforma SaaS V5 Cloud Enterprise, destinada à gestão de infraestrutura de Provedores de Serviços de Internet (ISP), abrangendo módulos de viabilidade técnica, geolocalização de caixas CTO, CRM comercial e controlo operacional.</p>
+                <p className="font-bold text-emerald-400 uppercase">PREÂMBULO</p>
+                <p className="mt-1">Este Termo de Uso e Contrato de Serviço regula a relação entre a plataforma V5 Cloud Enterprise (doravante 'V5 Cloud' ou 'Fornecedora') e a Empresa Provedora de Serviços de Internet (doravante 'Contratante' ou 'Gerente'), através do perfil administrativo de Gerente.</p>
+                <p className="mt-1">O Gerente é o usuário principal responsável pela administração, supervisão, gestão de acessos e cumprimento de todas as obrigações legais e contratuais relacionadas ao uso da plataforma V5 Cloud Enterprise.</p>
+                <p className="mt-1">Ao clicar em 'Aceitar e Criar Conta', o Gerente declara expressa e irrevogavelmente que:</p>
+                <p>(i) Leu, compreendeu e concorda integralmente com todas as disposições deste documento;</p>
+                <p>(ii) Possui autoridade legal para vincular a Empresa Provedora a este contrato;</p>
+                <p>(iii) Reconhece as responsabilidades assumidas e as consequências de violações.</p>
               </div>
+
               <div>
-                <p className="font-bold text-emerald-400 uppercase">2. DAS OBRIGAÇÕES DO CONTRATANTE (GESTOR)</p>
-                <p className="mt-1">O Gestor compromete-se a fornecer dados verdadeiros, atualizados e precisos no ato do cadastro, incluindo identificação fiscal, coordenadas geográficas da sede e canais válidos de atendimento via WhatsApp e e-mail corporativo. O uso indevido da plataforma ou tentativas de engenharia reversa resultarão no cancelamento imediato da conta sem direito a reembolso.</p>
+                <p className="font-bold text-emerald-400 uppercase">1. DEFINIÇÃO E ESCOPO DO SERVIÇO</p>
+                <p className="font-semibold text-white mt-1">1.1 Descrição do V5 Cloud Enterprise</p>
+                <p>O V5 Cloud Enterprise é uma plataforma de Software as a Service (SaaS) desenvolvida especificamente para Provedores de Serviços de Internet (ISPs). O sistema fornece ferramentas digitais para:</p>
+                <p>(a) Mapeamento de infraestrutura de rede de fibra óptica (localização de Caixas de Terminação Óptica - CTOs);</p>
+                <p>(b) Análise automatizada de viabilidade técnica de cobertura para novos endereços;</p>
+                <p>(c) Estimativa de distância para lançamento de cabos de fibra;</p>
+                <p>(d) Gestão centralizada de potenciais clientes (leads) e equipes operacionais.</p>
+
+                <p className="font-semibold text-white mt-2">1.2 Acesso e Perfis de Usuário</p>
+                <p>A plataforma oferece três níveis de acesso com privilégios diferenciados:</p>
+                <p>• <strong>Gerente (Administrador):</strong> Acesso total ao sistema, gestão de equipe, análise de dados, configurações globais;</p>
+                <p>• <strong>Atendente:</strong> Acesso restrito a captação de leads e gestão pré-comercial;</p>
+                <p>• <strong>Técnico:</strong> Acesso mínimo restrito a dados operacionais de campo (instalação e validação técnica).</p>
+
+                <p className="font-semibold text-white mt-2">1.3 Não Há Garantia de Resultado</p>
+                <p>A V5 Cloud fornece exclusivamente as ferramentas tecnológicas para análise e gestão. Os resultados das análises de viabilidade, distâncias estimadas e recomendações técnicas são informações referenciais e não constituem garantia absoluta de viabilidade prática ou sucesso comercial. O sucesso da contratante depende de decisões comerciais, operacionais e técnicas tomadas internamente.</p>
               </div>
+
               <div>
-                <p className="font-bold text-emerald-400 uppercase">3. DA DISPONIBILIDADE E SUPORTE</p>
-                <p className="mt-1">A V5 Cloud empenhar-se-á em manter a plataforma disponível 99,9% do tempo ao longo do mês, ressalvadas paragens programadas para manutenção corretiva ou evolutiva. O suporte técnico prestar-se-á exclusivamente por canais oficiais descritos no painel administrativo.</p>
+                <p className="font-bold text-emerald-400 uppercase">2. RESPONSABILIDADES DO GERENTE (ADMINISTRADOR)</p>
+                <p className="font-semibold text-white mt-1">2.1 Supervisão e Gestão de Acessos</p>
+                <p>O Gerente é a única pessoa autorizada a:</p>
+                <p>(i) Criar contas de novos usuários (Atendentes e Técnicos);</p>
+                <p>(ii) Atribuir níveis de acesso e privilégios apropriados a cada colaborador;</p>
+                <p>(iii) Modificar ou revogar acessos quando necessário;</p>
+                <p>(iv) Deletar contas de colaboradores desligados ou sem mais necessidade de acesso;</p>
+                <p>(v) Monitorar e auditar logs de atividades de todos os colaboradores;</p>
+                <p>(vi) Implementar controles internos de segurança e confidencialidade.</p>
+
+                <p className="font-semibold text-white mt-2">2.2 Obrigação de Revogar Acessos Imediatamente</p>
+                <p>O Gerente compromete-se a revogar o acesso de qualquer colaborador NO MESMO DIA em que:</p>
+                <p>(a) O colaborador seja desligado ou rescindido;</p>
+                <p>(b) Mude de cargo ou atribuições;</p>
+                <p>(c) Saia da empresa ou tome licença;</p>
+                <p>(d) Suspeita-se de qualquer comportamento inadequado ou violação de confidencialidade.</p>
+                <p className="mt-1 text-amber-400">O Gerente reconhece que FALHA em revogar acessos oportunamente constitui violação grave deste contrato e responsabiliza-se pessoalmente por toda e qualquer ação ou acesso realizado por ex-colaboradores.</p>
+
+                <p className="font-semibold text-white mt-2">2.3 Monitoramento de Atividades e Logs</p>
+                <p>O Gerente é responsável por revisar regularmente (no mínimo semanalmente) os logs de atividades disponibilizados pela V5 Cloud, a fim de identificar comportamentos suspeitos, acessos não autorizados, vazamentos de dados ou qualquer atividade fora dos padrões operacionais normais.</p>
+
+                <p className="font-semibold text-white mt-2">2.4 Proteção de Dados e Confidencialidade</p>
+                <p>O Gerente é responsável por garantir que todos os colaboradores (Atendentes e Técnicos) sob sua supervisão mantenham sigilo absoluto sobre dados pessoais de leads e infraestrutura de rede.</p>
+
+                <p className="font-semibold text-white mt-2">2.5 Conformidade com LGPD e Legislação Aplicável</p>
+                <p>O Gerente reconhece ser o Controlador dos dados pessoais inseridos na plataforma e assume inteira responsabilidade pelo cumprimento da Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).</p>
+
+                <p className="font-semibold text-white mt-2">2.6 Segurança de Credencial e Senha</p>
+                <p>O Gerente é responsável exclusivo pela segurança de sua senha e credenciais de acesso, mantendo-as complexas e confidenciais.</p>
               </div>
+
               <div>
-                <p className="font-bold text-emerald-400 uppercase">4. PROTEÇÃO DE DADOS (LGPD)</p>
-                <p className="mt-1">Ambas as partes obrigam-se a cumprir rigorosamente as diretrizes da Lei Geral de Proteção de Dados (Lei nº 13.709/2018), garantindo o sigilo absoluto sobre leads, rotas de fibra e informações de clientes finais coletadas pelos widgets de viabilidade.</p>
+                <p className="font-bold text-emerald-400 uppercase">3. RESPONSABILIDADE SOLIDÁRIA POR ATOS DE COLABORADORES</p>
+                <p className="font-semibold text-white mt-1">3.1 Responsabilidade Integral</p>
+                <p>O Gerente/Empresa Provedora assume responsabilidade INTEGRAL e SOLIDÁRIA por toda e qualquer ação, omissão, violação ou infração cometida por seus colaboradores (Atendentes, Técnicos e demais usuários) da plataforma, INDEPENDENTEMENTE de ter conhecimento prévio ou autorização para tal.</p>
               </div>
+
+              <div>
+                <p className="font-bold text-emerald-400 uppercase">4. CONSEQUÊNCIAS E PENALIDADES POR VIOLAÇÃO</p>
+                <p>Identificada qualquer violação grave de confidencialidade, vazamento de dados ou uso indevido, a V5 Cloud reserva-se o direito de suspender acessos imediatamente, rescindir o contrato com justa causa, aplicar multa contratual, notificar a ANPD e adotar medidas judiciais cabíveis.</p>
+              </div>
+
+              <div>
+                <p className="font-bold text-emerald-400 uppercase">5. RESPONSABILIDADE SOBRE DADOS E INFRAESTRUTURA</p>
+                <p>A Empresa Provedora é a única e exclusiva responsável pela precisão, atualidade e integridade de TODOS os dados inseridos na plataforma (como coordenadas de CTOs e rotas de fibra).</p>
+              </div>
+
+              <div>
+                <p className="font-bold text-emerald-400 uppercase">6. REGRAS E PROIBIÇÕES DE USO</p>
+                <p>É terminantemente proibido compartilhar credenciais, vender acessos, utilizar ferramentas automatizadas de extração (scraping) ou realizar engenharia reversa na plataforma.</p>
+              </div>
+
+              <div>
+                <p className="font-bold text-emerald-400 uppercase">7. DISPONIBILIDADE DO SERVIÇO E MANUTENÇÃO</p>
+                <p>A V5 Cloud envidará seus melhores esforços para manter a plataforma operacional, estando sujeita a paragens programadas para manutenção e atualizações.</p>
+              </div>
+
+              <div>
+                <p className="font-bold text-emerald-400 uppercase">8. LIMITAÇÕES DE RESPONSABILIDADE DA V5 CLOUD</p>
+                <p>A responsabilidade total da V5 Cloud por qualquer falha ou dano comprovado será estritamente limitada ao valor equivalente a UMA (1) mensalidade paga pela Empresa Provedora no mês imediatamente anterior.</p>
+              </div>
+
+              <div>
+                <p className="font-bold text-emerald-400 uppercase">9. LEGISLAÇÃO APLICÁVEL E FORO</p>
+                <p>Este contrato rege-se pelas leis da República Federativa do Brasil, elegendo o Foro da Comarca da sede da V5 Cloud para dirimir quaisquer litígios.</p>
+              </div>
+
+              <div>
+                <p className="font-bold text-emerald-400 uppercase">10. ACEITAÇÃO E VIGÊNCIA</p>
+                <p>O aceite eletrônico através do clique no botão de consentimento possui validade jurídica equivalente à assinatura física de documento.</p>
+              </div>
+
+              <div>
+                <p className="font-bold text-emerald-400 uppercase">11. DISPOSIÇÕES FINAIS</p>
+                <p>Para dúvidas, notificações ou suporte legal, utilize os canais oficiais de atendimento e conformidade da V5 Cloud Enterprise.</p>
+              </div>
+
               <div className="pt-4 border-t border-zinc-800 text-center space-y-1">
                 <p className="font-bold text-white">V5 Cloud Enterprise</p>
-                <p className="text-zinc-400">Termo de Uso e Contrato de Serviço SaaS - Versão 1.0</p>
+                <p className="text-zinc-400">Termo de Uso e Contrato de Serviço SaaS - Perfil Gerente</p>
+                <p className="text-zinc-500 text-[10px]">Versão 1.0 | Data: 20/09/2026</p>
               </div>
             </div>
 
@@ -646,9 +740,11 @@ function CadastroProvedoraContent() {
                 ENTENDI E CONCORDO
               </button>
             </div>
+
           </div>
         </div>
       )}
+
     </div>
   );
 }
