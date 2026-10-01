@@ -4,14 +4,10 @@
 // ================================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/logger';
 import { jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
-
-const SETTINGS_FILE = path.join(process.cwd(), 'data_settings.json');
 
 // ---------------------------------------------------------------------------
 // Supabase (somente no servidor, chaves vindas do ambiente)
@@ -62,7 +58,7 @@ async function getUsuarioLogado(): Promise<UsuarioLogado | null> {
 }
 
 const naoAutorizado = () =>
-  NextResponse.json({ success: false, error: 'Não autorizado' }, { status: 401 });
+  Response.json({ success: false, error: 'Não autorizado' }, { status: 401 });
 
 const NO_CACHE = {
   'Cache-Control': 'no-store, no-cache, must-revalidate',
@@ -79,15 +75,9 @@ export async function GET(request: NextRequest) {
 
     let settingsData: any = {};
 
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const data = fs.readFileSync(SETTINGS_FILE, 'utf-8');
-      settingsData = JSON.parse(data);
-    }
-
     if (supabase) {
       let empresaQuery = supabase
         .from('empresas')
-        // Adicionadas TODAS as colunas para o GET ler do banco corretamente
         .select('id, plano, nome_empresa, endereco, telefone, email, cep, lat, lon');
 
       if (usuario.empresaId) {
@@ -187,7 +177,7 @@ export async function POST(request: NextRequest) {
         dadosAntigos = empresaAntes;
       }
 
-      // 🚀 AQUI É ONDE A MAGIA ACONTECE: GUARDAR TUDO NO SUPABASE
+      // 🚀 ATUALIZAR DADOS NA TABELA EMPRESAS NO SUPABASE
       const { error: updateError } = await supabase
         .from('empresas')
         .update({
@@ -243,8 +233,6 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(body, null, 2), 'utf-8');
 
     const mudancas: string[] = [];
     if (String(dadosAntigos?.telefone || '') !== String(body.telefone || '')) mudancas.push('Telefone');
