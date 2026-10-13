@@ -1,5 +1,5 @@
 // ================================================================================
-// 📋 GESTÃO DE CAIXAS CTO - V5 CLOUD (COM CACHE INTELIGENTE E ANTI-ZIP BOMB)
+// 📋 GESTÃO DE CAIXAS CTO - V5 CLOUD (COM MODAL MODERNO DE CONFIRMAÇÃO)
 // app/dashboard/caixa-cto/page.tsx
 // ================================================================================
 
@@ -20,6 +20,7 @@ import {
   Globe,
   Rocket,
   Upload,
+  Download,
   ShieldAlert,
   List,
   Crosshair,
@@ -27,13 +28,14 @@ import {
   Building2,
   CheckSquare,
   Square,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { PLANOS } from '@/lib/planLimites';
 import { createClient } from '@supabase/supabase-js';
-import JSZip from 'jszip'; // <--- BIBLIOTECA PARA LIDAR COM KMZ DE FORMA SEGURA
+import JSZip from 'jszip';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -49,31 +51,170 @@ export interface CtoItemSupabase {
   provedor_id?: string;
 }
 
-// 🚀 ATUALIZADOR DE CÂMERA DO MAPA (Move para a Sede)
-function AtualizadorCentroMapa({ coordenadas }: { coordenadas: [number, number] }) {
+// 🔊 Sintetizador sonoro nativo blindado
+const tocarEfeitoSonoro = (tipo: 'clique' | 'sucesso' | 'erro' | 'copiar' | 'pop') => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+
+    if (tipo === 'clique') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(800, now + 0.05);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+      osc.start(now);
+      osc.stop(now + 0.05);
+    } else if (tipo === 'pop') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.exponentialRampToValueAtTime(200, now + 0.06);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.06);
+      osc.start(now);
+      osc.stop(now + 0.06);
+    } else if (tipo === 'copiar') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.setValueAtTime(880, now + 0.08);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } else if (tipo === 'sucesso') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.08);
+      osc.frequency.setValueAtTime(783.99, now + 0.16);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } else if (tipo === 'erro') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(200, now);
+      osc.frequency.setValueAtTime(150, now + 0.1);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    }
+  } catch (e) {}
+};
+
+// ================================================================================
+// 🧭 UTILITÁRIOS DE LOCALIZAÇÃO (anti-oceano + caixa mais próxima)
+// ================================================================================
+const BRASIL_LAT_MIN = -35.0;
+const BRASIL_LAT_MAX = 6.0;
+const BRASIL_LON_MIN = -75.0;
+const BRASIL_LON_MAX = -32.0;
+
+const dentroDoBrasil = (lat: number, lon: number): boolean => {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= BRASIL_LAT_MIN && lat <= BRASIL_LAT_MAX &&
+    lon >= BRASIL_LON_MIN && lon <= BRASIL_LON_MAX
+  );
+};
+
+const normalizarCoordenada = (latBruta: any, lonBruta: any): [number, number] | null => {
+  const lat = Number(latBruta);
+  const lon = Number(lonBruta);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+  const candidatos: [number, number][] = [
+    [lat, lon],
+    [lon, lat],
+    [lat, -lon],
+    [-lat, -lon]
+  ];
+
+  for (const [la, lo] of candidatos) {
+    if (dentroDoBrasil(la, lo)) return [la, lo];
+  }
+  return null;
+};
+
+const distanciaKm = (a: [number, number], b: [number, number]): number => {
+  const R = 6371;
+  const toRad = (g: number) => (g * Math.PI) / 180;
+  const dLat = toRad(b[0] - a[0]);
+  const dLon = toRad(b[1] - a[1]);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+
+const pontoMaisProximo = (pontos: [number, number][], ref: [number, number]): [number, number] | null => {
+  let melhor: [number, number] | null = null;
+  let menor = Infinity;
+  for (const p of pontos) {
+    const d = distanciaKm(ref, p);
+    if (d < menor) {
+      menor = d;
+      melhor = p;
+    }
+  }
+  return melhor;
+};
+
+// 🚀 CENTRALIZADOR DO MAPA: Foca na primeira caixa CTO ao recarregar
+function CentralizadorCaixaProxima({
+  alvoInicial,
+  alvoGps
+}: {
+  alvoInicial: [number, number] | null;
+  alvoGps: [number, number] | null;
+}) {
   const { useMap } = require('react-leaflet');
   const map = useMap();
+  const centralizouInicialRef = useRef(false);
+  const centralizouGpsRef = useRef(false);
+
   useEffect(() => {
-    if (coordenadas && coordenadas[0] !== 0) {
-      map.setView(coordenadas, map.getZoom(), {
-        animate: true,
-        duration: 1.5
-      });
+    const irPara = (alvo: [number, number]) => {
+      if (map && typeof map.invalidateSize === 'function') {
+        map.invalidateSize();
+        map.setView(alvo, 18, { animate: true, duration: 1.5 });
+      }
+    };
+
+    if (alvoGps && !centralizouGpsRef.current) {
+      centralizouGpsRef.current = true;
+      centralizouInicialRef.current = true;
+      irPara(alvoGps);
+      return;
     }
-  }, [coordenadas, map]);
+
+    if (alvoInicial && !centralizouInicialRef.current) {
+      centralizouInicialRef.current = true;
+      irPara(alvoInicial);
+    }
+  }, [alvoInicial, alvoGps, map]);
+
   return null;
 }
 
 export default function CaixaCtoPage() {
   const settings = useSettings();
   const { operador, empresa } = useAuth();
-  
-  const [RL, setRL] = useState<any>(null); 
+
+  const [RL, setRL] = useState<any>(null);
   const [L, setL] = useState<any>(null);
   const [planoAtual, setPlanoAtual] = useState<string>('');
   const [limiteCustomizado, setLimiteCustomizado] = useState<number | null>(null);
 
-  // 🚀 Tenta carregar do cache local imediatamente para evitar qualquer tela de loading ao abrir
   const [listaCtos, setListaCtos] = useState<CtoItemSupabase[]>(() => {
     if (typeof window !== 'undefined') {
       const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id || 'padrao';
@@ -91,9 +232,8 @@ export default function CaixaCtoPage() {
   const [temAlteracoes, setTemAlteracoes] = useState(false);
   const [salvo, setSalvo] = useState(false);
   const [salvando, setSalvando] = useState(false);
-  
   const [carregandoBanco, setCarregandoBanco] = useState(() => listaCtos.length === 0);
-  
+
   const [importandoKmz, setImportandoKmz] = useState(false);
   const [erroSegurancaKmz, setErroSegurancaKmz] = useState<string | null>(null);
   const [mensagemImportacao, setMensagemImportacao] = useState('Selecionar Arquivo KML ou KMZ');
@@ -107,6 +247,15 @@ export default function CaixaCtoPage() {
   const [modalListaAberto, setModalListaAberto] = useState(false);
   const [buscaLista, setBuscaLista] = useState('');
 
+  const [modalBuscaCaixaAberto, setModalBuscaCaixaAberto] = useState(false);
+  const [nomeBuscaCaixa, setNomeBuscaCaixa] = useState('');
+  const [erroBuscaCaixa, setErroBuscaCaixa] = useState('');
+
+  // 🔴 ESTADOS PARA MODAL DE CONFIRMAÇÃO DE EXCLUSÃO BONITO
+  const [modalDeletarAberto, setModalDeletarAberto] = useState(false);
+  const [idParaDeletar, setIdParaDeletar] = useState<string | null>(null);
+  const [deletandoAcao, setDeletandoAcao] = useState(false);
+
   const [idsSelecionados, setIdsSelecionados] = useState<string[]>([]);
   const [novoNomeEmpresaMassa, setNovoNomeEmpresaMassa] = useState('');
 
@@ -117,23 +266,23 @@ export default function CaixaCtoPage() {
   const [enderecoReverso, setEnderecoReverso] = useState('');
   const [carregandoBusca, setCarregandoBusca] = useState(false);
 
-  const [zoomAtual, setZoomAtual] = useState(16);
+  const [zoomAtual, setZoomAtual] = useState(18);
   const [mapBounds, setMapBounds] = useState<any>(null);
+
+  const [posicaoUsuario, setPosicaoUsuario] = useState<[number, number] | null>(null);
 
   const markerRef = useRef<any>(null);
   const mapGeralRef = useRef<any>(null);
   const [mapModalInstancia, setMapModalInstancia] = useState<any>(null);
-
   const [mascaraMundoGeoJson, setMascaraMundoGeoJson] = useState<any>(null);
 
-  const nomeSedeDinamico = empresa?.cidade || settings?.cidadeEmpresa || 'Brasil';
-  const latEmpresa = empresa?.lat || empresa?.latitude || settings?.latEmpresa || -15.7797;
-  const lonEmpresa = empresa?.lon || empresa?.longitude || settings?.lonEmpresa || -47.9297;
+  const nomeSedeDinamico = empresa?.cidade || settings?.cidadeEmpresa || 'Águas Lindas de Goiás';
+  const latEmpresa = empresa?.lat || empresa?.latitude || settings?.latEmpresa || -15.7641;
+  const lonEmpresa = empresa?.lon || empresa?.longitude || settings?.lonEmpresa || -48.2743;
 
-  // REGRAS DE SEGURANÇA PARA KMZ (Anti-Zip Bomb)
-  const MAX_ZIP_SIZE = 50 * 1024 * 1024; // 50MB (Arquivo original KMZ)
-  const MAX_UNCOMPRESSED_SIZE = 150 * 1024 * 1024; // 150MB (Tamanho descompactado)
-  const MAX_FILES_INSIDE = 100; // Limite de arquivos dentro do ZIP
+  const MAX_ZIP_SIZE = 50 * 1024 * 1024;
+  const MAX_UNCOMPRESSED_SIZE = 150 * 1024 * 1024;
+  const MAX_FILES_INSIDE = 100;
 
   useEffect(() => {
     fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries/BRA.geo.json')
@@ -147,62 +296,26 @@ export default function CaixaCtoPage() {
         } else {
           aneisBrasil = data.features[0].geometry.coordinates;
         }
-
-        const quadradoMundo = [
-          [
-            [-360, 85],
-            [360, 85],
-            [360, -85],
-            [-360, -85],
-            [-360, 85]
-          ]
-        ];
-
-        const mascaraInvertida = {
+        const quadradoMundo = [[[-360, 85], [360, 85], [360, -85], [-360, -85], [-360, 85]]];
+        setMascaraMundoGeoJson({
           type: "FeatureCollection",
-          features: [
-            {
-              type: "Feature",
-              geometry: {
-                type: "Polygon",
-                coordinates: [...quadradoMundo, ...aneisBrasil]
-              },
-              properties: {}
-            }
-          ]
-        };
-
-        setMascaraMundoGeoJson(mascaraInvertida);
+          features: [{ type: "Feature", geometry: { type: "Polygon", coordinates: [...quadradoMundo, ...aneisBrasil] }, properties: {} }]
+        });
       })
       .catch(err => console.error("Erro ao criar máscara do Brasil:", err));
 
     async function sincronizarPlanoReal() {
       const planoDoContexto = empresa?.plano || operador?.empresa?.plano;
       const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
-      
-      if (planoDoContexto) {
-        setPlanoAtual(String(planoDoContexto).toLowerCase().trim());
-      }
-      if (!supabase || !idDaEmpresa) {
-        if (!planoDoContexto) setPlanoAtual('ERRO');
-        return;
-      }
+      if (planoDoContexto) setPlanoAtual(String(planoDoContexto).toLowerCase().trim());
+      if (!supabase || !idDaEmpresa) return;
       try {
-        const { data } = await supabase
-          .from('empresas')
-          .select('plano, limite_customizado_ctos')
-          .eq('id', idDaEmpresa)
-          .maybeSingle();
-
+        const { data } = await supabase.from('empresas').select('plano, limite_customizado_ctos').eq('id', idDaEmpresa).maybeSingle();
         if (data) {
           if (data.plano) setPlanoAtual(String(data.plano).toLowerCase().trim());
-          if (data.limite_customizado_ctos !== null && data.limite_customizado_ctos !== undefined) {
-            setLimiteCustomizado(Number(data.limite_customizado_ctos));
-          }
+          if (data.limite_customizado_ctos !== null) setLimiteCustomizado(Number(data.limite_customizado_ctos));
         }
-      } catch (err) {
-        if (!planoDoContexto) setPlanoAtual('ERRO');
-      }
+      } catch (err) {}
     }
     sincronizarPlanoReal();
   }, [operador, empresa]);
@@ -224,9 +337,28 @@ export default function CaixaCtoPage() {
   }, []);
 
   useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    let cancelado = false;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (cancelado) return;
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        if (dentroDoBrasil(lat, lon)) setPosicaoUsuario([lat, lon]);
+      },
+      () => {},
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 5 * 60 * 1000 }
+    );
+    return () => { cancelado = true; };
+  }, []);
+
+  useEffect(() => {
     if (!carregandoBanco && mapGeralRef.current) {
       setTimeout(() => {
-        mapGeralRef.current.invalidateSize();
+        const mapaAtual = mapGeralRef.current;
+        if (mapaAtual && typeof mapaAtual.invalidateSize === 'function') {
+          mapaAtual.invalidateSize();
+        }
       }, 300);
     }
   }, [carregandoBanco, zoomAtual]);
@@ -253,56 +385,32 @@ export default function CaixaCtoPage() {
 
   const ctosAgrupadasParaExibir = useMemo(() => {
     if (listaCtos.length === 0) return [];
-
-    const visiveis = (!mapBounds || listaCtos.length <= 1000) 
-      ? listaCtos 
-      : listaCtos.filter(cto => cto.lat !== undefined && cto.lon !== undefined && mapBounds.contains([cto.lat, cto.lon]));
-
-    if (zoomAtual >= 15) {
-      return visiveis.map(c => ({ tipo: 'individual', ...c }));
-    }
+    const visiveis = (!mapBounds || listaCtos.length <= 1000) ? listaCtos : listaCtos.filter(cto => cto.lat !== undefined && cto.lon !== undefined && mapBounds.contains([cto.lat, cto.lon]));
+    if (zoomAtual >= 15) return visiveis.map(c => ({ tipo: 'individual', ...c }));
 
     const precisaoDecimal = zoomAtual < 12 ? 1 : 2;
     const clustersMap: { [key: string]: { lat: number; lon: number; itens: CtoItemSupabase[] } } = {};
 
     visiveis.forEach(cto => {
       if (cto.lat === undefined || cto.lon === undefined) return;
-      const latKey = cto.lat.toFixed(precisaoDecimal);
-      const lonKey = cto.lon.toFixed(precisaoDecimal);
-      const chave = `${latKey},${lonKey}`;
-
-      if (!clustersMap[chave]) {
-        clustersMap[chave] = { lat: cto.lat, lon: cto.lon, itens: [] };
-      }
+      const chave = `${cto.lat.toFixed(precisaoDecimal)},${cto.lon.toFixed(precisaoDecimal)}`;
+      if (!clustersMap[chave]) clustersMap[chave] = { lat: cto.lat, lon: cto.lon, itens: [] };
       clustersMap[chave].itens.push(cto);
     });
 
     return Object.values(clustersMap).map(cluster => {
-      if (cluster.itens.length === 1) {
-        return { tipo: 'individual', ...cluster.itens[0] };
-      } else {
-        return {
-          tipo: 'cluster',
-          id: `cluster-${cluster.lat}-${cluster.lon}`,
-          lat: cluster.lat,
-          lon: cluster.lon,
-          quantidade: cluster.itens.length,
-          itens: cluster.itens
-        };
-      }
+      if (cluster.itens.length === 1) return { tipo: 'individual', ...cluster.itens[0] };
+      return { tipo: 'cluster', id: `cluster-${cluster.lat}-${cluster.lon}`, lat: cluster.lat, lon: cluster.lon, quantidade: cluster.itens.length, itens: cluster.itens };
     });
   }, [listaCtos, mapBounds, zoomAtual]);
 
   const buscarCtosDaApi = useCallback(async (forcarAtualizacao = false) => {
+    tocarEfeitoSonoro('clique');
     const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
     if (!idDaEmpresa) return;
 
     const chaveCache = `v5_ctos_cache_${idDaEmpresa}`;
-
-    if (!forcarAtualizacao && listaCtos.length > 0) {
-      setCarregandoBanco(false);
-      return; 
-    }
+    if (!forcarAtualizacao && listaCtos.length > 0) { setCarregandoBanco(false); return; }
 
     if (!forcarAtualizacao) {
       const dadosSalvosCache = localStorage.getItem(chaveCache);
@@ -313,7 +421,7 @@ export default function CaixaCtoPage() {
             setListaCtos(ctosParseadas);
             setCarregandoBanco(false);
             setTemAlteracoes(false);
-            return; 
+            return;
           }
         } catch (e) {}
       }
@@ -337,9 +445,7 @@ export default function CaixaCtoPage() {
     }
   }, [operador, empresa, listaCtos.length]);
 
-  useEffect(() => {
-    buscarCtosDaApi();
-  }, [buscarCtosDaApi]);
+  useEffect(() => { buscarCtosDaApi(); }, [buscarCtosDaApi]);
 
   useEffect(() => {
     if (coordsTemp.lat === 0 && coordsTemp.lon === 0) {
@@ -359,6 +465,7 @@ export default function CaixaCtoPage() {
     if (mapModalInstancia && modalMapaAberto) {
       const timer = setTimeout(() => mapModalInstancia.invalidateSize(), 300);
       const onMapClick = (e: any) => {
+        tocarEfeitoSonoro('pop');
         const novasCoords = { lat: e.latlng.lat, lon: e.latlng.lng };
         setCoordsTemp(novasCoords);
         buscarEnderecoReverso(novasCoords);
@@ -370,6 +477,7 @@ export default function CaixaCtoPage() {
 
   const eventHandlersArrasto = useMemo(() => ({
     dragend() {
+      tocarEfeitoSonoro('clique');
       const marker = markerRef.current;
       if (marker != null) {
         const latLng = marker.getLatLng();
@@ -382,14 +490,83 @@ export default function CaixaCtoPage() {
 
   const configPlanoAtual = PLANOS[planoAtual];
   const limitePadraoPlano = configPlanoAtual ? configPlanoAtual.max_ctos : "ERRO";
-  
   const limiteCtos = limiteCustomizado !== null ? limiteCustomizado : limitePadraoPlano;
-  
   const totalCaixas = listaCtos.length;
   const bateuLimite = typeof limiteCtos === 'number' ? totalCaixas >= limiteCtos : false;
   const porcentagemUso = typeof limiteCtos === 'number' && limiteCtos > 0 ? Math.min((totalCaixas / limiteCtos) * 100, 100) : 0;
 
+  const exportarParaKml = () => {
+    if (!listaCtos || listaCtos.length === 0) {
+      tocarEfeitoSonoro('erro');
+      alert("Não existem caixas CTO cadastradas para exportar.");
+      return;
+    }
+
+    tocarEfeitoSonoro('sucesso');
+
+    let kmlConteudo = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Caixas CTO - V5 Cloud</name>
+`;
+
+    listaCtos.forEach((cto) => {
+      const ponto = normalizarCoordenada(cto.lat, cto.lon);
+      if (ponto) {
+        kmlConteudo += `    <Placemark>
+      <name><![CDATA[${cto.identificacao}]]></name>
+      <description><![CDATA[Empresa: ${cto.endereco || 'V5 Telecom'} | Raio: ${cto.raio || 300}m]]></description>
+      <Point>
+        <coordinates>${ponto[1]},${ponto[0]},0</coordinates>
+      </Point>
+    </Placemark>\n`;
+      }
+    });
+
+    kmlConteudo += `  </Document>
+</kml>`;
+
+    const blob = new Blob([kmlConteudo], { type: 'application/vnd.google-earth.kml+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `caixas-cto-${nomeSedeDinamico.toLowerCase().replace(/[^a-z0-9]/g, '-')}.kml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleLocalizarCaixaPorNome = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nomeBuscaCaixa.trim()) return;
+
+    const termo = nomeBuscaCaixa.toLowerCase().trim();
+    const caixaEncontrada = listaCtos.find(c => c.identificacao && c.identificacao.toLowerCase().includes(termo));
+
+    if (caixaEncontrada) {
+      const ponto = normalizarCoordenada(caixaEncontrada.lat, caixaEncontrada.lon);
+      if (ponto) {
+        tocarEfeitoSonoro('sucesso');
+        setModalBuscaCaixaAberto(false);
+        setNomeBuscaCaixa('');
+        setErroBuscaCaixa('');
+
+        if (mapGeralRef.current) {
+          mapGeralRef.current.setView(ponto, 19, {
+            animate: true,
+            duration: 1.5
+          });
+        }
+        return;
+      }
+    }
+    tocarEfeitoSonoro('erro');
+    setErroBuscaCaixa(`Caixa "${nomeBuscaCaixa}" não encontrada.`);
+  };
+
   const handleAplicarRaioEmMassa = () => {
+    tocarEfeitoSonoro('clique');
     if (listaCtos.length === 0) return;
     const novaLista = listaCtos.map(item => ({ ...item, raio: Number(raioMassa) }));
     setListaCtos(novaLista);
@@ -403,75 +580,59 @@ export default function CaixaCtoPage() {
     setErroSegurancaKmz(null);
     const nomeArquivo = arquivo.name.toLowerCase();
 
-    // TRAVA DE SEGURANÇA 1: Limite de Tamanho do Arquivo Compactado (KMZ)
     if (arquivo.size > MAX_ZIP_SIZE) {
-      setErroSegurancaKmz(`Erro: O arquivo não pode ultrapassar ${(MAX_ZIP_SIZE / 1024 / 1024)}MB por motivos de segurança.`);
+      tocarEfeitoSonoro('erro');
+      setErroSegurancaKmz(`Erro: O arquivo não pode ultrapassar ${(MAX_ZIP_SIZE / 1024 / 1024)}MB.`);
       e.target.value = '';
       return;
     }
 
     if (!nomeArquivo.endsWith('.kml') && !nomeArquivo.endsWith('.kmz')) {
+      tocarEfeitoSonoro('erro');
       setErroSegurancaKmz('Erro: Formato inválido. Selecione ficheiros .KML ou .KMZ');
-      e.target.value = ''; 
+      e.target.value = '';
       return;
     }
 
+    tocarEfeitoSonoro('clique');
     setArquivoPendente(arquivo);
     setModalEmpresaAberto(true);
     e.target.value = '';
   };
 
-  // 🚀 FUNÇÃO PRINCIPAL DE EXTRAÇÃO E PROCESSAMENTO (COM TRAVAS)
   const handleConfirmarImportacaoComEmpresa = async () => {
     if (!arquivoPendente) return;
+    tocarEfeitoSonoro('sucesso');
     setModalEmpresaAberto(false);
 
     const arquivo = arquivoPendente;
     const nomeArquivo = arquivo.name.toLowerCase();
-    
     setImportandoKmz(true);
     setMensagemImportacao('Analisando segurança do arquivo...');
 
     try {
       let conteudoTexto = '';
 
-      // 🛠 LÓGICA DE EXTRAÇÃO PARA .KMZ USANDO JSZip
       if (nomeArquivo.endsWith('.kmz')) {
         const zip = new JSZip();
         const conteudo = await zip.loadAsync(arquivo);
-        
-        // TRAVA DE SEGURANÇA 2: Limite de ficheiros dentro do KMZ
         const numeroDeArquivos = Object.keys(conteudo.files).length;
-        if (numeroDeArquivos > MAX_FILES_INSIDE) {
-          throw new Error('Alerta de Segurança: Arquivo contém demasiados itens. Importação cancelada.');
-        }
+        if (numeroDeArquivos > MAX_FILES_INSIDE) throw new Error('Alerta de Segurança: Arquivo contém demasiados itens.');
 
         let kmlEncontrado = false;
         let tamanhoTotalDescompactado = 0;
 
         for (const [filename, zipEntry] of Object.entries(conteudo.files)) {
           if (zipEntry.dir) continue;
-
-          // TRAVA DE SEGURANÇA 3: Limite de Tamanho Descompactado (Anti-Zip Bomb)
-          const tamanhoDescompactado = zipEntry._data.uncompressedSize; 
-          tamanhoTotalDescompactado += tamanhoDescompactado;
-
-          if (tamanhoTotalDescompactado > MAX_UNCOMPRESSED_SIZE) {
-            throw new Error("ALERTA: Possível 'Zip Bomb' detetada. Descompactação abortada por segurança.");
-          }
-
+          tamanhoTotalDescompactado += zipEntry._data.uncompressedSize;
+          if (tamanhoTotalDescompactado > MAX_UNCOMPRESSED_SIZE) throw new Error("ALERTA: Possível 'Zip Bomb' detetada.");
           if (filename.toLowerCase().endsWith('.kml')) {
             conteudoTexto = await zipEntry.async("text");
             kmlEncontrado = true;
           }
         }
-
-        if (!kmlEncontrado) {
-          throw new Error("Nenhum ficheiro KML válido foi encontrado dentro do KMZ.");
-        }
-      } 
-      // 🛠 LÓGICA PADRÃO PARA .KML DIRETO
-      else {
+        if (!kmlEncontrado) throw new Error("Nenhum ficheiro KML válido encontrado.");
+      } else {
         conteudoTexto = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target?.result as string);
@@ -481,8 +642,6 @@ export default function CaixaCtoPage() {
       }
 
       setMensagemImportacao('Descodificando mapas...');
-
-      // 🛠 PROCESSAMENTO DO TEXTO KML (DOMParser)
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(conteudoTexto, "text/xml");
       const placemarks = xmlDoc.getElementsByTagName("Placemark");
@@ -492,20 +651,16 @@ export default function CaixaCtoPage() {
       for (let i = 0; i < placemarks.length; i++) {
         const placemark = placemarks[i];
         const point = placemark.getElementsByTagName("Point")[0];
-        if (!point) continue; 
-        
+        if (!point) continue;
         const coordsNode = point.getElementsByTagName("coordinates")[0];
         if (!coordsNode) continue;
-        
         const nameNode = placemark.getElementsByTagName("name")[0];
         const nomeCto = nameNode ? nameNode.textContent?.trim() : `CTO-${contador}`;
-        const coordsTexto = coordsNode.textContent?.trim() || "";
-        const partes = coordsTexto.split(',');
+        const partes = (coordsNode.textContent?.trim() || "").split(',');
 
         if (partes.length >= 2) {
           const lon = parseFloat(partes[0]);
           const lat = parseFloat(partes[1]);
-
           if (!isNaN(lat) && !isNaN(lon)) {
             todasAsCaixasExtraidas.push({
               id: `temp-${Date.now()}-${contador}`,
@@ -520,11 +675,8 @@ export default function CaixaCtoPage() {
         }
       }
 
-      if (todasAsCaixasExtraidas.length === 0) {
-        throw new Error('Nenhuma caixa encontrada. O KML deve conter pontos válidos.');
-      }
+      if (todasAsCaixasExtraidas.length === 0) throw new Error('Nenhuma caixa encontrada com pontos válidos.');
 
-      // 🛠 INJEÇÃO EM LOTES PARA EVITAR TRAVAMENTOS DA TELA
       const tamanhoLote = 300;
       let indiceAtual = 0;
 
@@ -537,15 +689,16 @@ export default function CaixaCtoPage() {
           setMensagemImportacao(`A injetar dados... (${Math.min(indiceAtual, todasAsCaixasExtraidas.length)} / ${todasAsCaixasExtraidas.length})`);
           setTimeout(carregarProximoLote, 30);
         } else {
+          tocarEfeitoSonoro('sucesso');
           setImportandoKmz(false);
           setMensagemImportacao('Selecionar Arquivo KML ou KMZ');
           setArquivoPendente(null);
         }
       };
-
       carregarProximoLote();
 
     } catch (err: any) {
+      tocarEfeitoSonoro('erro');
       setErroSegurancaKmz(err.message || 'Falha crítica ao processar o arquivo.');
       setImportandoKmz(false);
       setMensagemImportacao('Selecionar Arquivo KML ou KMZ');
@@ -554,7 +707,9 @@ export default function CaixaCtoPage() {
   };
 
   const handleAdicionarCto = () => {
+    tocarEfeitoSonoro('clique');
     if (bateuLimite) {
+      tocarEfeitoSonoro('erro');
       alert(`Limite de caixas CTO atingido!`); return;
     }
     const novaCtoTemp = {
@@ -565,35 +720,53 @@ export default function CaixaCtoPage() {
       lat: latEmpresa,
       lon: lonEmpresa
     };
-
     setListaCtos([...listaCtos, novaCtoTemp]);
     setTemAlteracoes(true);
   };
 
-  const handleRemoverCto = async (id: string) => {
-    if (!confirm("Tem certeza que deseja apagar esta caixa CTO?")) return;
+  // 🔴 ABRIR O MODAL BONITO DE CONFIRMAÇÃO DE DELETAR
+  const abrirModalDeletarCto = (id: string) => {
+    tocarEfeitoSonoro('pop');
+    setIdParaDeletar(id);
+    setModalDeletarAberto(true);
+  };
+
+  // 🔴 DELETAR CONFIRMADO
+  const handleConfirmarDeletarCto = async () => {
+    if (!idParaDeletar) return;
+
+    setDeletandoAcao(true);
+    const id = idParaDeletar;
 
     if (!id.startsWith('temp-') && supabase) {
       try {
         const { error } = await supabase.from('ctos').delete().eq('id', id);
-        if (error) {
-          alert("Erro ao apagar no Supabase: " + error.message);
-          return;
+        if (error) { 
+          tocarEfeitoSonoro('erro'); 
+          alert("Erro ao apagar: " + error.message); 
+          setDeletandoAcao(false);
+          setModalDeletarAberto(false);
+          return; 
         }
       } catch (err: any) {
-        alert("Erro ao apagar: " + (err.message || err));
+        tocarEfeitoSonoro('erro'); 
+        alert("Erro ao apagar: " + err.message); 
+        setDeletandoAcao(false);
+        setModalDeletarAberto(false);
         return;
       }
     }
 
+    tocarEfeitoSonoro('sucesso');
     const novaLista = listaCtos.filter(item => item.id !== id);
     setListaCtos(novaLista);
     setIdsSelecionados(prev => prev.filter(i => i !== id));
-
     const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
-    if (idDaEmpresa) {
-      localStorage.setItem(`v5_ctos_cache_${idDaEmpresa}`, JSON.stringify(novaLista));
-    }
+    if (idDaEmpresa) localStorage.setItem(`v5_ctos_cache_${idDaEmpresa}`, JSON.stringify(novaLista));
+
+    setDeletandoAcao(false);
+    setModalDeletarAberto(false);
+    setIdParaDeletar(null);
   };
 
   const handleAtualizarCtoLocal = (id: string, campo: keyof CtoItemSupabase, valor: any) => {
@@ -607,65 +780,56 @@ export default function CaixaCtoPage() {
   });
 
   const toggleSelecionarTodas = () => {
-    if (idsSelecionados.length === ctosFiltradas.length) {
-      setIdsSelecionados([]);
-    } else {
-      setIdsSelecionados(ctosFiltradas.map(c => c.id));
-    }
+    tocarEfeitoSonoro('clique');
+    if (idsSelecionados.length === ctosFiltradas.length) setIdsSelecionados([]);
+    else setIdsSelecionados(ctosFiltradas.map(c => c.id));
   };
 
   const toggleSelecionarCaixa = (id: string) => {
-    if (idsSelecionados.includes(id)) {
-      setIdsSelecionados(idsSelecionados.filter(i => i !== id));
-    } else {
-      setIdsSelecionados([...idsSelecionados, id]);
-    }
+    tocarEfeitoSonoro('clique');
+    if (idsSelecionados.includes(id)) setIdsSelecionados(idsSelecionados.filter(i => i !== id));
+    else setIdsSelecionados([...idsSelecionados, id]);
   };
 
   const aplicarEmpresaEmMassa = () => {
     if (!novoNomeEmpresaMassa || idsSelecionados.length === 0) return;
+    tocarEfeitoSonoro('sucesso');
     const novaLista = listaCtos.map(item => idsSelecionados.includes(item.id) ? { ...item, endereco: novoNomeEmpresaMassa } : item);
     setListaCtos(novaLista);
     setTemAlteracoes(true);
     setNovoNomeEmpresaMassa('');
-    alert(`Empresa atualizada em ${idsSelecionados.length} caixas selecionadas!`);
+    alert(`Empresa atualizada em ${idsSelecionados.length} caixas!`);
   };
 
   const apagarSelecionadasEmMassa = async () => {
     if (idsSelecionados.length === 0) return;
-    if (!confirm(`Tem certeza que deseja apagar ${idsSelecionados.length} caixas selecionadas?`)) return;
+    tocarEfeitoSonoro('pop');
 
     const idsParaDeletarServidor = idsSelecionados.filter(id => !id.startsWith('temp-'));
-
     if (idsParaDeletarServidor.length > 0 && supabase) {
       try {
-        const tamanhoLote = 100;
-        for (let i = 0; i < idsParaDeletarServidor.length; i += tamanhoLote) {
-          const lote = idsParaDeletarServidor.slice(i, i + tamanhoLote);
+        for (let i = 0; i < idsParaDeletarServidor.length; i += 100) {
+          const lote = idsParaDeletarServidor.slice(i, i + 100);
           const { error } = await supabase.from('ctos').delete().in('id', lote);
           if (error) throw error;
         }
       } catch (err: any) {
-        alert("Erro ao apagar caixas no Supabase: " + (err.message || err));
-        return;
+        tocarEfeitoSonoro('erro'); alert("Erro ao apagar no Supabase: " + err.message); return;
       }
     }
 
+    tocarEfeitoSonoro('sucesso');
     const novaLista = listaCtos.filter(item => !idsSelecionados.includes(item.id));
     setListaCtos(novaLista);
     setIdsSelecionados([]);
     setModalListaAberto(false);
     setTemAlteracoes(true);
-
     const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
-    if (idDaEmpresa) {
-      localStorage.setItem(`v5_ctos_cache_${idDaEmpresa}`, JSON.stringify(novaLista));
-    }
-
-    alert("Caixas apagadas com sucesso do sistema e do banco de dados!");
+    if (idDaEmpresa) localStorage.setItem(`v5_ctos_cache_${idDaEmpresa}`, JSON.stringify(novaLista));
   };
 
   const abrirModalMapa = (cto: CtoItemSupabase) => {
+    tocarEfeitoSonoro('pop');
     setCtoEditandoId(cto.id);
     setEnderecoBuscaMapa(nomeSedeDinamico);
     setCoordsTemp({ lat: cto.lat || latEmpresa, lon: cto.lon || lonEmpresa });
@@ -675,28 +839,19 @@ export default function CaixaCtoPage() {
 
   const handleBuscarEnderecoMapa = async () => {
     if (!enderecoBuscaMapa) return;
+    tocarEfeitoSonoro('clique');
     setCarregandoBusca(true);
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(enderecoBuscaMapa + ", " + nomeSedeDinamico)}&limit=1`);
       const data = await res.json();
-      if (data && data.length > 0) {
-        setCoordsTemp({ lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) });
-      }
-    } catch (err) {
-    } finally {
-      setCarregandoBusca(false);
-    }
+      if (data && data.length > 0) setCoordsTemp({ lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) });
+    } catch (err) {} finally { setCarregandoBusca(false); }
   };
 
   const handleSalvarCoordsCto = () => {
+    tocarEfeitoSonoro('sucesso');
     if (ctoEditandoId) {
-      const ctoAlvo = listaCtos.find(i => i.id === ctoEditandoId);
-      if (!ctoAlvo) return;
-      const atualizacao = {
-        lat: coordsTemp.lat,
-        lon: coordsTemp.lon
-      };
-      setListaCtos(listaCtos.map(item => item.id === ctoEditandoId ? { ...item, ...atualizacao } : item));
+      setListaCtos(listaCtos.map(item => item.id === ctoEditandoId ? { ...item, lat: coordsTemp.lat, lon: coordsTemp.lon } : item));
       setTemAlteracoes(true);
     }
     setModalMapaAberto(false);
@@ -707,46 +862,65 @@ export default function CaixaCtoPage() {
     e.preventDefault();
     if (!temAlteracoes || !supabase) return;
 
+    tocarEfeitoSonoro('clique');
     setSalvando(true);
     try {
       const novas = listaCtos.filter(c => c.id.startsWith('temp-')).map(({ id, ...rest }) => ({
         ...rest,
         provedor_id: operador?.empresaId || operador?.empresa_id || empresa?.id
       }));
-
       const atualizadas = listaCtos.filter(c => !c.id.startsWith('temp-'));
 
       if (novas.length > 0) {
         for (let i = 0; i < novas.length; i += 500) {
-          const lote = novas.slice(i, i + 500);
-          const { error } = await supabase.from('ctos').insert(lote);
+          const { error } = await supabase.from('ctos').insert(novas.slice(i, i + 500));
           if (error) throw error;
         }
       }
-
       if (atualizadas.length > 0) {
         for (let i = 0; i < atualizadas.length; i += 500) {
-          const lote = atualizadas.slice(i, i + 500);
-          const { error } = await supabase.from('ctos').upsert(lote);
+          const { error } = await supabase.from('ctos').upsert(atualizadas.slice(i, i + 500));
           if (error) throw error;
         }
       }
 
+      tocarEfeitoSonoro('sucesso');
       setSalvo(true);
       setTimeout(() => setSalvo(false), 4000);
-      
       await buscarCtosDaApi(true);
     } catch (err: any) {
-      alert("Erro ao salvar no Supabase: " + (err.message || err));
+      tocarEfeitoSonoro('erro');
+      alert("Erro ao salvar no Supabase: " + err.message);
     } finally {
       setSalvando(false);
     }
   };
 
-  const centroGeral = useMemo(() => {
-    if (listaCtos.length > 0 && listaCtos[0].lat && listaCtos[0].lon) return [listaCtos[0].lat, listaCtos[0].lon] as [number, number];
-    return [latEmpresa, lonEmpresa] as [number, number];
-  }, [listaCtos, latEmpresa, lonEmpresa]);
+  const pontosValidosCtos = useMemo(() => {
+    const resultado: [number, number][] = [];
+    for (const cto of listaCtos) {
+      const ponto = normalizarCoordenada(cto?.lat, cto?.lon);
+      if (ponto) resultado.push(ponto);
+    }
+    return resultado;
+  }, [listaCtos]);
+
+  const refSede = useMemo<[number, number]>(
+    () => normalizarCoordenada(latEmpresa, lonEmpresa) || [-15.7641, -48.2743],
+    [latEmpresa, lonEmpresa]
+  );
+
+  const alvoInicial = useMemo(
+    () => (pontosValidosCtos.length > 0 ? pontoMaisProximo(pontosValidosCtos, refSede) : null),
+    [pontosValidosCtos, refSede]
+  );
+
+  const alvoGps = useMemo(
+    () => (posicaoUsuario && pontosValidosCtos.length > 0 ? pontoMaisProximo(pontosValidosCtos, posicaoUsuario) : null),
+    [pontosValidosCtos, posicaoUsuario]
+  );
+
+  const centroGeral: [number, number] = alvoGps || alvoInicial || refSede;
 
   return (
     <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans relative">
@@ -760,7 +934,7 @@ export default function CaixaCtoPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-black uppercase tracking-tight font-mono text-white flex items-center gap-2">
-            <Network className="w-6 h-6 text-emerald-400" /> Gestão de Caixas CTO (Supabase Nuvem)
+            <Network className="w-6 h-6 text-emerald-400" /> Gestão de Caixas CTO
           </h1>
           <p className="text-zinc-400 text-sm mt-0.5">Infraestrutura sincronizada com cache local inteligente (Zero Lag).</p>
         </div>
@@ -784,11 +958,7 @@ export default function CaixaCtoPage() {
                 : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
             }`}
           >
-            {bateuLimite ? (
-              <><Rocket className="w-4 h-4" /> Upgrade para Adicionar Caixas</>
-            ) : (
-              <><Plus className="w-4 h-4" /> Adicionar Caixa CTO</>
-            )}
+            {bateuLimite ? <><Rocket className="w-4 h-4" /> Upgrade para Adicionar Caixas</> : <><Plus className="w-4 h-4" /> Adicionar Caixa CTO</>}
           </button>
         </div>
       </div>
@@ -798,17 +968,29 @@ export default function CaixaCtoPage() {
           <CardContent className="p-6 w-full flex flex-col md:flex-row items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-bold font-mono text-white flex items-center gap-2">
-                <Upload className="w-4 h-4 text-emerald-400" /> Importação Expressa via Google Earth (.KML / .KMZ)
+                <Upload className="w-4 h-4 text-emerald-400" /> Importação / Exportação Expressa (.KML / .KMZ)
               </h3>
-              <p className="text-xs text-zinc-400 font-mono mt-1">Lê pontos com proteção Anti-Zip Bomb.</p>
+              <p className="text-xs text-zinc-400 font-mono mt-1">Gerencie a infraestrutura com total autonomia.</p>
             </div>
-            <label className={`px-5 py-3 rounded-xl text-xs font-mono font-bold uppercase transition-all flex items-center justify-center gap-2 cursor-pointer ${
-              importandoKmz ? 'bg-zinc-800 text-zinc-400' : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]'
-            }`}>
-              {importandoKmz ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              {mensagemImportacao}
-              <input type="file" accept=".kmz,.kml" onChange={handleSelecionarArquivoInput} disabled={importandoKmz} className="hidden" />
-            </label>
+            
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className={`px-4 py-3 rounded-xl text-xs font-mono font-bold uppercase transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                importandoKmz ? 'bg-zinc-800 text-zinc-400' : 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+              }`}>
+                {importandoKmz ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {mensagemImportacao}
+                <input type="file" accept=".kmz,.kml" onChange={handleSelecionarArquivoInput} disabled={importandoKmz} className="hidden" />
+              </label>
+
+              <button
+                type="button"
+                onClick={exportarParaKml}
+                className="px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border border-emerald-500/40 text-xs font-mono font-bold uppercase transition-all flex items-center gap-2 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+                title="Exportar todas as caixas cadastradas para KML"
+              >
+                <Download className="w-4 h-4" /> Exportar KML
+              </button>
+            </div>
           </CardContent>
         </Card>
 
@@ -839,6 +1021,41 @@ export default function CaixaCtoPage() {
         </Card>
       </div>
 
+      {/* 🔴 MODAL BONITO DE DELETAR CAIXA CTO (SUBSTITUTO DO CONFIRM ANTIGO) */}
+      {modalDeletarAberto && (
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-zinc-900 border border-red-500/30 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col p-6 space-y-4">
+            <div className="flex items-center gap-3 text-red-400 font-mono text-sm font-bold uppercase">
+              <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+              </div>
+              <span>Apagar Caixa CTO?</span>
+            </div>
+            <p className="text-xs text-zinc-300 font-mono leading-relaxed">
+              Tem certeza que deseja apagar esta caixa CTO? Esta ação removerá o ponto de atendimento da infraestrutura local e da nuvem.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button 
+                type="button" 
+                onClick={() => { tocarEfeitoSonoro('pop'); setModalDeletarAberto(false); setIdParaDeletar(null); }} 
+                className="px-4 py-2.5 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-mono uppercase font-bold cursor-pointer transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button" 
+                onClick={handleConfirmarDeletarCto} 
+                disabled={deletandoAcao}
+                className="px-5 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_15px_rgba(239,68,68,0.3)] transition-all flex items-center gap-2"
+              >
+                {deletandoAcao ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {deletandoAcao ? 'Apagando...' : 'Apagar CTO'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modalEmpresaAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-emerald-500/40 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col p-6 space-y-4">
@@ -857,21 +1074,40 @@ export default function CaixaCtoPage() {
               autoFocus
             />
             <div className="flex justify-end gap-2 pt-2">
-              <button 
-                type="button" 
-                onClick={() => { setModalEmpresaAberto(false); setArquivoPendente(null); }} 
-                className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-mono uppercase font-bold cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button 
-                type="button" 
-                onClick={handleConfirmarImportacaoComEmpresa} 
-                className="px-5 py-2 rounded-xl bg-emerald-500 text-black hover:bg-emerald-400 text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.3)]"
-              >
-                Confirmar e Importar
-              </button>
+              <button type="button" onClick={() => { tocarEfeitoSonoro('pop'); setModalEmpresaAberto(false); setArquivoPendente(null); }} className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-mono uppercase font-bold cursor-pointer">Cancelar</button>
+              <button type="button" onClick={handleConfirmarImportacaoComEmpresa} className="px-5 py-2 rounded-xl bg-emerald-500 text-black hover:bg-emerald-400 text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.3)]">Confirmar e Importar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {modalBuscaCaixaAberto && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-zinc-900 border border-emerald-500/40 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col p-6 space-y-4">
+            <div className="flex items-center justify-between text-emerald-400 font-mono text-sm font-bold uppercase">
+              <span className="flex items-center gap-2"><Crosshair className="w-5 h-5" /> Localizar Caixa CTO no Mapa</span>
+              <button type="button" onClick={() => { tocarEfeitoSonoro('pop'); setModalBuscaCaixaAberto(false); setErroBuscaCaixa(''); }} className="text-zinc-400 hover:text-white"><X size={18} /></button>
+            </div>
+            <p className="text-xs text-zinc-400 font-mono">
+              Digite o nome exato ou parte da identificação da caixa CTO que deseja localizar:
+            </p>
+            <form onSubmit={handleLocalizarCaixaPorNome} className="space-y-3">
+              <input 
+                type="text" 
+                value={nomeBuscaCaixa} 
+                onChange={(e) => { setNomeBuscaCaixa(e.target.value); setErroBuscaCaixa(''); }} 
+                placeholder="Ex: CTO-01 ou Provedor" 
+                className="w-full bg-black/60 border border-zinc-700 rounded-xl px-4 py-3 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                autoFocus
+              />
+              {erroBuscaCaixa && (
+                <div className="text-[11px] font-mono text-red-400 font-bold">{erroBuscaCaixa}</div>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => { tocarEfeitoSonoro('pop'); setModalBuscaCaixaAberto(false); setErroBuscaCaixa(''); }} className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-mono uppercase font-bold cursor-pointer">Cancelar</button>
+                <button type="submit" className="px-5 py-2 rounded-xl bg-emerald-500 text-black hover:bg-emerald-400 text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.3)]">Localizar no Mapa</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -899,10 +1135,7 @@ export default function CaixaCtoPage() {
             </span>
           </div>
           <div className="w-full bg-black rounded-full h-2.5 overflow-hidden border border-zinc-800">
-            <div 
-              className={`h-full rounded-full transition-all duration-700 ${bateuLimite ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]'}`} 
-              style={{ width: `${porcentagemUso}%` }}
-            ></div>
+            <div className={`h-full rounded-full transition-all duration-700 ${bateuLimite ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]'}`} style={{ width: `${porcentagemUso}%` }}></div>
           </div>
         </CardContent>
       </Card>
@@ -947,30 +1180,21 @@ export default function CaixaCtoPage() {
                       </button>
                     </div>
                     <div className="md:col-span-1 flex justify-end">
-                      <button type="button" onClick={() => handleRemoverCto(cto.id)} className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer" title="Remover">
+                      {/* 🔴 CHAMA O MODAL LINDO AO CLICAR NA LIXEIRA */}
+                      <button type="button" onClick={() => abrirModalDeletarCto(cto.id)} className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer" title="Remover">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    {cto.id.startsWith('temp-') && (
-                      <div className="md:col-span-12 text-[10px] font-mono text-emerald-400 pt-1 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Caixa em rascunho. Salve para enviar ao banco.
-                      </div>
-                    )}
                   </div>
                 ))}
-                
+
                 {listaCtos.length > 5 && (
                   <div className="flex justify-center pt-2">
-                    <button 
-                      type="button" 
-                      onClick={() => setModalListaAberto(true)}
-                      className="px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-mono uppercase font-bold transition-all flex items-center gap-2 cursor-pointer border border-zinc-700"
-                    >
+                    <button type="button" onClick={() => { tocarEfeitoSonoro('clique'); setModalListaAberto(true); }} className="px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-mono uppercase font-bold transition-all flex items-center gap-2 cursor-pointer border border-zinc-700">
                       <List className="w-4 h-4" /> Ver Todas as {listaCtos.length} Caixas
                     </button>
                   </div>
                 )}
-
               </div>
             )}
           </CardContent>
@@ -985,15 +1209,13 @@ export default function CaixaCtoPage() {
               <button 
                 type="button"
                 onClick={() => {
-                  if (mapGeralRef.current) {
-                    mapGeralRef.current.setView(centroGeral, 16);
-                    mapGeralRef.current.invalidateSize();
-                  }
+                  tocarEfeitoSonoro('clique');
+                  setModalBuscaCaixaAberto(true);
                 }}
                 className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-emerald-400 rounded-lg text-[10px] font-mono uppercase font-bold flex items-center gap-1 cursor-pointer border border-zinc-700 transition-colors"
-                title="Centralizar nas caixas"
+                title="Buscar e centralizar caixa"
               >
-                <Crosshair className="w-3 h-3" /> Centralizar nas Caixas
+                <Crosshair className="w-3 h-3" /> Centralizar por Caixa
               </button>
               <span className="text-[10px] font-mono text-zinc-500 bg-black/40 px-2 py-1 rounded-lg border border-zinc-800">
                 Zoom: {zoomAtual}
@@ -1009,24 +1231,24 @@ export default function CaixaCtoPage() {
               ) : (
                 <RL.MapContainer 
                   center={centroGeral} 
-                  zoom={16} 
+                  zoom={18} 
                   maxZoom={21} 
-                  minZoom={4}
+                  minZoom={3}
                   maxBounds={[
                     [-35.0, -75.0], 
-                    [6.0, -32.0]    
+                    [6.0, -32.0]   
                   ]}
                   maxBoundsViscosity={1.0}
                   ref={mapGeralRef}
                   style={{ width: '100%', height: '100%', background: '#09090b' }}
                 >
-                  <AtualizadorCentroMapa coordenadas={centroGeral} />
-                  
+                  <CentralizadorCaixaProxima alvoInicial={alvoInicial} alvoGps={alvoGps} />
+
                   <ZoomHandler setZoomAtual={setZoomAtual} />
                   <ViewportHandler setBounds={setMapBounds} />
 
                   <RL.TileLayer url="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}" maxZoom={21} maxNativeZoom={20} />
-                  
+
                   {zoomAtual < 15 && (
                     <RL.TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png" maxZoom={20} subdomains="abcd" opacity={0.85} />
                   )}
@@ -1035,15 +1257,7 @@ export default function CaixaCtoPage() {
                     <RL.GeoJSON 
                       key="mascara-brasil-cto-geral"
                       data={mascaraMundoGeoJson} 
-                      style={{
-                        color: '#ef4444',
-                        weight: 2,
-                        opacity: 0.8,
-                        dashArray: '5, 10',
-                        fillColor: '#09090b',
-                        fillOpacity: 0.95,
-                        fillRule: 'evenodd'
-                      }} 
+                      style={{ color: '#ef4444', weight: 2, opacity: 0.8, dashArray: '5, 10', fillColor: '#09090b', fillOpacity: 0.95, fillRule: 'evenodd' }} 
                     />
                   )}
 
@@ -1051,13 +1265,12 @@ export default function CaixaCtoPage() {
                     if (item.tipo === 'cluster') {
                       const iconeCluster = criarIconeCluster(item.quantidade);
                       if (!iconeCluster) return null;
-
                       return (
                         <RL.Marker key={item.id} position={[item.lat, item.lon]} icon={iconeCluster}>
                           <RL.Popup>
                             <div className="font-mono text-xs text-zinc-900 p-1 space-y-1">
                               <strong className="text-emerald-700 block font-black text-sm uppercase">Região com {item.quantidade} Caixas</strong>
-                              <span className="font-sans text-zinc-700 block">Aproxime o zoom para ver os detalhes individuais de cada caixa nesta área.</span>
+                              <span className="font-sans text-zinc-700 block">Aproxime o zoom para ver os detalhes individuais.</span>
                             </div>
                           </RL.Popup>
                         </RL.Marker>
@@ -1090,9 +1303,7 @@ export default function CaixaCtoPage() {
             type="submit" 
             disabled={!temAlteracoes || salvando}
             className={`px-6 py-3 rounded-xl transition-all font-mono flex items-center gap-2 text-xs font-bold uppercase ${
-              temAlteracoes 
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer' 
-                : 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+              temAlteracoes ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
             }`}
           >
             {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 
@@ -1111,7 +1322,7 @@ export default function CaixaCtoPage() {
                 </h3>
                 <p className="text-zinc-500 text-xs font-mono mt-1">Selecione caixas para editar o provedor ou apagá-las em massa.</p>
               </div>
-              <button type="button" onClick={() => setModalListaAberto(false)} className="text-zinc-400 hover:text-white p-2 rounded-xl hover:bg-zinc-800 cursor-pointer transition-colors border border-transparent hover:border-zinc-700">
+              <button type="button" onClick={() => { tocarEfeitoSonoro('pop'); setModalListaAberto(false); }} className="text-zinc-400 hover:text-white p-2 rounded-xl hover:bg-zinc-800 cursor-pointer transition-colors border border-transparent hover:border-zinc-700">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1146,7 +1357,7 @@ export default function CaixaCtoPage() {
                 <span className="text-xs font-mono text-emerald-400 font-bold uppercase">
                   {idsSelecionados.length} caixas selecionadas
                 </span>
-                
+
                 <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-end">
                   <input 
                     type="text"
@@ -1155,18 +1366,10 @@ export default function CaixaCtoPage() {
                     placeholder="Novo nome da empresa..."
                     className="bg-black/70 border border-emerald-500/40 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
                   />
-                  <button 
-                    type="button"
-                    onClick={aplicarEmpresaEmMassa}
-                    className="px-3.5 py-1.5 bg-emerald-500 text-black hover:bg-emerald-400 rounded-lg text-xs font-mono font-bold uppercase cursor-pointer"
-                  >
+                  <button type="button" onClick={aplicarEmpresaEmMassa} className="px-3.5 py-1.5 bg-emerald-500 text-black hover:bg-emerald-400 rounded-lg text-xs font-mono font-bold uppercase cursor-pointer">
                     Alterar Empresa
                   </button>
-                  <button 
-                    type="button"
-                    onClick={apagarSelecionadasEmMassa}
-                    className="px-3.5 py-1.5 bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500/30 rounded-lg text-xs font-mono font-bold uppercase cursor-pointer flex items-center gap-1.5"
-                  >
+                  <button type="button" onClick={apagarSelecionadasEmMassa} className="px-3.5 py-1.5 bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500/30 rounded-lg text-xs font-mono font-bold uppercase cursor-pointer flex items-center gap-1.5">
                     <Trash2 className="w-3.5 h-3.5" /> Apagar Selecionadas
                   </button>
                 </div>
@@ -1175,20 +1378,14 @@ export default function CaixaCtoPage() {
 
             <div className="p-5 overflow-y-auto flex-1 space-y-3 bg-[#0a0a0a]">
               {ctosFiltradas.length === 0 ? (
-                <div className="text-center py-10 text-zinc-500 font-mono text-xs">
-                  Nenhuma caixa encontrada na pesquisa.
-                </div>
+                <div className="text-center py-10 text-zinc-500 font-mono text-xs">Nenhuma caixa encontrada na pesquisa.</div>
               ) : (
                 ctosFiltradas.slice(0, 100).map((cto) => {
                   const selecionada = idsSelecionados.includes(cto.id);
                   return (
                     <div key={cto.id} className={`p-4 bg-black/40 border rounded-xl grid grid-cols-1 md:grid-cols-12 gap-3 items-end transition-all ${selecionada ? 'border-emerald-500 bg-emerald-500/5 shadow-[0_0_15px_rgba(16,185,129,0.15)]' : cto.id.startsWith('temp-') ? 'border-emerald-500/50' : 'border-zinc-900'}`}>
                       <div className="md:col-span-1 flex items-center h-full pb-2">
-                        <button 
-                          type="button" 
-                          onClick={() => toggleSelecionarCaixa(cto.id)}
-                          className="text-emerald-400 hover:text-emerald-300 cursor-pointer p-1"
-                        >
+                        <button type="button" onClick={() => toggleSelecionarCaixa(cto.id)} className="text-emerald-400 hover:text-emerald-300 cursor-pointer p-1">
                           {selecionada ? <CheckSquare className="w-5 h-5 text-emerald-400" /> : <Square className="w-5 h-5 text-zinc-600" />}
                         </button>
                       </div>
@@ -1211,7 +1408,8 @@ export default function CaixaCtoPage() {
                         </button>
                       </div>
                       <div className="md:col-span-1 flex justify-end">
-                        <button type="button" onClick={() => handleRemoverCto(cto.id)} className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer" title="Remover">
+                        {/* 🔴 TAMBÉM NO MODAL DE LISTA COMPLETA */}
+                        <button type="button" onClick={() => abrirModalDeletarCto(cto.id)} className="p-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-all cursor-pointer" title="Remover">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -1219,16 +1417,11 @@ export default function CaixaCtoPage() {
                   );
                 })
               )}
-              {ctosFiltradas.length > 100 && (
-                <div className="text-center py-3 text-xs font-mono text-emerald-400 font-bold">
-                  Exibindo os primeiros 100 resultados de {ctosFiltradas.length}. Utilize a pesquisa para refinar.
-                </div>
-              )}
             </div>
-            
+
             <div className="p-4 border-t border-zinc-800 bg-black/60 rounded-b-2xl flex justify-between items-center">
                <span className="text-[10px] font-mono text-zinc-500 uppercase">{idsSelecionados.length} selecionadas / {ctosFiltradas.length} exibidas</span>
-               <button type="button" onClick={() => setModalListaAberto(false)} className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+               <button type="button" onClick={() => { tocarEfeitoSonoro('clique'); setModalListaAberto(false); }} className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]">
                  Concluir Edição
                </button>
             </div>
@@ -1243,7 +1436,7 @@ export default function CaixaCtoPage() {
               <h3 className="text-xs uppercase font-mono tracking-wider text-emerald-400 font-bold flex items-center gap-2">
                 <Navigation className="w-4 h-4" /> Posicionamento Tático em {nomeSedeDinamico}
               </h3>
-              <button onClick={() => setModalMapaAberto(false)} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
+              <button onClick={() => { tocarEfeitoSonoro('pop'); setModalMapaAberto(false); }} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1267,27 +1460,19 @@ export default function CaixaCtoPage() {
                     minZoom={4}
                     maxBounds={[
                       [-35.0, -75.0], 
-                      [6.0, -32.0]    
+                      [6.0, -32.0]   
                     ]}
                     maxBoundsViscosity={1.0}
                     ref={setMapModalInstancia} 
                     style={{ width: '100%', height: '100%', background: '#09090b' }}
                   >
                     <RL.TileLayer url="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}" maxZoom={21} maxNativeZoom={20} />
-                    
+
                     {mascaraMundoGeoJson && (
                       <RL.GeoJSON 
                         key="mascara-brasil-cto-modal"
                         data={mascaraMundoGeoJson} 
-                        style={{
-                          color: '#ef4444',
-                          weight: 2,
-                          opacity: 0.8,
-                          dashArray: '5, 10',
-                          fillColor: '#09090b',
-                          fillOpacity: 0.95,
-                          fillRule: 'evenodd'
-                        }} 
+                        style={{ color: '#ef4444', weight: 2, opacity: 0.8, dashArray: '5, 10', fillColor: '#09090b', fillOpacity: 0.95, fillRule: 'evenodd' }} 
                       />
                     )}
 

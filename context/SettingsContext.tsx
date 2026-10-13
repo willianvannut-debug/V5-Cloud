@@ -1,11 +1,17 @@
 // ================================================================================
-// 📋 SETTINGS CONTEXT - V5 CLOUD (COM LEITURA COMPLETA DO SUPABASE VIA API)
+// 📋 SETTINGS CONTEXT - V5 CLOUD (COM LEITURA DO SUPABASE E ALERTA SONORO GLOBAL DE LEADS)
 // context/SettingsContext.tsx
 // ================================================================================
 
 "use client"
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
+import { createClient } from '@supabase/supabase-js';
+import { playSound } from '@/lib/sound';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 export interface CtoItem {
   id: string;
@@ -83,6 +89,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [planos, setPlanos] = useState<PlanoItem[]>([]);
   const [funcionarios, setFuncionarios] = useState<FuncionarioItem[]>([]);
 
+  // 🔔 Ref para controlar a contagem inicial e evitar som na carga inicial da página
+  const totalLeadsAnteriorRef = useRef<number | null>(null);
+
   // 🚀 Carrega os dados reais direto da API protegida /api/settings (que puxa do Supabase)
   const carregarDadosDoBanco = useCallback(async () => {
     try {
@@ -132,11 +141,46 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {}
   }, []);
 
+  // 🔔 Função para verificar total de leads e disparar o som global de celular
+  const verificarNovosLeadsGlobal = useCallback(async () => {
+    try {
+      const res = await fetch('/api/leads?origem=pc', { cache: 'no-store' });
+      if (res.ok) {
+        const dados = await res.json();
+        if (Array.isArray(dados)) {
+          if (totalLeadsAnteriorRef.current !== null && dados.length > totalLeadsAnteriorRef.current) {
+            playSound('celular', 0.25); // Toca o som de celular global em qualquer página!
+          }
+          totalLeadsAnteriorRef.current = dados.length;
+        }
+      }
+    } catch (e) {}
+  }, []);
+
   useEffect(() => {
     carregarDadosDoBanco();
     carregarFuncionariosDoBanco();
+    verificarNovosLeadsGlobal();
     if (operador?.nome) setNomeUsuario(operador.nome);
-  }, [carregarDadosDoBanco, carregarFuncionariosDoBanco, operador]);
+
+    if (!supabase) return;
+
+    // Escuta globalmente em tempo real via Supabase Realtime
+    const canalGlobalLeads = supabase
+      .channel('global-settings-leads-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'leads' },
+        (payload) => {
+          playSound('celular', 0.25); // Som instantâneo ao inserir no banco
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canalGlobalLeads);
+    };
+  }, [carregarDadosDoBanco, carregarFuncionariosDoBanco, verificarNovosLeadsGlobal, operador]);
 
   const salvarConfiguracoes = async (
     novoProvedor: string, 
@@ -207,7 +251,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        await carregarDadosDoBanco(); // Atualiza os dados imediatamente após salvar
+        await carregarDadosDoBanco();
       }
     } catch (e) {
       console.error("Erro ao salvar configurações:", e);

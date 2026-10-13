@@ -37,12 +37,15 @@ import {
   Download,
   Upload,
   Shield,
-  LockKeyhole
+  LockKeyhole,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { useSettings, PlanoItem, FuncionarioItem } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { logger } from '@/lib/logger';
 import { createClient } from '@supabase/supabase-js';
+import { playSound } from '@/lib/sound';
 
 import dynamic from 'next/dynamic';
 
@@ -181,6 +184,26 @@ export default function ConfiguracoesPage() {
 
   const [carregandoBackup, setCarregandoBackup] = useState(false);
   const [carregandoRestauracao, setCarregandoRestauracao] = useState(false);
+
+  // 🔊 Estado do Som (Ligar / Desligar)
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('v5_sound_enabled') !== 'false';
+      setSoundEnabled(saved);
+    }
+  }, []);
+
+  const toggleSound = () => {
+    const newState = !soundEnabled;
+    setSoundEnabled(newState);
+    localStorage.setItem('v5_sound_enabled', String(newState));
+
+    if (newState) {
+      setTimeout(() => playSound('certo', 0.2), 100);
+    }
+  };
 
   // 🚀 Detetor de alterações: verifica se os valores atuais diferem dos valores originais carregados
   const houveAlteracoes = useMemo(() => {
@@ -368,7 +391,7 @@ export default function ConfiguracoesPage() {
 
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!houveAlteracoes) return; // Segurança extra
+    if (!houveAlteracoes) return;
 
     if (exibirCamposSenha && (senhaAntiga.trim() !== '' || novaSenha.trim() !== '')) {
       if (!senhaAntiga.trim() || !novaSenha.trim()) {
@@ -896,7 +919,7 @@ export default function ConfiguracoesPage() {
           </>
         )}
 
-        {/* PERFIL E CREDENCIAIS */}
+        {/* PERFIL E CREDENCIAIS & PREFERÊNCIA DE SOM */}
         <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
           <CardHeader className="border-b border-zinc-900/85 pb-4">
             <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
@@ -904,15 +927,41 @@ export default function ConfiguracoesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-5 space-y-6">
-            <div className="space-y-1.5">
-              <label className="text-xs font-mono uppercase text-zinc-400">Seu Nome de Exibição (Card de Boas-Vindas)</label>
-              <input 
-                type="text"
-                value={inputUsuario}
-                onChange={(e) => setInputUsuario(e.target.value)}
-                placeholder="Ex: Vannut"
-                className="w-full sm:w-1/2 bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono uppercase text-zinc-400">Seu Nome de Exibição (Card de Boas-Vindas)</label>
+                <input 
+                  type="text"
+                  value={inputUsuario}
+                  onChange={(e) => setInputUsuario(e.target.value)}
+                  placeholder="Ex: Vannut"
+                  className="w-full bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* 🔊 NOVO BOTÃO DE ATIVAR / DESATIVAR EFEITOS SONOROS */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono uppercase text-zinc-400 block">Feedback Sonoro (Estilo Valorant)</label>
+                <button
+                  type="button"
+                  onClick={toggleSound}
+                  className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl border transition-all cursor-pointer ${
+                    soundEnabled 
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]' 
+                      : 'bg-black/50 border-zinc-800 text-zinc-500'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-zinc-500" />}
+                    <span className="text-xs font-mono font-bold uppercase tracking-wider">
+                      Efeitos Sonoros: {soundEnabled ? 'Ativados' : 'Desativados'}
+                    </span>
+                  </div>
+                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md font-bold uppercase ${soundEnabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}>
+                    {soundEnabled ? 'ON' : 'OFF'}
+                  </span>
+                </button>
+              </div>
             </div>
 
             <div className="pt-2 border-t border-zinc-900/85">
@@ -1079,7 +1128,6 @@ export default function ConfiguracoesPage() {
             )}
           </div>
 
-          {/* 🚀 BOTÃO DE SALVAR DINÂMICO: Bloqueado por defeito, só acende se houver alterações reais */}
           <button
             type="submit"
             disabled={!houveAlteracoes}
@@ -1326,7 +1374,7 @@ export default function ConfiguracoesPage() {
         </div>
       )}
 
-      {/* MODAL DE MAPA (Mantido caso precise para outras coisas) */}
+      {/* MODAL DE MAPA */}
       {modalMapaAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col">

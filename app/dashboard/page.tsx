@@ -1,3 +1,8 @@
+// ================================================================================
+// 📋 ROTA DE VISÃO GERAL (FRONTEND) - V5 CLOUD (SEM TUTORIAL)
+// app/dashboard/page.tsx
+// ================================================================================
+
 "use client"
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,21 +28,18 @@ import { useAuth } from '@/context/AuthContext';
 export default function DashboardPage() {
   const router = useRouter();
   
-  // 🚀 PUXAMOS O OPERADOR E O ESTADO DE CARREGAMENTO DO TEU CONTEXTO
-  const { operador, empresa, carregando: carregandoAuth } = useAuth();
+  const { operador, carregando: carregandoAuth } = useAuth();
   const { leads: leadsBrutos = [], carregarLeads } = useApp() || {};
 
   const [popupSucessoPlano, setPopupSucessoPlano] = useState<string | null>(null);
   
-  // Estados de Plano e Status Financeiro
   const [statusAssinatura, setStatusAssinatura] = useState<string>('ativa');
   const [planoAtual, setPlanoAtual] = useState<string>('essencial');
   const [funcionarios, setFuncionarios] = useState<{id: string, nome: string, role?: string}[]>([]);
 
-  // 🚀 ESTADO PARA LIBERAR A TELA
   const [sessaoConfirmada, setSessaoConfirmada] = useState(false);
 
-  // 🕒 FILTRO DE DATA DIÁRIA (Zera após as 00:00)
+  // Filtro de data diária
   const dataHojeObj = new Date();
   const diaHojeStr = String(dataHojeObj.getDate()).padStart(2, '0');
   const mesAtualStr = String(dataHojeObj.getMonth() + 1).padStart(2, '0');
@@ -47,31 +49,25 @@ export default function DashboardPage() {
   const formatoIsoDia = `${anoAtualStr}-${mesAtualStr}-${diaHojeStr}`;
   const formatoMesAno = `${mesAtualStr}/${anoAtualStr}`;
 
-  // Filtra apenas os leads gerados no dia corrente
   const leads = Array.isArray(leadsBrutos) ? leadsBrutos.filter(l => {
     const dataReg = l?.created_at || l?.data || '';
     if (!dataReg) return false;
     return dataReg.includes(formatoBrDia) || dataReg.includes(formatoIsoDia);
   }) : [];
 
-  // 🛡️ GUARDA-COSTAS PACIENTE: Espera o Auth carregar antes de avaliar
   useEffect(() => {
     if (carregandoAuth) return;
-
     if (!operador) {
       router.replace('/login');
       return;
     }
-
     if (operador.role === 'atendente') {
       router.replace('/dashboard/leads');
       return;
     }
-
     setSessaoConfirmada(true);
   }, [carregandoAuth, operador, router]);
 
-  // 🚀 DETECÇÃO RETORNO STRIPE
   useEffect(() => {
     if (carregandoAuth) return;
 
@@ -85,21 +81,15 @@ export default function DashboardPage() {
         if (mudancaSucesso === 'true' && novoPlano && empresaIdParam) {
           try {
             setPopupSucessoPlano(novoPlano.toUpperCase());
-
             const respostaApi = await fetch('/api/empresa/atualizar-plano', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                empresaId: empresaIdParam, 
-                plano: novoPlano 
-              })
+              body: JSON.stringify({ empresaId: empresaIdParam, plano: novoPlano })
             });
-
             const resultado = await respostaApi.json();
             if (!resultado.sucesso) {
               console.error("Erro ao sincronizar novo plano via API:", resultado.erro);
             }
-
             router.replace('/dashboard', { scroll: false });
           } catch (err) {
             console.error("Erro crítico ao processar mudança de plano:", err);
@@ -107,11 +97,9 @@ export default function DashboardPage() {
         }
       }
     };
-
     processarRetornoMudancaPlano();
   }, [carregandoAuth, router]);
 
-  // 🚀 BUSCA REAL: PLANO, STATUS E FUNCIONÁRIOS
   useEffect(() => {
     async function sincronizarDadosReais() {
       if (!supabase || !sessaoConfirmada) return;
@@ -138,7 +126,6 @@ export default function DashboardPage() {
         if (!erroEquipe && dadosEquipe) {
           setFuncionarios(dadosEquipe);
         }
-
       } catch (err) {
         console.error("Erro ao buscar dados na visão geral:", err);
       }
@@ -151,7 +138,6 @@ export default function DashboardPage() {
   const [funcionarioSelecionado, setFuncionarioSelecionado] = useState('');
   const [mensagemSucesso, setMensagemSucesso] = useState('');
 
-  // 🚨 BLOQUEIO DE TELA ATÉ CONFIRMAR LOGIN
   if (carregandoAuth || !sessaoConfirmada) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-emerald-400 font-mono text-xs">
@@ -160,19 +146,18 @@ export default function DashboardPage() {
     );
   }
 
-  // 🚨 BLOQUEIO DE INADIMPLÊNCIA
   if (statusAssinatura === 'inadimplente' || statusAssinatura === 'cancelada') {
     return (
       <div className="min-h-screen bg-[#020804] flex items-center justify-center p-4 font-mono text-center relative overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-600/10 blur-[120px] rounded-full pointer-events-none"></div>
-        <div className="max-w-lg w-full bg-[#0a0a0a]/90 border border-red-500/40 p-8 rounded-3xl shadow-2xl backdrop-blur-xl relative z-10 animate-in zoom-in-95 duration-500">
+        <div className="max-w-lg w-full bg-[#0a0a0a]/90 border border-red-500/40 p-8 rounded-3xl shadow-2xl backdrop-blur-xl relative z-10">
           <div className="inline-flex p-4 rounded-full bg-red-500/10 border border-red-500/30 mb-6 text-red-500">
             <AlertTriangle className="w-12 h-12" />
           </div>
           <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-3">Acesso Suspenso</h2>
           <p className="text-zinc-400 text-sm mb-8 leading-relaxed px-4">
             Identificámos uma falha no pagamento da tua assinatura mensal (Status: <strong className="text-red-400 uppercase">{statusAssinatura}</strong>). 
-            Por favor, regulariza a tua situação para voltares a ter acesso total à plataforma e aos teus clientes.
+            Por favor, regulariza a tua situação para voltares a ter acesso total à plataforma.
           </p>
           <button 
             onClick={() => router.push('/planos')}
@@ -186,7 +171,6 @@ export default function DashboardPage() {
   }
 
   const totalLeadsCadastrados = Array.isArray(leads) ? leads.length : 0;
-
   const totalLeadsMes = Array.isArray(leadsBrutos) ? leadsBrutos.filter(l => {
     const dataReg = l?.created_at || l?.data || '';
     return dataReg.includes(formatoMesAno) || dataReg.includes(`${anoAtualStr}-${mesAtualStr}`) || !dataReg;
@@ -195,8 +179,7 @@ export default function DashboardPage() {
 
   const leadsNovosHoje = Array.isArray(leads) ? leads.filter(l => {
     const dataReg = l?.created_at || l?.data || '';
-    const ehHoje = dataReg.includes(formatoBrDia) || dataReg.includes(formatoIsoDia) || (!l?.status || l?.status === 'NOVO');
-    return ehHoje;
+    return dataReg.includes(formatoBrDia) || dataReg.includes(formatoIsoDia) || (!l?.status || l?.status === 'NOVO');
   }).length : 0;
 
   const emAtendimento = Array.isArray(leads) ? leads.filter(l => 
@@ -270,13 +253,9 @@ export default function DashboardPage() {
       for (const id of selecionados) {
         await supabase
           .from('leads')
-          .update({ 
-            status: 'EM ATENDIMENTO',
-            atendente: funcionarioSelecionado 
-          })
+          .update({ status: 'EM ATENDIMENTO', atendente: funcionarioSelecionado })
           .eq('id', id);
       }
-      
       setMensagemSucesso(`${selecionados.length} lead(s) atribuído(s) com sucesso para ${funcionarioSelecionado}!`);
       setSelecionados([]);
       setFuncionarioSelecionado('');
@@ -289,29 +268,6 @@ export default function DashboardPage() {
 
   return (
     <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans relative">
-
-      {popupSucessoPlano && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 font-mono">
-          <div className="bg-[#0a0a0a] border border-emerald-500/40 w-full max-w-md rounded-2xl p-6 text-center space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="inline-flex p-3 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-              <CheckCircle2 className="w-8 h-8" />
-            </div>
-            <h3 className="text-base font-black uppercase text-white tracking-wider">Plano Atualizado com Sucesso!</h3>
-            <p className="text-xs text-zinc-400">
-              Sua assinatura foi alterada para o plano <strong className="text-emerald-400">{popupSucessoPlano}</strong>. Todos os novos recursos já estão liberados!
-            </p>
-            <button
-              onClick={() => {
-                setPopupSucessoPlano(null);
-                window.location.reload(); 
-              }}
-              className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-bold uppercase text-xs tracking-wider rounded-xl transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]"
-            >
-              Continuar para o Painel
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* CABEÇALHO */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -430,113 +386,53 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* AÇÕES EM LOTE E TABELA DE LEADS */}
-      {selecionados.length > 0 && (
-        <div className="p-4 bg-zinc-900 border border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="text-xs font-mono text-emerald-400 font-bold">
-            {selecionados.length} lead(s) selecionado(s)
+      {/* Tabela de Leads */}
+      <div>
+        <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur relative overflow-hidden">
+          <div className="p-4 border-b border-zinc-900 text-xs font-mono text-zinc-400 uppercase tracking-wider flex justify-between items-center">
+            <span>Registros da Operação ({leadsFiltrados.length})</span>
           </div>
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <select 
-              value={funcionarioSelecionado}
-              onChange={(e) => setFuncionarioSelecionado(e.target.value)}
-              className="bg-black border border-zinc-800 text-white rounded-xl px-3.5 py-2 text-xs font-mono uppercase focus:outline-none focus:border-emerald-500 cursor-pointer flex-1 sm:w-64"
-            >
-              <option value="">Selecione o Funcionário...</option>
-              {funcionarios.length > 0 ? (
-                funcionarios.map(f => (
-                  <option key={f.id} value={f.nome}>
-                    {f.nome} {f.role ? `(${f.role.toUpperCase()})` : ''}
-                  </option>
-                ))
-              ) : (
-                <option value="" disabled>Nenhum funcionário encontrado</option>
-              )}
-            </select>
-            <button
-              onClick={handleAtribuirFuncionario}
-              disabled={!funcionarioSelecionado}
-              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-bold uppercase text-xs font-mono transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <UserCheck className="w-4 h-4" /> Atribuir
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col sm:flex-row items-center gap-3">
-        <div className="flex items-center gap-3 bg-zinc-900/40 border border-zinc-900 rounded-2xl p-3 flex-1 w-full backdrop-blur">
-          <Search className="w-4 h-4 text-zinc-500 ml-2" />
-          <input 
-            type="text"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por telefone, CEP ou nome..."
-            className="w-full bg-transparent text-xs text-white font-mono focus:outline-none"
-          />
-        </div>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-900 text-[11px] font-mono uppercase tracking-wider text-zinc-500 bg-black/20">
+                    <th className="p-4 w-10">
+                      <input type="checkbox" checked={leadsFiltrados.length > 0 && selecionados.length === leadsFiltrados.length} onChange={handleSelecionarTodos} className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" />
+                    </th>
+                    <th className="p-4">Cliente / Contato</th>
+                    <th className="p-4">Plano</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4">Atendente</th>
+                    <th className="p-4 text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900/50 text-xs font-mono">
+                  {leadsFiltrados.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-12 text-center text-zinc-500">
+                        Nenhum registro encontrado para hoje.
+                      </td>
+                    </tr>
+                  ) : (
+                    leadsFiltrados.map((reg) => (
+                      <tr key={reg.id} className="hover:bg-zinc-900/35 transition-colors">
+                        <td className="p-4"><input type="checkbox" checked={selecionados.includes(reg.id)} onChange={() => handleSelecionarLead(reg.id)} className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" /></td>
+                        <td className="p-4 font-bold text-white">{reg.nome || 'Sem nome'}</td>
+                        <td className="p-4">{reg.perfil || 'Gamer'}</td>
+                        <td className="p-4">{reg.status || 'NOVO'}</td>
+                        <td className="p-4 text-emerald-400">{reg.atendente || 'Atribuído'}</td>
+                        <td className="p-4 text-right"><button className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-lg">Ver</button></td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur relative overflow-hidden">
-        <div className="p-4 border-b border-zinc-900 text-xs font-mono text-zinc-400 uppercase tracking-wider flex justify-between items-center">
-          <span>Registros da Operação ({leadsFiltrados.length})</span>
-          {selecionados.length > 0 && (
-            <span className="text-emerald-400 font-bold">{selecionados.length} selecionado(s)</span>
-          )}
-        </div>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-zinc-900 text-[11px] font-mono uppercase tracking-wider text-zinc-500 bg-black/20">
-                  <th className="p-4 w-10">
-                    <input type="checkbox" checked={leadsFiltrados.length > 0 && selecionados.length === leadsFiltrados.length} onChange={handleSelecionarTodos} className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" />
-                  </th>
-                  <th className="p-4">Cliente / Contato</th>
-                  <th className="p-4">Plano</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4">Atendente</th>
-                  <th className="p-4">Tag Operacional</th>
-                  <th className="p-4 text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-900/50 text-xs font-mono">
-                {leadsFiltrados.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-12 text-center text-zinc-500">
-                      Nenhum registro encontrado para hoje.
-                    </td>
-                  </tr>
-                ) : (
-                  leadsFiltrados.map((reg) => {
-                    const isSelected = selecionados.includes(reg.id);
-                    return (
-                      <tr key={reg.id} className={`hover:bg-zinc-900/35 transition-colors ${isSelected ? 'bg-emerald-500/5' : ''}`}>
-                        <td className="p-4">
-                          <input type="checkbox" checked={isSelected} onChange={() => handleSelecionarLead(reg.id)} className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" />
-                        </td>
-                        <td className="p-4">
-                          <div className="font-bold font-sans text-sm text-white">{reg.nome || 'Sem nome'}</div>
-                          <div className="text-[11px] text-zinc-500 flex items-center gap-1 mt-0.5">
-                            <Phone className="w-3 h-3 text-zinc-600" /> {reg.whatsapp || reg.telefone || 'Sem telefone'} • CEP {reg.cep || 'S/N'}
-                          </div>
-                        </td>
-                        <td className="p-4"><span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px]">{reg.perfil || 'Gamer / Streaming'}</span></td>
-                        <td className="p-4"><span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] uppercase font-bold">{reg.status || reg.etapa_funil || 'NOVO'}</span></td>
-                        <td className="p-4 text-zinc-300 font-bold"><span className="text-emerald-400">{reg.atendente || 'Atribuído'}</span></td>
-                        <td className="p-4 text-zinc-500">🔥 ❄️ ✓</td>
-                        <td className="p-4 text-right">
-                          <button className="px-3.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 font-bold uppercase text-[11px] transition-all cursor-pointer">Preencher Tel</button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

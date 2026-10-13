@@ -1,3 +1,8 @@
+// ================================================================================
+// 💳 PÁGINA DE PLANOS - V5 CLOUD (COM ENVIO COMPLETO DE DADOS PARA O CHECKOUT)
+// app/planos/page.tsx
+// ================================================================================
+
 "use client"
 import React, { useState } from 'react';
 import { Layers, Monitor, Rocket, Building2, Check, X, Loader2 } from 'lucide-react';
@@ -8,25 +13,34 @@ export default function PlanosPage() {
   const [isAnnual, setIsAnnual] = useState(false);
   const [carregandoPlano, setCarregandoPlano] = useState<string | null>(null);
 
-  // 🚀 Função inteligente: Atualiza o plano no localStorage e chama a API de Checkout local
+  // 🚀 Função inteligente: Lê do localStorage, envia todos os dados (whatsapp, cep, email, nome) para a API de Checkout
   const handleAssinar = async (chavePlano: string, nomePlano: string, precoCentavos: number) => {
     setCarregandoPlano(chavePlano);
 
     try {
       let empresaId = '';
       let emailEmpresa = '';
+      let whatsappEmpresa = '';
+      let cepEmpresa = '';
+      let nomeGestor = '';
+      let senhaGestor = '';
 
       if (typeof window !== 'undefined') {
-        // 1. Atualiza o plano escolhido nos dados pendentes do cadastro no localStorage
+        // 1. Lê os dados pendentes do cadastro no localStorage
         const dadosPendentesStr = localStorage.getItem('v5_dados_cadastro_pendente');
         if (dadosPendentesStr) {
           try {
             const dadosPendentes = JSON.parse(dadosPendentesStr);
             dadosPendentes.plano = chavePlano; // Garante que o plano escolhido fica gravado
             localStorage.setItem('v5_dados_cadastro_pendente', JSON.stringify(dadosPendentes));
+            
             emailEmpresa = dadosPendentes.email || '';
+            whatsappEmpresa = dadosPendentes.whatsapp || '';
+            cepEmpresa = dadosPendentes.cepEmpresa || dadosPendentes.cep || '';
+            nomeGestor = dadosPendentes.usuario || '';
+            senhaGestor = dadosPendentes.senha || '';
           } catch (e) {
-            console.error("Erro ao atualizar plano nos dados pendentes", e);
+            console.error("Erro ao ler dados pendentes", e);
           }
         }
 
@@ -56,6 +70,10 @@ export default function PlanosPage() {
           intervalo: isAnnual ? 'year' : 'month',
           empresaId,
           email: emailEmpresa,
+          whatsapp: whatsappEmpresa,
+          cep: cepEmpresa,
+          nome: nomeGestor,
+          senha: senhaGestor,
           successUrl: rotaSucessoRetorno
         })
       });

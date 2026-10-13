@@ -1,4 +1,7 @@
-//app/dashboard/help/page.tsx
+// ================================================================================
+// ❓ CENTRAL DE AJUDA & SUPORTE - V5 CLOUD (COM BLOQUEIO REFORÇADO DE FICHEIROS)
+// app/dashboard/help/page.tsx
+// ================================================================================
 
 "use client"
 import React, { useState, useEffect } from 'react';
@@ -21,7 +24,9 @@ import {
   Plus,
   BarChart3,
   MessageSquarePlus,
-  Send
+  Send,
+  Paperclip,
+  X
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -41,10 +46,12 @@ export default function HelpPage() {
   const [termoBusca, setTermoBusca] = useState('');
   const [faqAberto, setFaqAberto] = useState<number | null>(null);
 
-  // Estados dos Tickets
+  // Estados dos Tickets & Anexos
   const [assuntoTicket, setAssuntoTicket] = useState('');
   const [mensagemTicket, setMensagemTicket] = useState('');
   const [categoriaTicket, setCategoriaTicket] = useState('tecnico');
+  const [anexoTicket, setAnexoTicket] = useState<File | null>(null);
+  const [erroAnexo, setErroAnexo] = useState('');
   const [enviandoTicket, setEnviandoTicket] = useState(false);
   const [sucessoTicket, setSucessoTicket] = useState(false);
   const [erroTicket, setErroTicket] = useState('');
@@ -75,14 +82,18 @@ export default function HelpPage() {
     setErroTicket('');
 
     try {
+      const formData = new FormData();
+      formData.append('categoria', categoriaTicket);
+      formData.append('assunto', assuntoTicket);
+      formData.append('descricao', mensagemTicket);
+      formData.append('prioridade', 'Média');
+      if (anexoTicket) {
+        formData.append('anexo', anexoTicket);
+      }
+
       const res = await fetch('/api/tickets', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assunto: assuntoTicket,
-          mensagem: mensagemTicket,
-          categoria: categoriaTicket
-        })
+        body: formData
       });
 
       const data = await res.json();
@@ -96,7 +107,14 @@ export default function HelpPage() {
       setSucessoTicket(true);
       setAssuntoTicket('');
       setMensagemTicket('');
+      setAnexoTicket(null);
+      setErroAnexo('');
       setCategoriaTicket('tecnico');
+
+      const resLista = await fetch('/api/tickets');
+      const dataLista = await resLista.json();
+      if (dataLista.sucesso) setMeusTickets(dataLista.tickets || []);
+
     } catch (err: any) {
       setErroTicket('Erro ao enviar: ' + err.message);
     } finally {
@@ -248,7 +266,7 @@ export default function HelpPage() {
                 Central de Viabilidade Assistida (Guia Operacional)
               </h3>
               <p className="text-xs text-zinc-400 leading-relaxed font-sans">
-                A aba de Viabilidade é a ferramenta principal do atendente para testar a cobertura de rede e calcular a distância real de cabo até a casa do cliente. Veja abaixo como ela funciona, o que fazer e como configurar:
+                A aba de Viabilidade é a ferramenta principal do atendente para testar a cobertura de rede e calcular a distância real de cabo até a casa do cliente. Veja abaixo como ela funciona, o que fazer e como configurá-la:
               </p>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 font-mono text-xs">
@@ -413,7 +431,7 @@ export default function HelpPage() {
               <MessageSquarePlus className="w-4 h-4" /> Abrir Chamado / Ticket
             </div>
             <p className="text-xs text-zinc-400 leading-relaxed font-sans">
-              Precisa de suporte técnico ou comercial? Envie sua solicitação diretamente para a nossa equipe.
+              Precisa de suporte técnico ou comercial? Envie sua solicitação diretamente para a nossa equipe com anexo de print/bug (opcional).
             </p>
 
             {sucessoTicket && (
@@ -466,12 +484,62 @@ export default function HelpPage() {
                 />
               </div>
 
+              {/* 🔒 INPUT DE UPLOAD ESTRITAMENTE LIMITADO A IMAGENS (PNG, JPG, WEBP) */}
+              <div>
+                <label className="block text-[11px] font-mono text-zinc-400 mb-1">Anexar Print / Imagem (Máx 5MB)</label>
+                <div className="flex items-center gap-2">
+                  <label className="flex-1 flex items-center justify-between bg-black/60 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-400 font-mono cursor-pointer hover:border-emerald-500/50 transition-colors">
+                    <span className="truncate flex items-center gap-2">
+                      <Paperclip className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      {anexoTicket ? anexoTicket.name : 'Escolher imagem (PNG, JPG)...'}
+                    </span>
+                    <input 
+                      type="file" 
+                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setErroAnexo('');
+                          // Validação restrita de tipo MIME e extensão
+                          const tiposPermitidos = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+                          if (!tiposPermitidos.includes(file.type)) {
+                            setErroAnexo('Formato inválido! Apenas imagens PNG, JPG ou WEBP são permitidas.');
+                            e.target.value = '';
+                            setAnexoTicket(null);
+                            return;
+                          }
+                          if (file.size > 5 * 1024 * 1024) {
+                            setErroAnexo('A imagem excede o limite máximo de 5MB.');
+                            e.target.value = '';
+                            setAnexoTicket(null);
+                            return;
+                          }
+                          setAnexoTicket(file);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                  {anexoTicket && (
+                    <button 
+                      type="button" 
+                      onClick={() => { setAnexoTicket(null); setErroAnexo(''); }}
+                      className="p-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl hover:bg-red-500/20 transition-colors"
+                      title="Remover anexo"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                {erroAnexo && <span className="text-[10px] font-mono text-red-400 block mt-1">{erroAnexo}</span>}
+              </div>
+
               <button 
                 type="submit"
                 disabled={enviandoTicket}
                 className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-mono font-bold py-2.5 px-4 rounded-xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Send className="w-3.5 h-3.5" /> {enviandoTicket ? 'Enviando...' : 'Enviar Chamado'}
+                <Send className="w-3.5 h-3.5" /> {enviandoTicket ? 'Enviando Chamado...' : 'Enviar Chamado'}
               </button>
             </form>
           </div>
@@ -501,6 +569,14 @@ export default function HelpPage() {
                     </span>
 
                     <p className="text-[11px] text-zinc-400 font-sans line-clamp-2">{t.mensagem}</p>
+
+                    {t.anexo_url && (
+                      <div className="pt-1">
+                        <a href={t.anexo_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-400 hover:underline flex items-center gap-1 font-mono">
+                          📎 Ver anexo enviado
+                        </a>
+                      </div>
+                    )}
 
                     {t.resposta && (
                       <div className="mt-2 bg-emerald-950/30 border border-emerald-800/40 p-2.5 rounded-lg space-y-1">

@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [carregando, setCarregando] = useState(false);
   const [mensagemErro, setMensagemErro] = useState('');
   const [mensagemSucesso, setMensagemSucesso] = useState('');
-  
+
   // 🔒 Novo estado para travar o botão rigidamente quando houver Rate Limit (429)
   const [bloqueadoPorRateLimit, setBloqueadoPorRateLimit] = useState(false);
 
@@ -35,12 +35,12 @@ export default function LoginPage() {
 
               setCarregando(true);
               setMensagemSucesso('Pagamento aprovado! A criar a sua conta corporativa...');
-              
+
               const parsedData = JSON.parse(dadosSalvos);
-              
+
               // Garante que o plano não vai como 'pendente' se já foi escolhido
               parsedData.plano = parsedData.plano && parsedData.plano !== 'pendente' ? parsedData.plano : 'essencial';
-              
+
               const res = await fetch('/api/auth/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -97,7 +97,7 @@ export default function LoginPage() {
       if (res.ok) {
         // 🚀 Redirecionamento Inteligente baseado no cargo do operador:
         const cargo = data.operador?.role?.toLowerCase();
-        
+
         if (cargo === 'tecnico') {
           window.location.href = '/tecnico';          // Técnico vai direto para a tela de campo
         } else if (cargo === 'atendente') {
@@ -115,26 +115,45 @@ export default function LoginPage() {
     }
   };
 
-  const handleEnviarRecuperacao = (e: React.FormEvent) => {
+  // 📧 RECUPERAÇÃO DE SENHA — AGORA CHAMA A API REAL (RESEND)
+  const handleEnviarRecuperacao = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailRecuperacao) return;
 
     setEnviandoRecuperacao(true);
-    setTimeout(() => {
-      setEnviandoRecuperacao(false);
-      setSucessoRecuperacao(true);
-      setTimeout(() => {
-        setSucessoRecuperacao(false);
+
+    try {
+      const res = await fetch('/api/email/recuperar-senha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailRecuperacao }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setSucessoRecuperacao(true);
+        setTimeout(() => {
+          setSucessoRecuperacao(false);
+          setModalSenhaAberto(false);
+          setEmailRecuperacao('');
+        }, 3000);
+      } else {
+        setMensagemErro(data.mensagem || 'Erro ao enviar recuperação.');
         setModalSenhaAberto(false);
-        setEmailRecuperacao('');
-      }, 2500);
-    }, 1500);
+      }
+    } catch {
+      setMensagemErro('Erro de conexão com o servidor.');
+      setModalSenhaAberto(false);
+    } finally {
+      setEnviandoRecuperacao(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-[#021708] flex items-center justify-center p-4 font-sans text-zinc-50">
       <div className="w-full max-w-md space-y-6">
-        
+
         {/* CABEÇALHO */}
         <div className="text-center space-y-3">
           <div className="inline-flex p-3 bg-black border border-emerald-500/30 rounded-2xl text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
@@ -160,7 +179,7 @@ export default function LoginPage() {
         )}
 
         <div className="bg-[#0a0a0a] border border-[#1e3b29] rounded-2xl p-6 shadow-2xl space-y-6">
-          
+
           {/* ABAS DO TOPO */}
           <div className="flex bg-black border border-[#1e3b29] rounded-xl p-1 font-mono">
             <div className="flex-1 py-2.5 text-center text-xs font-bold bg-emerald-500 text-black rounded-lg shadow-[0_0_10px_rgba(16,185,129,0.2)] cursor-default">
@@ -173,12 +192,12 @@ export default function LoginPage() {
 
           {/* FORMULÁRIO DE LOGIN */}
           <form onSubmit={handleLogin} className="space-y-4 font-mono">
-            
+
             <div className="space-y-1.5">
               <label className="text-[10px] uppercase text-zinc-400 tracking-wider">E-mail Corporativo</label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-3 w-4 h-4 text-zinc-500" />
-                <input 
+                <input
                   type="email"
                   required
                   disabled={bloqueadoPorRateLimit || carregando}
@@ -193,7 +212,7 @@ export default function LoginPage() {
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-[10px] uppercase text-zinc-400 tracking-wider">Senha</label>
-                <button 
+                <button
                   type="button"
                   onClick={() => setModalSenhaAberto(true)}
                   className="text-[10px] text-emerald-400 hover:underline cursor-pointer"
@@ -203,7 +222,7 @@ export default function LoginPage() {
               </div>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-3 w-4 h-4 text-zinc-500" />
-                <input 
+                <input
                   type="password"
                   required
                   disabled={bloqueadoPorRateLimit || carregando}
@@ -252,13 +271,13 @@ export default function LoginPage() {
       {modalSenhaAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 font-mono">
           <div className="bg-[#0a0a0a] border border-[#1e3b29] w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-            
+
             <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
               <div className="flex items-center gap-2 text-emerald-400">
                 <KeyRound className="w-5 h-5" />
                 <h3 className="text-sm font-bold uppercase tracking-wider text-white">Recuperação de Senha</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setModalSenhaAberto(false)}
                 className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors cursor-pointer"
               >
@@ -284,7 +303,7 @@ export default function LoginPage() {
                   <label className="text-[10px] uppercase text-zinc-400">E-mail Corporativo</label>
                   <div className="relative">
                     <Mail className="absolute left-3.5 top-3 w-4 h-4 text-zinc-500" />
-                    <input 
+                    <input
                       type="email"
                       required
                       value={emailRecuperacao}

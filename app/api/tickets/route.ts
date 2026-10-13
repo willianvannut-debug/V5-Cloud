@@ -1,5 +1,5 @@
 // ================================================================================
-// 🎫 ROTA DE TICKETS DE SUPORTE COM NOTIFICAÇÕES VIA E-MAIL (RESEND)
+// 🎫 ROTA DE TICKETS DE SUPORTE COM SUPORTE A ANEXOS SEGUROS E RESEND
 // app/api/tickets/route.ts
 // ================================================================================
 
@@ -10,7 +10,7 @@ import { cookies } from 'next/headers';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const JWT_SECRET = new TextEncoder().encode(   process.env.JWT_SECRET_KEY);
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET_KEY);
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 
 // Função auxiliar para gerar o HTML do e-mail com a identidade visual da V5
@@ -34,7 +34,40 @@ function gerarTemplateEmail(titulo: string, mensagemPrincipal: string, detalhesT
   `;
 }
 
-// 🆕 CRIAR NOVO TICKET (Dispara "Recebido")
+// 📋 LISTAR TICKETS DO USUÁRIO LOGADO
+export async function GET(request: NextRequest) {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get('v5_session')?.value;
+    if (!token) return NextResponse.json({ sucesso: false, mensagem: 'Não autenticado.' }, { status: 401 });
+
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const empresaId = payload.empresaId as string;
+    const emailOperador = payload.email as string;
+    const role = (payload.role || 'atendente').toLowerCase();
+
+    let query = supabaseAdmin.from('tickets_ajuda').select('*');
+
+    if (role === 'gerente' || role === 'superadmin' || role === 'dono') {
+      if (empresaId) {
+        query = query.eq('empresa_id', empresaId);
+      }
+    } else {
+      query = query.eq('criado_por', emailOperador);
+    }
+
+    const { data: tickets, error } = await query.order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return NextResponse.json({ sucesso: true, tickets: tickets || [] }, { status: 200 });
+
+  } catch (error: any) {
+    return NextResponse.json({ sucesso: false, mensagem: error.message }, { status: 500 });
+  }
+}
+
+// 🆕 CRIAR NOVO TICKET COM ANEXO SEGURO (Multipart/FormData)
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies();
@@ -45,10 +78,52 @@ export async function POST(request: NextRequest) {
     const empresaId = payload.empresaId as string;
     const emailOperador = payload.email as string;
 
-    const body = await request.json();
-    const { assunto, descricao, prioridade } = body;
+    const formData = await request.formData();
+    const assunto = formData.get('assunto') as string;
+    const descricao = formData.get('descricao') as string;
+    const prioridade = formData.get('prioridade') as string;
+    const arquivo = formData.get('anexo') as File | null;
 
-    // 1. Salva no banco de dados
+    let urlAnexo = null;
+
+    // 🔒 VALIDAÇÃO DE SEGURANÇA DE UPLOAD DE IMAGEM
+    if (arquivo && arquivo.size > 0) {
+      const tiposPermitidos = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!tiposPermitidos.includes(arquivo.type)) {
+        return NextResponse.json({ sucesso: false, mensagem: 'Formato de ficheiro inválido. Apenas imagens PNG, JPG ou WEBP são permitidas.' }, { status: 400 });
+      }
+
+      // Limite máximo de 5MB
+      if (arquivo.size > 5 * 1024 * 1024) {
+        return NextResponse.json({ sucesso: false, mensagem: 'A imagem é demasiado grande. O limite máximo é de 5MB.' }, { status: 400 });
+      }
+
+      const extensao = arquivo.name.split('.').pop()?.toLowerCase() || 'png';
+      const nomeSeguro = `ticket_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${extensao}`;
+      const arrayBuffer = await arquivo.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Envia para o Storage do Supabase (Bucket: 'tickets-anexos')
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('tickets-anexos')
+        .upload(nomeSeguro, buffer, {
+          contentType: arquivo.type,
+          upsert: false
+        });
+
+      if (uploadError) {
+        console.error("Erro no upload storage:", uploadError);
+        throw new Error("Falha ao salvar o anexo no servidor.");
+      }
+
+      const { data: publicUrlData } = supabaseAdmin.storage
+        .from('tickets-anexos')
+        .getPublicUrl(nomeSeguro);
+
+      urlAnexo = publicUrlData.publicUrl;
+    }
+
+    // 1. Salva no banco de dados com a URL do anexo
     const { data: ticket, error } = await supabaseAdmin
       .from('tickets_ajuda')
       .insert([{ 
@@ -57,7 +132,8 @@ export async function POST(request: NextRequest) {
         descricao, 
         prioridade: prioridade || 'Média',
         status: 'ABERTO',
-        criado_por: emailOperador
+        criado_por: emailOperador,
+        anexo_url: urlAnexo 
       }])
       .select()
       .single();
@@ -69,7 +145,8 @@ export async function POST(request: NextRequest) {
       const detalhes = `
         <p style="margin: 0; color: #10b981; font-weight: bold;">Ticket #${ticket.id.split('-')[0]}</p>
         <p style="margin: 5px 0 0 0; color: #f8fafc; font-size: 13px;"><strong>Assunto:</strong> ${assunto}</p>
-        <p style="margin: 5px 0 0 0; color: #f8fafc; font-size: 13px;"><strong>Prioridade:</strong> ${prioridade}</p>
+        <p style="margin: 5px 0 0 0; color: #f8fafc; font-size: 13px;"><strong>Prioridade:</strong> ${prioridade || 'Média'}</p>
+        ${urlAnexo ? `<p style="margin: 10px 0 0 0;"><a href="${urlAnexo}" target="_blank" style="color: #3b82f6;">Ver print / anexo enviado</a></p>` : ''}
       `;
       const mensagem = `Olá! Recebemos a sua solicitação. A nossa equipa de suporte técnico já foi notificada e irá analisar o seu caso o mais rápido possível.`;
       
@@ -77,7 +154,7 @@ export async function POST(request: NextRequest) {
         from: 'Suporte V5 <onboarding@resend.dev>',
         to: [emailOperador],
         subject: `Ticket Recebido: ${assunto} [V5-${ticket.id.split('-')[0]}]`,
-        html: gerarTemplateEmail('Solicitação Recebida', mensagem, detalhes, '#3b82f6'), // Azul para novo ticket
+        html: gerarTemplateEmail('Solicitação Recebida', mensagem, detalhes, '#3b82f6'),
       });
     } catch (e) { console.error("Erro email ticket recebido:", e); }
 
@@ -95,13 +172,9 @@ export async function PUT(request: NextRequest) {
     const token = cookieStore.get('v5_session')?.value;
     if (!token) return NextResponse.json({ sucesso: false, mensagem: 'Não autenticado.' }, { status: 401 });
 
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    // Aqui podíamos validar se é admin/suporte que está a alterar, mas vamos assumir permissões pela lógica do seu frontend
-
     const body = await request.json();
     const { id, status, resposta_suporte, email_cliente } = body;
 
-    // 1. Atualiza no banco
     const dadosAtualizados: any = { status };
     if (resposta_suporte) dadosAtualizados.resposta_suporte = resposta_suporte;
 
@@ -114,7 +187,6 @@ export async function PUT(request: NextRequest) {
 
     if (error) throw error;
 
-    // 2. Avalia qual e-mail disparar (Atualizado vs Resolvido)
     try {
       const idCurto = ticketAtualizado.id.split('-')[0];
       
@@ -130,11 +202,10 @@ export async function PUT(request: NextRequest) {
           from: 'Suporte V5 <onboarding@resend.dev>',
           to: [email_cliente || ticketAtualizado.criado_por],
           subject: `Resolvido: ${ticketAtualizado.assunto} [V5-${idCurto}]`,
-          html: gerarTemplateEmail('Ticket Resolvido', mensagem, detalhes, '#10b981'), // Verde para resolvido
+          html: gerarTemplateEmail('Ticket Resolvido', mensagem, detalhes, '#10b981'),
         });
 
       } else if (resposta_suporte) {
-        // Se mudou para EM ANDAMENTO ou enviou resposta
         const detalhes = `
           <p style="margin: 0; color: #eab308; font-weight: bold;">Nova Atualização no Ticket #${idCurto}</p>
           <p style="margin: 10px 0 0 0; color: #f8fafc; font-size: 13px; background: #18181b; padding: 10px; border-radius: 6px;">${resposta_suporte}</p>
@@ -145,7 +216,7 @@ export async function PUT(request: NextRequest) {
           from: 'Suporte V5 <onboarding@resend.dev>',
           to: [email_cliente || ticketAtualizado.criado_por],
           subject: `Atualização no Ticket: ${ticketAtualizado.assunto} [V5-${idCurto}]`,
-          html: gerarTemplateEmail('Nova Resposta', mensagem, detalhes, '#eab308'), // Amarelo para atualização
+          html: gerarTemplateEmail('Nova Resposta', mensagem, detalhes, '#eab308'),
         });
       }
     } catch (e) { console.error("Erro email ticket atualização:", e); }

@@ -1,10 +1,10 @@
 // ================================================================================
-// 📋 ROTA DE LEADS (FRONTEND) - V5 CLOUD (PADRÃO VISUAL IDÊNTICO + ESCOLHER PLANO)
+// 📋 ROTA DE LEADS (FRONTEND) - V5 CLOUD (SEM TOUR NESSA TELA)
 // app/dashboard/leads/page.tsx
 // ================================================================================
 
 "use client"
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Users, Search, Phone, Clock, Filter, MessageSquare, AlertTriangle, X, Globe, Navigation, Loader2, MapPin, Building2, Gamepad2, Tag
@@ -15,6 +15,7 @@ import { useAuth } from '@/context/AuthContext';
 import { PLANOS } from '@/lib/planLimites';
 import { createClient } from '@supabase/supabase-js';
 import { lerOperacional, limparOperacional } from '@/lib/operacional';
+import { playSound } from '@/lib/sound';
 
 import dynamic from 'next/dynamic';
 
@@ -181,44 +182,44 @@ const MapWithNoSSR = dynamic(
 );
 
 export default function LeadsPage() {
-  // 🔥 AGORA INCLUINDO A FUNÇÃO BLINDADA DO CONTEXTO:
   const { atualizarEtapaLead, atualizarEtapaEPlanoLead } = useApp();
   const settings = useSettings();
   const { operador, empresa } = useAuth();
   
   const [ctosDaApi, setCtosDaApi] = useState<any[]>([]);
 
-useEffect(() => {
-  let cancelado = false;
+  useEffect(() => {
+    let cancelado = false;
 
-  (async () => {
-    try {
-      const resposta = await fetch('/api/ctos', {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-      if (!resposta.ok) return;
+    (async () => {
+      try {
+        const resposta = await fetch('/api/ctos', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        if (!resposta.ok) return;
 
-      const dados = await resposta.json();
-      if (!cancelado && dados?.sucesso && Array.isArray(dados.ctos)) {
-        setCtosDaApi(dados.ctos);
+        const dados = await resposta.json();
+        if (!cancelado && dados?.sucesso && Array.isArray(dados.ctos)) {
+          setCtosDaApi(dados.ctos);
+        }
+      } catch (erro) {
+        console.error('Erro ao carregar CTOs:', erro);
       }
-    } catch (erro) {
-      console.error('Erro ao carregar CTOs:', erro);
-    }
-  })();
+    })();
 
-  return () => {
-    cancelado = true;
-  };
-}, []);
+    return () => {
+      cancelado = true;
+    };
+  }, []);
 
-// Usa as caixas da API (todas); se falhar, cai para as da configuração
-const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
+  const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
   const planosConfigurados = settings?.planos || [];
   
   const [operacional, setOperacional] = useState<any[]>([]);
   const [leadsLista, setLeadsLista] = useState<any[]>([]);
+
+  const quantidadeAnteriorLeadsRef = useRef<number | null>(null);
 
   const nomeSedeDinamico = empresa?.cidade || settings?.cidadeEmpresa || 'Brasil';
   const latEmpresa = empresa?.lat || empresa?.latitude || settings?.latEmpresa || -15.7797;
@@ -234,6 +235,12 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
       if (resposta.ok) {
         const dados = await resposta.json();
         if (Array.isArray(dados)) {
+          
+          if (quantidadeAnteriorLeadsRef.current !== null && dados.length > quantidadeAnteriorLeadsRef.current) {
+            playSound('celular', 0.25); 
+          }
+          quantidadeAnteriorLeadsRef.current = dados.length;
+
           setLeadsLista(dados);
         }
       }
@@ -331,7 +338,7 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
   const [busca, setBusca] = useState('');
 
   const [modalAberto, setModalAberto] = useState(false);
-  const [avisoForaCobertura, setAvisoForaCobertura] = useState(false); // NOVO ESTADO
+  const [avisoForaCobertura, setAvisoForaCobertura] = useState(false);
   const [leadSelecionado, setLeadSelecionado] = useState<string | null>(null);
   const [novaEtapaPendente, setNovaEtapaPendente] = useState<LeadReal['etapa_funil'] | null>(null);
 
@@ -349,35 +356,30 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
   const [ctoVinculadaNome, setCtoVinculadaNome] = useState<string>('');
   const [calculandoRota, setCalculandoRota] = useState(false);
 
-  // ============================================================================
-  // 🔥 FUNÇÃO PARA SALVAR PLANO QUANDO O USUÁRIO APENAS SELECIONA NO DROPDOWN
-  // ============================================================================
   const salvarPlanoNoBanco = async (leadId: string, plano: string) => {
-  if (!leadId || !plano) return;
+    if (!leadId || !plano) return;
 
-  try {
-    const res = await fetch('/api/leads', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ id: leadId, plano_escolhido: plano }),
-    });
+    try {
+      const res = await fetch('/api/leads', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: leadId, plano_escolhido: plano }),
+      });
 
-    if (!res.ok) {
-      const erro = await res.json().catch(() => ({}));
-      console.error('❌ Falha ao salvar plano:', res.status, erro);
-      await carregarLeadsDireto(); // desfaz o valor otimista
+      if (!res.ok) {
+        const erro = await res.json().catch(() => ({}));
+        console.error('❌ Falha ao salvar plano:', res.status, erro);
+        await carregarLeadsDireto();
+      }
+    } catch (e) {
+      console.error('❌ Erro de rede ao salvar plano:', e);
+      await carregarLeadsDireto();
     }
-  } catch (e) {
-    console.error('❌ Erro de rede ao salvar plano:', e);
-    await carregarLeadsDireto();
-  }
-};
+  };
 
   const handleSelecionarPlanoLead = async (leadId: string, nomePlanoEscolhido: string) => {
-    // 1. Atualiza visualmente na mesma hora
     setLeadsLista(prev => prev.map(l => l.id === leadId ? { ...l, plano_escolhido: nomePlanoEscolhido } : l));
-    // 2. Tenta salvar no banco de dados
     await salvarPlanoNoBanco(leadId, nomePlanoEscolhido);
   };
 
@@ -593,14 +595,10 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
     }
   };
 
-  // ============================================================================
-  // 🔥 MUDANÇA DE ETAPA BLINDADA USANDO O CONTEXTO COM AVISO CUSTOMIZADO
-  // ============================================================================
   const handleSolicitarMudancaEtapa = async (id: string, etapa: LeadReal['etapa_funil']) => {
     if (etapa === 'MANDAR PARA INSTALAÇÃO' || etapa === 'NAO CONVERTIDO') {
       const leadNoEstado = leadsLista.find(l => l.id === id) || leadsInvertidos.find(l => l.id === id);
       
-      // NOVA LÓGICA: Verifica se foi selecionado "MANDAR PARA INSTALAÇÃO" num lead "SEM COBERTURA"
       if (etapa === 'MANDAR PARA INSTALAÇÃO' && leadNoEstado?.status === 'SEM COBERTURA') {
         setAvisoForaCobertura(true);
       } else {
@@ -647,13 +645,12 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
     }
     fecharModal();
   };
-  // ============================================================================
 
   const fecharModal = () => {
     setModalAberto(false);
     setLeadSelecionado(null);
     setNovaEtapaPendente(null);
-    setAvisoForaCobertura(false); // Reseta o aviso customizado ao fechar
+    setAvisoForaCobertura(false);
   };
 
   const getCtoMaisProximaParaTabela = useCallback((leadLat: number, leadLon: number) => {
@@ -692,7 +689,6 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
   const limiteTotal = configPlanoAtual?.max_leads || 110;
   const precoExcedenteUnitario = configPlanoAtual?.preco_excedente ?? 1.50;
 
-  // LÓGICA ATUALIZADA: Conta Leads COM COBERTURA OU forçados para MANDAR PARA INSTALAÇÃO
   const leadsComCoberturaLista = useMemo(() => {
     return leadsInvertidos.filter(l => 
       isLeadVisivel(l) && 
@@ -753,7 +749,7 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <button 
-              onClick={() => setFiltroTab('TODOS')}
+              onClick={() => { playSound('toc', 0.15); setFiltroTab('TODOS'); }}
               className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold uppercase transition-all cursor-pointer border ${
                 filtroTab === 'TODOS' ? 'bg-emerald-500 text-black border-emerald-500 shadow' : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
               }`}
@@ -761,7 +757,7 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
               Todos ({leadsInvertidos.filter(isLeadVisivel).length})
             </button>
             <button 
-              onClick={() => setFiltroTab('COM COBERTURA')}
+              onClick={() => { playSound('toc', 0.15); setFiltroTab('COM COBERTURA'); }}
               className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold uppercase transition-all cursor-pointer border ${
                 filtroTab === 'COM COBERTURA' ? 'bg-emerald-500 text-black border-emerald-500 shadow' : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
               }`}
@@ -769,7 +765,7 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
               Com Cobertura ({totalComCobertura})
             </button>
             <button 
-              onClick={() => setFiltroTab('SEM COBERTURA')}
+              onClick={() => { playSound('toc', 0.15); setFiltroTab('SEM COBERTURA'); }}
               className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold uppercase transition-all cursor-pointer border ${
                 filtroTab === 'SEM COBERTURA' ? 'bg-emerald-500 text-black border-emerald-500 shadow' : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
               }`}
@@ -831,7 +827,7 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
 
       <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
         <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-          <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2 shrink-0">
+          <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
             <Globe className="w-4 h-4 text-emerald-400" /> Mapa de Calor & Cobertura de Leads ({nomeSedeDinamico})
           </CardTitle>
           
@@ -935,7 +931,7 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
                   <div className="flex items-start justify-between border-b border-zinc-800 pb-3">
                     <div>
                       <span className={`text-[10px] font-bold uppercase tracking-wider block ${eNaoFeitaPainel ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {eNaoFeitaPainel ? '⚠️️ Instalação Não Realizada' : 'Lead Selecionado'}
+                        {eNaoFeitaPainel ? '⚠ Instalação Não Realizada' : 'Lead Selecionado'}
                       </span>
                       <h3 className="text-sm font-bold text-white font-sans mt-0.5">{leadAtivoPainel.nome}</h3>
                       
@@ -1129,7 +1125,7 @@ const ctos = ctosDaApi.length > 0 ? ctosDaApi : (settings?.ctos || []);
                               : 'bg-red-500/10 text-red-400 border-red-500/30'
                           }`}>
                             {
-                              eNaoFeita ? '⚠️️ INSTALAÇÃO NÃO FEITA' :
+                              eNaoFeita ? '⚠ INSTALAÇÃO NÃO FEITA' :
                               etapaAtual === 'MANDAR PARA INSTALAÇÃO' ? '🔵 Aguardando Instalação' :
                               lead.status === 'COM COBERTURA' ? 'COM COBERTURA' : 'SEM COBERTURA'
                             }

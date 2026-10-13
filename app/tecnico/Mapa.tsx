@@ -1,5 +1,5 @@
 // ================================================================================
-// 📋 ROTA DO TÉCNICO (MAPA) - V5 CLOUD (BLINDADO + MAPCONTAINER SEGURO)
+// 📋 ROTA DO TÉCNICO (MAPA) - V5 CLOUD (COM HISTÓRICO DE INSTALAÇÕES)
 // app/tecnico/Mapa.tsx
 // ================================================================================
 
@@ -8,7 +8,9 @@ import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Compass, MessageSquare, ExternalLink, X, Calculator, CheckCircle2, XCircle, Send, Menu, Users, Navigation, MapPin, LoaderCircle } from 'lucide-react';
+import { Compass, MessageSquare, ExternalLink, X, Calculator, CheckCircle2, XCircle, Send, Menu, Users, Navigation, MapPin, LoaderCircle, Settings, Smartphone, History, RefreshCw, LogOut } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
 // Importações dinâmicas do react-leaflet para evitar erros de SSR no Next.js
 const MapContainer = dynamic(() => import('react-leaflet').then((m) => m.MapContainer), { ssr: false });
@@ -40,12 +42,76 @@ function ManipuladorEventosMapa({ fecharPopupTrigger }: { fecharPopupTrigger: nu
 }
 
 export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa: [number, number]; ctos?: any[]; leads?: any[] }) {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [listaLeads, setListaLeads] = useState<any[]>([]);
 
+  // ---------------------------------------------------------
+  // ⚙️ ESTADOS DE CONFIGURAÇÃO E ACESSIBILIDADE
+  // ---------------------------------------------------------
+  const [telaLigada, setTelaLigada] = useState(false);
+  const [maoDominante, setMaoDominante] = useState('direita');
+  const [modoMaoUnica, setModoMaoUnica] = useState(false);
+  const wakeLockRef = useRef<any>(null);
+
   useEffect(() => {
     setMounted(true);
+    if (typeof window !== 'undefined') {
+      setMaoDominante(localStorage.getItem('v5_pref_mao') || 'direita');
+      setModoMaoUnica(localStorage.getItem('v5_pref_mao_unica') === 'true');
+    }
   }, []);
+
+  const isEsquerda = maoDominante === 'esquerda';
+  const isMaoUnica = modoMaoUnica;
+
+  useEffect(() => {
+    return () => {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+      }
+    };
+  }, []);
+
+  const toggleTelaLigada = async () => {
+    try {
+      if (!telaLigada) {
+        if ('wakeLock' in navigator) {
+          const lock = await (navigator as any).wakeLock.request('screen');
+          wakeLockRef.current = lock;
+          setTelaLigada(true);
+        } else {
+          alert("O seu navegador não suporta a função de manter a tela ligada.");
+        }
+      } else {
+        if (wakeLockRef.current) {
+          await wakeLockRef.current.release();
+          wakeLockRef.current = null;
+        }
+        setTelaLigada(false);
+      }
+    } catch (err) {
+      console.error("Erro ao alterar o estado da tela:", err);
+      setTelaLigada(false);
+    }
+  };
+
+  const fazerLogout = async () => {
+    const confirmou = window.confirm("Deseja realmente sair da conta?");
+    if (!confirmou) return;
+    try {
+      await supabase.auth.signOut();
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = '/login';
+    } catch (e) {
+      window.location.href = '/login';
+    }
+  };
+
+  const recarregarApp = () => {
+    window.location.reload();
+  };
 
   useEffect(() => {
     const atualizarLeadsCampo = () => {
@@ -72,9 +138,10 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         }
       }
       
+      // Atualizado para manter o histórico na memória da lista global
       const apenasConvertidos = baseLeads.filter((l: any) => {
         const etapaDoLead = String(l.etapa_funil || '').trim().toUpperCase();
-        return etapaDoLead === 'MANDAR PARA INSTALAÇÃO';
+        return etapaDoLead === 'MANDAR PARA INSTALAÇÃO' || etapaDoLead === 'INSTALAÇÃO FEITA' || etapaDoLead === 'NÃO FEITA';
       });
 
       setListaLeads(apenasConvertidos);
@@ -83,7 +150,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         const ultimosNotificados = localStorage.getItem('v5_leads_notificados_campo');
         const ultimosIds = ultimosNotificados ? JSON.parse(ultimosNotificados) : [];
         
-        const novosLeadsParaNotificar = apenasConvertidos.filter(l => !ultimosIds.includes(l.id));
+        const novosLeadsParaNotificar = apenasConvertidos.filter(l => !ultimosIds.includes(l.id) && l.etapa_funil === 'MANDAR PARA INSTALAÇÃO');
 
         if (novosLeadsParaNotificar.length > 0) {
           const novosIdsUnicos = [...new Set([...ultimosIds, ...novosLeadsParaNotificar.map(l => l.id)])];
@@ -107,7 +174,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     }
     const apenasConvertidos = novaListaCompleta.filter((l: any) => {
       const etapaDoLead = String(l.etapa_funil || '').trim().toUpperCase();
-      return etapaDoLead === 'MANDAR PARA INSTALAÇÃO';
+      return etapaDoLead === 'MANDAR PARA INSTALAÇÃO' || etapaDoLead === 'INSTALAÇÃO FEITA' || etapaDoLead === 'NÃO FEITA';
     });
     setListaLeads(apenasConvertidos);
   };
@@ -154,6 +221,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
 
   const [menuAberto, setMenuAberto] = useState(false);
   const [modalListaAberto, setModalListaAberto] = useState(false);
+  const [modalHistoricoAberto, setModalHistoricoAberto] = useState(false); // Estado do Histórico
 
   const [segurandoId, setSegurandoId] = useState<string | null>(null);
   const [progresso, setProgresso] = useState(0);
@@ -226,7 +294,11 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
     setIconeCtoAlternativa(ctoAlternativaIcon);
   }, []);
 
-  const leadsAtivosNaTela = listaLeads.filter((l: any) => l.statusOperacional !== 'CONCLUIDA' && l.status_instalacao !== 'CONCLUIDA');
+  // Clientes ATIVOS na tela (Removemos os concluídos e os "não feitos" do mapa)
+  const leadsAtivosNaTela = listaLeads.filter((l: any) => l.statusOperacional !== 'CONCLUIDA' && l.status_instalacao !== 'CONCLUIDA' && l.status_instalacao !== 'NÃO FEITA');
+  
+  // Clientes no HISTÓRICO
+  const leadsHistoricoTela = listaLeads.filter((l: any) => l.status_instalacao === 'CONCLUIDA' || l.status_instalacao === 'NÃO FEITA' || l.statusOperacional === 'CONCLUIDA');
 
   const iniciarToqueLongo = (e: any, lead: any) => {
     e.preventDefault();
@@ -275,6 +347,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
       setExibirFormularioNaoFeita(false);
       setMotivoNaoFeita('');
       setModalListaAberto(false);
+      setModalHistoricoAberto(false);
       setMenuAberto(false);
       setCtoSelecionadaIndex(0);
     }
@@ -615,41 +688,126 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
         })}
       </MapContainer>
 
-      <button 
-        onClick={centralizarMinhaLocalizacao}
-        className="absolute bottom-6 right-4 z-[400] bg-zinc-900/90 border border-zinc-700 hover:border-emerald-500 text-emerald-400 p-3 rounded-2xl shadow-xl backdrop-blur transition-all flex items-center justify-center cursor-pointer active:scale-95"
-        title="Minha Localização"
+      {/* ⚙️ BOTÕES FLUTUANTES (ADAPTADOS PARA MÃO DOMINANTE E MÃO ÚNICA) */}
+      <div 
+        className={`absolute z-[400] flex flex-col-reverse gap-3 transition-all duration-300 pointer-events-none ${
+          isEsquerda ? 'left-4 items-start' : 'right-4 items-end'
+        } ${
+          isMaoUnica ? 'bottom-4' : 'bottom-6'
+        }`}
       >
-        <Compass className="w-5 h-5 animate-pulse" />
-      </button>
-
-      <div className="absolute bottom-6 left-4 z-[400]">
+        
+        {/* Menu Retrátil de Opções */}
         {menuAberto && (
-          <div className="absolute bottom-14 left-0 w-64 bg-zinc-900/95 border border-zinc-700 rounded-2xl p-2 shadow-2xl backdrop-blur-md flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-200">
+          <div 
+            className={`absolute pointer-events-auto ${isMaoUnica ? 'bottom-[68px]' : 'bottom-[68px]'} ${isEsquerda ? 'left-0' : 'right-0'} w-64 bg-zinc-900/95 border border-zinc-700 rounded-2xl p-2 shadow-2xl backdrop-blur-md flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-200`}
+          >
+            {/* O Botão de Localização Flutuante fica visível apenas quando o menu abre */}
+            <div className={`absolute -top-14 ${isEsquerda ? 'right-0' : 'right-0'}`}>
+               <button 
+                onClick={centralizarMinhaLocalizacao}
+                className="w-12 h-12 bg-zinc-900/90 border border-zinc-700 hover:border-emerald-500 text-emerald-400 rounded-2xl shadow-xl backdrop-blur transition-all duration-300 ease-out flex items-center justify-center cursor-pointer active:scale-95"
+                title="Minha Localização"
+               >
+                 <Compass className="w-5 h-5" />
+               </button>
+            </div>
+
+            <div className="px-3 py-1.5 text-[10px] font-mono uppercase font-bold text-zinc-500 border-b border-zinc-800">
+              Opções de Campo
+            </div>
+
             <button
               onClick={() => { setMenuAberto(false); irParaClienteMaisProximo(); }}
-              className="w-full bg-emerald-600/20 border border-emerald-500/40 hover:bg-emerald-600/30 text-emerald-300 font-mono text-[11px] font-bold uppercase p-2.5 rounded-xl flex items-center gap-2 cursor-pointer transition-all text-left"
+              className="w-full text-left bg-transparent hover:bg-emerald-500/10 text-emerald-300 font-mono text-[11px] font-bold uppercase px-3 py-2.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors"
             >
               <Navigation className="w-4 h-4 text-emerald-400 shrink-0" /> Cliente Mais Próximo
             </button>
 
             <button
               onClick={() => { setMenuAberto(false); setModalListaAberto(true); }}
-              className="w-full bg-blue-600/20 border border-blue-500/40 hover:bg-blue-600/30 text-blue-300 font-mono text-[11px] font-bold uppercase p-2.5 rounded-xl flex items-center gap-2 cursor-pointer transition-all text-left"
+              className="w-full text-left bg-transparent hover:bg-blue-500/10 text-blue-300 font-mono text-[11px] font-bold uppercase px-3 py-2.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors"
             >
-              <Users className="w-4 h-4 text-blue-400 shrink-0" /> Lista de Instalações ({leadsAtivosNaTela.length})
+              <Users className="w-4 h-4 text-blue-400 shrink-0" /> Lista ({leadsAtivosNaTela.length})
+            </button>
+
+            {/* Opção de Mão Única: Botões ao lado do histórico */}
+            <div className="flex items-center w-full gap-2">
+               <button
+                  onClick={(e) => { e.preventDefault(); toggleTelaLigada(); }}
+                  className={`flex-1 text-left bg-transparent ${telaLigada ? 'hover:bg-emerald-500/10 text-emerald-300' : 'hover:bg-zinc-800/50 text-zinc-400'} font-mono text-[11px] font-bold uppercase px-3 py-2.5 rounded-xl flex items-center justify-between cursor-pointer transition-colors`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Smartphone className={`w-4 h-4 ${telaLigada ? 'text-emerald-400' : 'text-zinc-500'} shrink-0`} />
+                    <span>Tela Sempre Ligada</span>
+                  </div>
+                  <div className={`w-8 h-4 rounded-full p-0.5 transition-colors duration-300 ${telaLigada ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
+                    <div className={`w-3 h-3 rounded-full bg-white transition-transform duration-300 ${telaLigada ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </div>
+               </button>
+            </div>
+            
+            <div className="flex items-center w-full gap-2">
+              <button
+                onClick={() => { setMenuAberto(false); setModalHistoricoAberto(true); }}
+                className="flex-1 text-left bg-transparent hover:bg-zinc-800/50 text-zinc-300 font-mono text-[11px] font-bold uppercase px-3 py-2.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors"
+              >
+                <History className="w-4 h-4 text-zinc-400 shrink-0" /> Histórico
+              </button>
+
+              {/* Botões do Header movidos para cá no Modo Mão Única */}
+              {isMaoUnica && (
+                <div className="flex gap-2">
+                  <button 
+                    onClick={fazerLogout}
+                    className="w-10 h-10 bg-red-900/30 border border-red-800 hover:border-red-500 text-red-400 rounded-xl shadow-xl backdrop-blur transition-all flex items-center justify-center cursor-pointer active:scale-95"
+                    title="Sair"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                   <button 
+                    onClick={recarregarApp}
+                    className="w-10 h-10 bg-zinc-900/90 border border-zinc-700 hover:border-emerald-500 text-emerald-400 rounded-xl shadow-xl backdrop-blur transition-all flex items-center justify-center cursor-pointer active:scale-95"
+                    title="Recarregar"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => { setMenuAberto(false); router.push('/tecnico/config'); }}
+              className="w-full text-left bg-transparent hover:bg-amber-500/10 text-amber-300 font-mono text-[11px] font-bold uppercase px-3 py-2.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors border-t border-zinc-800 mt-1 pt-2.5"
+            >
+              <Settings className="w-4 h-4 text-amber-400 shrink-0" /> Configurações
             </button>
           </div>
         )}
 
-        <button
-          onClick={() => setMenuAberto(!menuAberto)}
-          className="bg-zinc-900/90 border border-zinc-700 hover:border-emerald-500 text-emerald-400 px-4 py-3 rounded-2xl shadow-xl backdrop-blur flex items-center gap-2 font-mono text-xs uppercase font-bold cursor-pointer transition-all active:scale-95"
-        >
-          <Menu className="w-4 h-4" /> Opções de Campo
-        </button>
+        {/* Layout principal muda consoante a preferência de mão */}
+        <div className={`flex flex-col-reverse gap-3 pointer-events-auto ${isEsquerda ? 'items-start' : 'items-end'}`}>
+          <button
+            onClick={() => setMenuAberto(!menuAberto)}
+            className="w-12 h-12 bg-zinc-900/90 border border-zinc-700 hover:border-emerald-500 text-emerald-400 rounded-2xl shadow-xl backdrop-blur transition-all flex items-center justify-center cursor-pointer active:scale-95"
+            title="Opções de Campo"
+          >
+            <Menu className={`w-5 h-5 transition-transform duration-300 ${menuAberto ? 'rotate-90' : ''}`} />
+          </button>
+          
+           {!menuAberto && (
+             <button 
+              onClick={centralizarMinhaLocalizacao}
+              className="w-12 h-12 bg-zinc-900/90 border border-zinc-700 hover:border-emerald-500 text-emerald-400 rounded-2xl shadow-xl backdrop-blur transition-all duration-300 ease-out flex items-center justify-center cursor-pointer active:scale-95"
+              title="Minha Localização"
+            >
+              <Compass className="w-5 h-5" />
+            </button>
+           )}
+        </div>
       </div>
 
+      {/* MODAL: LISTA DE CLIENTES ATIVOS */}
       {modalListaAberto && (
         <div className="absolute inset-0 z-[600] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 animate-in fade-in duration-200">
           <div className="bg-zinc-900 border border-zinc-800 w-full md:max-w-lg rounded-t-3xl md:rounded-2xl p-5 max-h-[85vh] flex flex-col shadow-2xl">
@@ -676,7 +834,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
               ) : (
                 leadsAtivosNaTela.map((lead: any, index: number) => {
                   const estaSegurandoLista = segurandoId === lead.id;
-                  const pendente = lead.statusOperacional === 'PENDENTE_ANALISE' || lead.status_instalacao === 'PENDENTE' || lead.status_instalacao === 'NÃO FEITA';
+                  const pendente = lead.statusOperacional === 'PENDENTE_ANALISE' || lead.status_instalacao === 'PENDENTE';
 
                   return (
                     <div 
@@ -720,6 +878,64 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                           {estaSegurandoLista ? 'Ativando Foco...' : 'Instalar'}
                         </button>
                       </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: HISTÓRICO DE INSTALAÇÕES */}
+      {modalHistoricoAberto && (
+        <div className="absolute inset-0 z-[600] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 w-full md:max-w-lg rounded-t-3xl md:rounded-2xl p-5 max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="flex justify-between items-center pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-zinc-400" />
+                <h3 className="font-mono font-bold text-xs uppercase tracking-wider text-white">
+                  Histórico de Instalações
+                </h3>
+              </div>
+              <button 
+                onClick={() => setModalHistoricoAberto(false)}
+                className="text-zinc-400 hover:text-white p-1.5 rounded-lg hover:bg-zinc-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-3 space-y-3">
+              {leadsHistoricoTela.length === 0 ? (
+                <div className="text-center py-12 text-zinc-500 font-mono text-xs">
+                  Nenhum histórico registrado hoje.
+                </div>
+              ) : (
+                leadsHistoricoTela.map((lead: any, index: number) => {
+                  const foiConcluida = lead.status_instalacao === 'CONCLUIDA' || lead.statusOperacional === 'CONCLUIDA';
+
+                  return (
+                    <div 
+                      key={lead.id || index}
+                      className="bg-black/40 border border-zinc-800 rounded-xl p-3.5 flex flex-col gap-2 hover:border-zinc-700 transition-all"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-bold text-sm text-white font-sans">{lead.nome || 'Cliente'}</h4>
+                          <p className="text-xs text-zinc-400 font-sans flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3 h-3 text-zinc-500 shrink-0" /> {lead.endereco || 'Endereço não informado'}
+                          </p>
+                        </div>
+                        <span className={`text-[10px] font-mono font-bold uppercase px-2 py-1 rounded-md shrink-0 ${foiConcluida ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
+                          {foiConcluida ? '✔️ Feita' : '❌ Não Feita'}
+                        </span>
+                      </div>
+                      {!foiConcluida && lead.motivo_pendencia && (
+                        <div className="text-[10px] font-mono text-amber-400 bg-amber-500/10 p-2 rounded-lg mt-1 border border-amber-500/20">
+                          Motivo: {lead.motivo_pendencia}
+                        </div>
+                      )}
                     </div>
                   );
                 })

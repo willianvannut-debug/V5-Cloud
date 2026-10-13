@@ -1,5 +1,5 @@
 // ================================================================================
-// 📋 ROTA DE VIABILIDADE E INTEGRAÇÕES - V5 CLOUD
+// 📋 ROTA DE VIABILIDADE E INTEGRAÇÕES - V5 CLOUD (COM SOM NATIVO EM TODOS OS BOTÕES)
 // app/dashboard/viabilidade/page.tsx
 // ================================================================================
 
@@ -24,6 +24,67 @@ const TileLayer = dynamic(() => import('react-leaflet').then((mod) => mod.TileLa
 const Marker = dynamic(() => import('react-leaflet').then((mod) => mod.Marker), { ssr: false });
 const useMap = dynamic(() => import('react-leaflet').then((mod) => mod.useMap), { ssr: false });
 const useMapEvents = dynamic(() => import('react-leaflet').then((mod) => mod.useMapEvents), { ssr: false });
+
+// 🔊 Sintetizador sonoro nativo blindado (funciona 100% sem dependências de ficheiros)
+const tocarEfeitoSonoro = (tipo: 'clique' | 'sucesso' | 'erro' | 'copiar' | 'pop') => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+
+    if (tipo === 'clique') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(800, now + 0.05);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+      osc.start(now);
+      osc.stop(now + 0.05);
+    } else if (tipo === 'pop') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.exponentialRampToValueAtTime(200, now + 0.06);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.06);
+      osc.start(now);
+      osc.stop(now + 0.06);
+    } else if (tipo === 'copiar') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.setValueAtTime(880, now + 0.08);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } else if (tipo === 'sucesso') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, now); 
+      osc.frequency.setValueAtTime(659.25, now + 0.08); 
+      osc.frequency.setValueAtTime(783.99, now + 0.16); 
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } else if (tipo === 'erro') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(200, now);
+      osc.frequency.setValueAtTime(150, now + 0.1);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    }
+  } catch (e) {
+    // Ignora se o navegador bloquear autoplay restrito
+  }
+};
 
 function MapResizeFix() {
   const map = useMap();
@@ -143,10 +204,12 @@ export default function ViabilidadePage() {
   }, []);
 
   const mostrarAlerta = (titulo: string, mensagem: string) => {
+    tocarEfeitoSonoro('erro');
     setAlertaCustomizado({ visivel: true, titulo, mensagem });
   };
 
   const fecharAlerta = () => {
+    tocarEfeitoSonoro('pop');
     setAlertaCustomizado({ visivel: false, titulo: '', mensagem: '' });
   };
 
@@ -269,11 +332,13 @@ export default function ViabilidadePage() {
   };
 
   const abrirModalMapaCliente = () => {
+    tocarEfeitoSonoro('pop');
     setModalMapaAberto(true);
   };
 
   const handleBuscarEnderecoMapa = async () => {
     if (!enderecoBuscaMapa) return;
+    tocarEfeitoSonoro('clique');
     setCarregandoBuscaMapa(true);
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(enderecoBuscaMapa + ", Águas Lindas de Goiás, GO")}&limit=1`);
@@ -294,11 +359,10 @@ export default function ViabilidadePage() {
     }
   };
 
-  // 🛡️ CORREÇÃO BLINDADA: Protegido contra falhas de rede e CORS externos
   const buscarEnderecoReverso = async (novasCoords: { lat: number; lon: number }) => {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000); // Timeout de segurança de 4s
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
 
       const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${novasCoords.lat}&lon=${novasCoords.lon}`, {
         signal: controller.signal
@@ -312,12 +376,12 @@ export default function ViabilidadePage() {
         }
       }
     } catch (err) {
-      // Ignora silenciosamente falhas de fetch externas para não quebrar a experiência do atendente
       console.warn("Aviso: Falha temporária ao obter endereço reverso via Nominatim.");
     }
   };
 
   const handleConfirmarPinCliente = () => {
+    tocarEfeitoSonoro('sucesso');
     setCoordsCliente({
       lat: coordsTemp.lat,
       lon: coordsTemp.lon
@@ -346,6 +410,7 @@ export default function ViabilidadePage() {
       return;
     }
 
+    tocarEfeitoSonoro('clique');
     setCalculandoRota(true);
 
     try {
@@ -376,6 +441,12 @@ export default function ViabilidadePage() {
       const statusFinal = temCobertura ? 'COM COBERTURA' : 'SEM COBERTURA';
       const distanciaFinalArredondada = Math.round(menorDistanciaMetros);
       const ctoFinal = temCobertura ? ctoMaisProxima : 'Sem CTO';
+
+      if (temCobertura) {
+        tocarEfeitoSonoro('sucesso');
+      } else {
+        tocarEfeitoSonoro('erro');
+      }
 
       const novaConsulta: ConsultaItem = {
         id: Date.now().toString(),
@@ -430,6 +501,7 @@ export default function ViabilidadePage() {
 
     } catch (error) {
       console.error("Erro no cálculo de viabilidade:", error);
+      tocarEfeitoSonoro('erro');
       await logger.erro(
         'ERRO_CONSULTA_VIABILIDADE',
         'leads',
@@ -447,6 +519,7 @@ export default function ViabilidadePage() {
   };
 
   const limparTudo = () => {
+    tocarEfeitoSonoro('pop');
     setNomeCliente('');
     setTelefoneCliente('');
     setCep('');
@@ -457,6 +530,7 @@ export default function ViabilidadePage() {
   };
 
   const novoTeste = () => {
+    tocarEfeitoSonoro('pop');
     setNomeCliente('');
     setTelefoneCliente('');
     setCep('');
@@ -486,6 +560,7 @@ export default function ViabilidadePage() {
   const codigoIframe = `<iframe \n  src="${linkPublico}" \n  width="100%" \n  height="850px" \n  frameborder="0" \n  style="border: none; border-radius: 16px; overflow: hidden;"\n></iframe>`;
 
   const copiarTexto = (texto: string, tipo: 'link' | 'iframe') => {
+    tocarEfeitoSonoro('copiar');
     navigator.clipboard.writeText(texto);
     if (tipo === 'link') {
       setCopiadoLink(true);
@@ -498,6 +573,7 @@ export default function ViabilidadePage() {
 
   const handleCheckoutAddon = async () => {
     try {
+      tocarEfeitoSonoro('clique');
       setCarregandoCheckout(true);
       
       const empresaId = empresaDados?.id || operador?.empresaId || operador?.empresa_id;
@@ -572,6 +648,7 @@ export default function ViabilidadePage() {
                 href={linkPublico}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => tocarEfeitoSonoro('clique')}
                 className="px-4 py-3 rounded-xl border bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all cursor-pointer flex items-center justify-center"
                 title="Abrir link num novo separador"
               >
@@ -904,7 +981,7 @@ export default function ViabilidadePage() {
               <h3 className="text-xs uppercase font-mono tracking-wider text-emerald-400 font-bold flex items-center gap-2">
                 <Navigation className="w-4 h-4" /> Clique no Mapa ou Arraste o PIN Neon para a Casa do Cliente
               </h3>
-              <button onClick={() => setModalMapaAberto(false)} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
+              <button onClick={() => { tocarEfeitoSonoro('pop'); setModalMapaAberto(false); }} className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -951,7 +1028,7 @@ export default function ViabilidadePage() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setModalMapaAberto(false)} className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-mono uppercase font-bold cursor-pointer">
+                <button type="button" onClick={() => { tocarEfeitoSonoro('pop'); setModalMapaAberto(false); }} className="px-4 py-2 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-mono uppercase font-bold cursor-pointer">
                   Cancelar
                 </button>
                 <button type="button" onClick={handleConfirmarPinCliente} className="px-5 py-2 rounded-xl bg-emerald-500 text-black hover:bg-emerald-400 text-xs font-mono uppercase font-bold cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.3)]">

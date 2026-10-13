@@ -1,28 +1,218 @@
 // ================================================================================
-// 📋 ROOT MASTER - VISÃO ANALÍTICA GLOBAL SAAS (DADOS 100% REAIS DO SUPABASE)
+// 📋 ROOT MASTER - VISÃO ANALÍTICA GLOBAL SAAS (COM CLUSTERING GEOMÉTRICO POR PIXÉIS)
 // app/dashboard/superadmin/page.tsx
 // ================================================================================
 
 "use client"
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { 
   Building2, Search, Users, MapPin, Crosshair, ShieldAlert, CheckCircle2, 
   XCircle, Activity, DollarSign, TrendingUp, AlertTriangle, PieChart as PieChartIcon, 
-  BarChart3, Calendar, Zap, Maximize2, X, Network, Wrench
+  BarChart3, Calendar, Zap, Maximize2, X, Network, Globe
 } from 'lucide-react';
 import { Card, CardContent } from "@/components/ui/card";
 import { 
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend, BarChart, Bar
 } from 'recharts';
+import dynamic from 'next/dynamic';
 
 const PRECOS_BASE: Record<string, number> = { 'essencial': 97, 'pro': 197, 'scale': 297, 'ultra': 497 };
 const CORES_PLANOS = { 'essencial': '#3b82f6', 'pro': '#8b5cf6', 'scale': '#10b981', 'ultra': '#f59e0b' };
 const CORES_STATUS = { 'ativa': '#10b981', 'inadimplente': '#ef4444', 'cancelada': '#71717a', 'trial': '#3b82f6' };
 
-const USAR_DADOS_FALSOS = false;
+// 🗺️ Mapa com Agrupamento Geométrico Real para evitar qualquer sobreposição
+const MapaAssinantesNoSSR = dynamic(
+  async () => {
+    if (typeof window !== 'undefined') {
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+
+      if (!document.getElementById('leaflet-dark-mode-superadmin')) {
+        const style = document.createElement('style');
+        style.id = 'leaflet-dark-mode-superadmin';
+        style.innerHTML = `
+          .leaflet-tile-pane {
+            filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(90%) grayscale(100%) !important;
+          }
+          .leaflet-container {
+            background: #09090b !important;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    }
+
+    const { MapContainer, TileLayer, Marker, Popup, useMap } = await import('react-leaflet');
+    
+    // Componente de cálculo geométrico em pixéis para união imediata sem sobreposição
+    function DynamicClusterLayer({ empresas }: { empresas: any[] }) {
+      const map = useMap();
+      const [clusterizados, setClusterizados] = useState<any[]>([]);
+
+      useEffect(() => {
+        if (!map) return;
+
+        const calcularClusters = () => {
+          const zoom = map.getZoom();
+          // Raio de proximidade em pixéis no ecrã (se estiverem a menos de 45px, fundem-se numa só)
+          const raioPixel = 45; 
+
+          const pontosNoEcra = empresas.map(emp => {
+            const pontoLatLng = L.latLng(emp.lat, emp.lon);
+            const pontoPixel = map.latLngToLayerPoint(pontoLatLng);
+            return { ...emp, pontoPixel };
+          });
+
+          const processados: any[] = [];
+          const usados = new Set();
+
+          pontosNoEcra.forEach((p1, i) => {
+            if (usados.has(i)) return;
+
+            const grupo = [p1];
+            usados.add(i);
+
+            pontosNoEcra.forEach((p2, j) => {
+              if (usados.has(j)) return;
+              const distanciaPx = p1.pontoPixel.distanceTo(p2.pontoPixel);
+              if (distanciaPx <= raioPixel) {
+                grupo.push(p2);
+                usados.add(j);
+              }
+            });
+
+            if (grupo.length === 1) {
+              processados.push({ tipo: 'individual', ...grupo[0] });
+            } else {
+              // Calcula o centro geográfico exato do grupo fundido
+              let somaLat = 0;
+              let somaLon = 0;
+              grupo.forEach(g => {
+                somaLat += g.lat;
+                somaLon += g.lon;
+              });
+              processados.push({
+                tipo: 'cluster',
+                id: `cluster-${i}`,
+                lat: somaLat / grupo.length,
+                lon: somaLon / grupo.length,
+                quantidade: grupo.length,
+                itens: grupo
+              });
+            }
+          });
+
+          setClusterizados(processados);
+        };
+
+        calcularClusters();
+
+        map.on('moveend zoomend', calcularClusters);
+        return () => {
+          map.off('moveend zoomend', calcularClusters);
+        };
+      }, [map, empresas]);
+
+      const L = require('leaflet');
+
+      return (
+        <>
+          {clusterizados.map((item: any) => {
+            if (item.tipo === 'cluster') {
+              const iconeCluster = L.divIcon({
+                className: 'cluster-marker-superadmin',
+                html: `<div style="background-color: #3b82f6; color: #fff; font-weight: 900; font-family: monospace; font-size: 12px; width: 34px; height: 34px; border: 2px solid #ffffff; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(59,130,246,0.6);">${item.quantidade}</div>`,
+                iconSize: [34, 34],
+                iconAnchor: [17, 17]
+              });
+
+              return (
+                <Marker key={item.id} position={[item.lat, item.lon]} icon={iconeCluster}>
+                  <Popup>
+                    <div className="font-mono text-xs text-zinc-950 p-1 space-y-1.5">
+                      <strong className="text-blue-600 block font-black text-sm uppercase">Região com {item.quantidade} Instâncias</strong>
+                      <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                        {item.itens.map((inst: any) => (
+                          <div key={inst.id} className="border-b border-zinc-200 pb-1">
+                            <span className="font-bold block text-zinc-900">{inst.nome_empresa || 'Anônima'}</span>
+                            <span className="text-[10px] text-zinc-600">Plano: {inst.plano || 'Essencial'}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <span className="font-sans text-zinc-500 block text-[10px] pt-1">Aproxime o zoom para separar os pins.</span>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            } else {
+              const status = item.status_assinatura?.toLowerCase() || 'ativa';
+              const corPin = status === 'inadimplente' ? '#ef4444' : status === 'cancelada' ? '#71717a' : '#10b981';
+              
+              const customIcon = L.divIcon({
+                className: 'custom-assinante-pin',
+                html: `<div style="
+                  width: 16px;
+                  height: 16px;
+                  background-color: ${corPin};
+                  border: 2px solid #ffffff;
+                  box-shadow: 0 0 14px ${corPin}, 0 0 24px ${corPin};
+                  border-radius: 50%;
+                  cursor: pointer;
+                "></div>`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+              });
+
+              return (
+                <Marker key={`emp-map-${item.id}`} position={[item.lat, item.lon]} icon={customIcon}>
+                  <Popup>
+                    <div className="font-mono text-xs text-zinc-900 p-1 space-y-1">
+                      <strong className="text-emerald-600 block font-black text-sm uppercase">{item.nome_empresa || 'Instância Anônima'}</strong>
+                      <span className="font-sans text-zinc-700 block"><b>Plano:</b> {item.plano || 'ESSENCIAL'}</span>
+                      <span className="font-sans text-zinc-700 block"><b>Status:</b> {item.status_assinatura || 'Ativa'}</span>
+                      <span className="font-sans text-zinc-700 block"><b>Leads Processados:</b> {item.consumo?.leads || 0}</span>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            }
+          })}
+        </>
+      );
+    }
+
+    return function MapComponent({ empresas }: { empresas: any[] }) {
+      const centroPadrao: [number, number] = [-15.7797, -47.9297];
+      const empresasComCoordenadas = useMemo(() => {
+        return empresas.filter(e => e.lat && e.lon && !isNaN(e.lat) && !isNaN(e.lon));
+      }, [empresas]);
+
+      return (
+        <MapContainer 
+          center={centroPadrao} 
+          zoom={4} 
+          minZoom={3}
+          style={{ width: '100%', height: '100%', background: '#09090b' }}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <DynamicClusterLayer empresas={empresasComCoordenadas} />
+        </MapContainer>
+      );
+    };
+  },
+  { ssr: false }
+);
 
 export default function RootMasterSaaS() {
   const router = useRouter();
@@ -42,7 +232,6 @@ export default function RootMasterSaaS() {
   const [modalCtosAberto, setModalCtosAberto] = useState(false);
   const [buscaModalCtos, setBuscaModalCtos] = useState('');
 
-  // Estados para o Modal de Equipe Completa
   const [modalEquipeAberto, setModalEquipeAberto] = useState(false);
   const [buscaModalEquipe, setBuscaModalEquipe] = useState('');
 
@@ -54,9 +243,8 @@ export default function RootMasterSaaS() {
   
   const [mrrEstimado, setMrrEstimado] = useState(0);
   const [taxaInadimplencia, setTaxaInadimplencia] = useState(0);
-
-  // Estados para métricas de Equipe por Empresa
   const [listaEquipeEmpresas, setListaEquipeEmpresas] = useState<any[]>([]);
+  const [mapaPronto, setMapaPronto] = useState(false);
 
   useEffect(() => {
     if (carregandoAuth) return;
@@ -66,6 +254,7 @@ export default function RootMasterSaaS() {
   }, [operador, carregandoAuth, router]);
 
   useEffect(() => {
+    setMapaPronto(true);
     async function carregarConsumoSaaS() {
       setCarregandoDados(true);
       setErroSincronizacao(null);
@@ -105,7 +294,6 @@ export default function RootMasterSaaS() {
           
           if (statusStr === 'inadimplente') inadimplentes++;
 
-          // Extração dos dados reais de operadores por empresa vindos da API
           const totalAtend = emp.consumo?.atendentes || 0;
           const totalTec = emp.consumo?.tecnicos || 0;
           const equipeCount = emp.consumo?.equipe || (totalAtend + totalTec) || 1;
@@ -294,6 +482,30 @@ export default function RootMasterSaaS() {
         <Card className="border border-zinc-900 bg-black/40 backdrop-blur shadow-xl"><CardContent className="p-5 flex flex-col justify-between h-full"><div className="flex justify-between items-center text-zinc-400 mb-4"><span className="text-[10px] font-mono uppercase tracking-widest font-bold">Volume Global Leads</span><Users className="w-4 h-4 text-purple-400" /></div><div><h3 className="text-3xl font-black font-mono text-white">{totalLeadsSaaS}</h3><span className="text-[10px] text-zinc-500 font-mono mt-1 block">Processados</span></div></CardContent></Card>
         <Card className="border border-zinc-900 bg-black/40 backdrop-blur shadow-xl"><CardContent className="p-5 flex flex-col justify-between h-full"><div className="flex justify-between items-center text-zinc-400 mb-4"><span className="text-[10px] font-mono uppercase tracking-widest font-bold">CTOs / Usuários</span><MapPin className="w-4 h-4 text-amber-400" /></div><div><h3 className="text-3xl font-black font-mono text-white">{totalCtosSaaS} <span className="text-lg text-zinc-600">/</span> {totalUsuariosSaaS}</h3><span className="text-[10px] text-zinc-500 font-mono mt-1 block">Caixas / Equipes</span></div></CardContent></Card>
       </div>
+
+      {/* 🗺️ MAPA COM CLUSTERING GEOMÉTRICO (SEM ENCOSTAR) */}
+      <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur shadow-xl relative overflow-hidden">
+        <div className="p-5 border-b border-zinc-900 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div>
+            <h3 className="text-xs uppercase font-mono tracking-widest text-zinc-300 font-bold flex items-center gap-2">
+              <Globe className="w-4 h-4 text-emerald-400" /> Mapa de Concentração de Assinantes (Clustering Geométrico)
+            </h3>
+            <p className="text-[11px] text-zinc-500 font-mono mt-0.5">As bolinhas próximas fundem-se perfeitamente numa única representação numérica ao afastar o zoom.</p>
+          </div>
+          <div className="flex items-center gap-4 text-[10px] font-mono uppercase font-bold text-zinc-400">
+            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 bg-[#3b82f6] rounded-full"></div> Cluster</div>
+            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 bg-[#10b981] rounded-full"></div> Ativa</div>
+            <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 bg-[#ef4444] rounded-full"></div> Inadimplente</div>
+          </div>
+        </div>
+        <CardContent className="p-0">
+          <div className="relative w-full h-[450px] bg-[#09090b] z-0">
+            {mapaPronto && (
+              <MapaAssinantesNoSSR empresas={empresas} />
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         

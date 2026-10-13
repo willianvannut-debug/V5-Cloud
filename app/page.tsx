@@ -364,11 +364,11 @@ export default function LandingPage() {
               </button>
             </div>
 
-            {/* Container do Vídeo */}
+            {/* Container do Vídeo (URL Atualizada) */}
             <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black border border-zinc-800">
               <iframe 
                 className="absolute inset-0 w-full h-full"
-                src="https://www.youtube.com/embed/l8W57vyA2Y0?autoplay=1" 
+                src="https://www.youtube.com/embed/NloapfLpXgQ?autoplay=1" 
                 title="Demonstração V5 Cloud" 
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
                 allowFullScreen
