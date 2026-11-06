@@ -1,9 +1,9 @@
 // ================================================================================
 // ROTA DE CLIENTES - SUPABASE (CRUD + LOGS + MULTI-TENANT)
-// app/api/clientes/route.ts
+// app/api/clientes/route.js
 // ================================================================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { jwtVerify } from 'jose';
 
@@ -21,20 +21,13 @@ const JWT_SECRET = new TextEncoder().encode(
 );
 
 // Limpar texto contra XSS
-function sanitizarTexto(str: any): string {
+function sanitizarTexto(str) {
   if (typeof str !== 'string') return '';
   return str.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '').trim();
 }
 
 // Registrar log no banco
-async function registrarLog(
-  email: string,
-  acao: string,
-  nivel: 'SUCCESS' | 'ERROR' | 'WARNING' | 'INFO',
-  mensagem: string,
-  request: NextRequest,
-  detalhes?: Record<string, any>
-) {
+async function registrarLog(email, acao, nivel, mensagem, request, detalhes) {
   try {
     const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
     const userAgent = request.headers.get('user-agent') || '';
@@ -59,11 +52,7 @@ async function registrarLog(
 }
 
 // Validar JWT ou API_SECRET
-async function validarAutorizacao(request: NextRequest): Promise<{
-  autorizado: boolean;
-  empresaIdSessao?: string;
-  emailOperador?: string;
-}> {
+async function validarAutorizacao(request) {
   const authHeader = request.headers.get('authorization');
   const token = authHeader?.replace('Bearer ', '').trim();
   if (API_SECRET && token === API_SECRET) {
@@ -76,8 +65,8 @@ async function validarAutorizacao(request: NextRequest): Promise<{
       const { payload } = await jwtVerify(cookieSessao.value, JWT_SECRET);
       return {
         autorizado: true,
-        empresaIdSessao: payload.empresaId as string,
-        emailOperador: payload.email as string
+        empresaIdSessao: payload.empresaId,
+        emailOperador: payload.email
       };
     } catch (e) {
       console.error('Erro ao verificar JWT na API de clientes:', e);
@@ -88,9 +77,9 @@ async function validarAutorizacao(request: NextRequest): Promise<{
 }
 
 // ==========================================
-// GET - LISTAR CLIENTES
+// GET - LISTAR CLIENTES ou BUSCAR POR ID
 // ==========================================
-export async function GET(request: NextRequest) {
+export async function GET(request) {
   try {
     const auth = await validarAutorizacao(request);
     if (!auth.autorizado) {
@@ -101,20 +90,52 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const clienteId = searchParams.get('id');
     const empresaId = searchParams.get('empresa_id') || auth.empresaIdSessao;
+
+    // ========== BUSCAR CLIENTE INDIVIDUAL ==========
+    if (clienteId) {
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('*')
+        .eq('id', clienteId)
+        .eq('empresa_id', empresaId)
+        .single();
+
+      if (error || !data) {
+        return NextResponse.json({ success: false, error: 'Cliente nao encontrado' }, { status: 404 });
+      }
+
+      return NextResponse.json({ success: true, data });
+    }
+
+    // ========== LISTAR TODOS OS CLIENTES ==========
     const busca = searchParams.get('busca') || '';
     const status = searchParams.get('status') || '';
     const pagina = parseInt(searchParams.get('pagina') || '1');
     const porPagina = parseInt(searchParams.get('por_pagina') || '50');
 
+    // Primeiro buscar contadores (todos os clientes, sem paginacao)
+    const { data: todosClientes } = await supabase
+      .from('clientes')
+      .select('status')
+      .eq('empresa_id', empresaId);
+
+    const todos = todosClientes || [];
+    const contadores = {
+      total: todos.length,
+      ativos: todos.filter(c => c.status === 'ativo').length,
+      inadimplentes: todos.filter(c => c.status === 'inadimplente').length,
+      bloqueados: todos.filter(c => c.status === 'bloqueado').length,
+      cancelados: todos.filter(c => c.status === 'cancelado').length,
+    };
+
+    // Query com paginacao e filtros
     let query = supabase
       .from('clientes')
       .select('*', { count: 'exact' })
+      .eq('empresa_id', empresaId)
       .order('created_at', { ascending: false });
-
-    if (empresaId) {
-      query = query.eq('empresa_id', empresaId);
-    }
 
     // Filtro por status
     if (status && status !== 'todos') {
@@ -136,13 +157,15 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({
+      success: true,
       clientes: clientes || [],
+      contadores,
       total: count || 0,
       pagina,
       porPagina,
       totalPaginas: Math.ceil((count || 0) / porPagina),
     }, { status: 200 });
-  } catch (error: any) {
+  } catch (error) {
     console.error('ERRO (GET clientes):', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -151,7 +174,7 @@ export async function GET(request: NextRequest) {
 // ==========================================
 // POST - CADASTRAR NOVO CLIENTE
 // ==========================================
-export async function POST(request: NextRequest) {
+export async function POST(request) {
   try {
     const auth = await validarAutorizacao(request);
     if (!auth.autorizado) {
@@ -346,7 +369,7 @@ export async function POST(request: NextRequest) {
             }
           );
         }
-      } catch (mkErr: any) {
+      } catch (mkErr) {
         pppoeError = mkErr.message || 'Erro de conexao com MikroTik';
         console.error('Erro de conexao ao criar PPPoE:', pppoeError);
       }
@@ -369,7 +392,7 @@ export async function POST(request: NextRequest) {
         erro: pppoeError || null,
       },
     }, { status: 201 });
-  } catch (error: any) {
+  } catch (error) {
     console.error('ERRO CRITICO NO POST (clientes):', error.message);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
@@ -378,7 +401,7 @@ export async function POST(request: NextRequest) {
 // ==========================================
 // PUT - ATUALIZAR CLIENTE
 // ==========================================
-export async function PUT(request: NextRequest) {
+export async function PUT(request) {
   try {
     const auth = await validarAutorizacao(request);
     if (!auth.autorizado) {
@@ -392,7 +415,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'ID do cliente nao fornecido' }, { status: 400 });
     }
 
-    const dadosAtualizados: any = {};
+    const dadosAtualizados = {};
 
     if (body.nome !== undefined) dadosAtualizados.nome = sanitizarTexto(body.nome);
     if (body.cpf !== undefined) dadosAtualizados.cpf = sanitizarTexto(body.cpf);
@@ -465,7 +488,7 @@ export async function PUT(request: NextRequest) {
     );
 
     return NextResponse.json({ success: true, cliente: clienteAtualizado }, { status: 200 });
-  } catch (error: any) {
+  } catch (error) {
     console.error('ERRO NO PUT (clientes):', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -474,7 +497,7 @@ export async function PUT(request: NextRequest) {
 // ==========================================
 // DELETE - EXCLUIR CLIENTE
 // ==========================================
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request) {
   try {
     const auth = await validarAutorizacao(request);
     if (!auth.autorizado) {
@@ -538,7 +561,7 @@ export async function DELETE(request: NextRequest) {
     );
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch (error: any) {
+  } catch (error) {
     console.error('ERRO NO DELETE (clientes):', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

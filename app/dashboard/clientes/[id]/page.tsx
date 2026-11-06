@@ -92,22 +92,28 @@ export default function ClienteDetalhePage({
   const [planoAtual, setPlanoAtual] = useState<any>(null);
 
   // ==========================
-  // CARREGAR CLIENTE
+  // CARREGAR CLIENTE (via API server-side — seguro)
   // ==========================
   const carregarCliente = useCallback(async () => {
-    if (!clienteId || !supabase) return;
+    if (!clienteId) return;
     setCarregando(true);
     try {
-      const { data, error } = await supabase
-        .from('clientes')
-        .select('*')
-        .eq('id', clienteId)
-        .single();
-      if (error) throw error;
-      setCliente(data);
-      setFormEdit({ ...data });
+      const res = await fetch(`/api/clientes?id=${clienteId}`, {
+        credentials: 'include',
+      });
+      const result = await res.json();
+
+      if (!res.ok || !result.success || !result.data) {
+        console.error('Erro ao carregar cliente:', result.error);
+        setCliente(null);
+        return;
+      }
+
+      setCliente(result.data);
+      setFormEdit({ ...result.data });
     } catch (e) {
       console.error('Erro ao carregar cliente:', e);
+      setCliente(null);
     } finally {
       setCarregando(false);
     }

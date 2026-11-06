@@ -200,7 +200,7 @@ export default function ClientesPage() {
   });
 
   // ==========================
-  // CARREGAR CLIENTES
+  // CARREGAR CLIENTES (via API server-side — seguro)
   // ==========================
   const carregarClientes = useCallback(async () => {
     setCarregando(true);
@@ -221,6 +221,19 @@ export default function ClientesPage() {
         setClientes(data.clientes || []);
         setTotalClientes(data.total || 0);
         setTotalPaginas(data.totalPaginas || 1);
+
+        // Usar contadores da API (server-side, sem RLS)
+        if (data.contadores) {
+          // Contar sem PPPoE a partir dos clientes retornados
+          // (so funciona se todos estiverem na pagina, senao usa o total)
+          setContadores({
+            total: data.contadores.total || 0,
+            ativos: data.contadores.ativos || 0,
+            inadimplentes: data.contadores.inadimplentes || 0,
+            bloqueados: data.contadores.bloqueados || 0,
+            semPppoe: 0,
+          });
+        }
       }
     } catch (erro) {
       console.error('Erro ao carregar clientes:', erro);
@@ -229,58 +242,34 @@ export default function ClientesPage() {
     }
   }, [empresa?.id, busca, filtroStatus, paginaAtual]);
 
-  // Carregar contadores de status
-  const carregarContadores = useCallback(async () => {
-    if (!supabase || !empresa?.id) return;
-
+  // Carregar contadores de semPppoe separado (via API tambem)
+  const carregarSemPppoe = useCallback(async () => {
+    if (!empresa?.id) return;
     try {
-      const { count: total } = await supabase
-        .from('clientes')
-        .select('*', { count: 'exact', head: true })
-        .eq('empresa_id', empresa.id);
-
-      const { count: ativos } = await supabase
-        .from('clientes')
-        .select('*', { count: 'exact', head: true })
-        .eq('empresa_id', empresa.id)
-        .eq('status', 'ativo');
-
-      const { count: inadimplentes } = await supabase
-        .from('clientes')
-        .select('*', { count: 'exact', head: true })
-        .eq('empresa_id', empresa.id)
-        .eq('status', 'inadimplente');
-
-      const { count: bloqueados } = await supabase
-        .from('clientes')
-        .select('*', { count: 'exact', head: true })
-        .eq('empresa_id', empresa.id)
-        .eq('status', 'bloqueado');
-
-      // Contar clientes sem PPPoE configurado
-      const { count: semPppoe } = await supabase
-        .from('clientes')
-        .select('*', { count: 'exact', head: true })
-        .eq('empresa_id', empresa.id)
-        .not('status', 'eq', 'cancelado')
-        .or('login_pppoe.is.null,login_pppoe.eq.');
-
-      setContadores({
-        total: total || 0,
-        ativos: ativos || 0,
-        inadimplentes: inadimplentes || 0,
-        bloqueados: bloqueados || 0,
-        semPppoe: semPppoe || 0,
+      // Buscar todos sem filtro pra contar semPppoe
+      const res = await fetch(`/api/clientes?empresa_id=${empresa.id}&por_pagina=9999`, {
+        credentials: 'include',
       });
+      if (res.ok) {
+        const data = await res.json();
+        const lista = data.clientes || [];
+        const semPppoe = lista.filter((c: any) =>
+          c.status !== 'cancelado' && (!c.login_pppoe || c.login_pppoe === '')
+        ).length;
+        setContadores(prev => ({ ...prev, semPppoe }));
+      }
     } catch (e) {
-      console.error('Erro ao carregar contadores:', e);
+      console.error('Erro ao contar sem PPPoE:', e);
     }
   }, [empresa?.id]);
 
   useEffect(() => {
     carregarClientes();
-    carregarContadores();
-  }, [carregarClientes, carregarContadores]);
+  }, [carregarClientes]);
+
+  useEffect(() => {
+    carregarSemPppoe();
+  }, [carregarSemPppoe]);
 
   // Realtime - escutar mudancas na tabela clientes
   useEffect(() => {
@@ -293,7 +282,6 @@ export default function ClientesPage() {
         { event: '*', schema: 'public', table: 'clientes' },
         () => {
           carregarClientes();
-          carregarContadores();
         }
       )
       .subscribe();
@@ -301,7 +289,7 @@ export default function ClientesPage() {
     return () => {
       supabase.removeChannel(canal);
     };
-  }, [carregarClientes, carregarContadores]);
+  }, [carregarClientes]);
 
   // ==========================
   // BUSCAR CEP (ViaCEP)
@@ -331,7 +319,6 @@ export default function ClientesPage() {
 
   // ==========================
   // SINCRONIZAR CLIENTES DO MIKROTIK
-  // Usa o /api/mk-proxy (mesmo que o Monitor usa)
   // ==========================
   const sincronizarMikroTik = async () => {
     if (!empresa?.id || !supabase || sincronizando) return;
@@ -339,7 +326,6 @@ export default function ClientesPage() {
     setSyncResultado(null);
 
     try {
-      // 1. Buscar secrets e ativos do MikroTik via mk-proxy (mesmo caminho do Monitor)
       const [resSecrets, resActive] = await Promise.all([
         fetch(`/api/mk-proxy?path=pppoe/secrets&empresa_id=${empresa.id}`).then(r => r.json()),
         fetch(`/api/mk-proxy?path=pppoe/active&empresa_id=${empresa.id}`).then(r => r.json()),
@@ -351,13 +337,11 @@ export default function ClientesPage() {
         return;
       }
 
-      // 2. Mapa de conexoes ativas (para pegar MAC)
       const ativosMap = new Map();
       if (resActive.success && Array.isArray(resActive.data)) {
         resActive.data.forEach((a: any) => ativosMap.set(a.name, a));
       }
 
-      // 3. Buscar logins PPPoE ja cadastrados no Supabase
       const { data: clientesExistentes } = await supabase
         .from('clientes')
         .select('login_pppoe')
@@ -370,7 +354,6 @@ export default function ClientesPage() {
           .filter(Boolean)
       );
 
-      // 4. Filtrar apenas os novos (que nao existem no Supabase)
       const novos = resSecrets.data.filter((secret: any) =>
         !loginsExistentes.has(secret.name?.toLowerCase())
       );
@@ -380,7 +363,6 @@ export default function ClientesPage() {
         return;
       }
 
-      // 5. Inserir novos clientes no Supabase
       const clientesParaInserir = novos.map((secret: any) => {
         const ativo = ativosMap.get(secret.name);
         const perfilBloqueado = (secret.profile || '').toLowerCase().trim() === 'bloqueado';
@@ -412,7 +394,6 @@ export default function ClientesPage() {
       } else {
         setSyncResultado({ importados: inseridos?.length || novos.length, erros: 0 });
         carregarClientes();
-        carregarContadores();
       }
     } catch (err) {
       console.error('Erro ao sincronizar:', err);
@@ -450,7 +431,6 @@ export default function ClientesPage() {
   const salvarCliente = async () => {
     setErroFormulario('');
 
-    // Validacoes basicas
     if (!formulario.nome.trim()) {
       setErroFormulario('Preencha o nome do cliente');
       return;
@@ -490,7 +470,6 @@ export default function ClientesPage() {
         setModalAberto(false);
         setFormulario({ ...formularioVazio });
         carregarClientes();
-        carregarContadores();
       } else {
         setErroFormulario(data.error || 'Erro ao cadastrar cliente');
       }
@@ -527,7 +506,6 @@ export default function ClientesPage() {
       if (res.ok && data.success) {
         setClienteParaExcluir(null);
         carregarClientes();
-        carregarContadores();
       } else {
         console.error('Erro ao excluir cliente:', data);
         alert('Erro ao excluir cliente: ' + (data.error || 'Erro desconhecido'));
@@ -719,7 +697,7 @@ export default function ClientesPage() {
 
             {/* Botao atualizar */}
             <button
-              onClick={() => { carregarClientes(); carregarContadores(); }}
+              onClick={() => { carregarClientes(); }}
               className="px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-emerald-400 text-xs font-mono font-bold uppercase transition-all flex items-center gap-2 cursor-pointer border border-zinc-700"
             >
               <RefreshCw className={`w-4 h-4 ${carregando ? 'animate-spin' : ''}`} />
