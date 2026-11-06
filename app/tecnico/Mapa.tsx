@@ -8,7 +8,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Compass, MessageSquare, ExternalLink, X, Calculator, CheckCircle2, XCircle, Send, Menu, Users, Navigation, MapPin, LoaderCircle, Settings, Smartphone, History, RefreshCw, LogOut } from 'lucide-react';
+import { Compass, MessageSquare, ExternalLink, X, Calculator, CheckCircle2, XCircle, Send, Menu, Users, Navigation, MapPin, LoaderCircle, Settings, Smartphone, History, RefreshCw, LogOut, Wrench } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
@@ -775,6 +775,13 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
                 </div>
               )}
             </div>
+
+            <button
+              onClick={() => { setMenuAberto(false); router.push('/tecnico/ordens'); }}
+              className="w-full text-left bg-transparent hover:bg-emerald-500/10 text-emerald-300 font-mono text-[11px] font-bold uppercase px-3 py-2.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors"
+            >
+              <Wrench className="w-4 h-4 text-emerald-400 shrink-0" /> Ordens de Serviço
+            </button>
 
             <button
               onClick={() => { setMenuAberto(false); router.push('/tecnico/config'); }}

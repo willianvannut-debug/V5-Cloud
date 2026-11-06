@@ -1,5 +1,3 @@
-//context/AuthContext.tsx
-
 "use client"
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -17,7 +15,7 @@ interface EmpresaInfo {
   nomeEmpresa: string;
   codigoConvite: string;
   endereco: string;
-  plano: string; 
+  plano: string;
 }
 
 interface AuthContextType {
@@ -48,6 +46,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setAutenticado(true);
           setOperador(data.operador);
           setEmpresa(data.empresa);
+
+          // Salvar tenant_id automaticamente para o backend financeiro
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('v5_tenant_id', data.empresa?.id || data.operador?.empresaId || '');
+          }
         } else {
           setAutenticado(false);
           setOperador(null);
@@ -81,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {}
 
     document.cookie = 'v5_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC;';
-    
+
     if (typeof window !== 'undefined') {
       localStorage.clear();
     }
@@ -89,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAutenticado(false);
     setOperador(null);
     setEmpresa(null);
-    
+
     window.location.href = '/login';
   };
 

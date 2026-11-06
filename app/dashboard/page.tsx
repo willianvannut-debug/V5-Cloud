@@ -1,438 +1,665 @@
-// ================================================================================
-// 📋 ROTA DE VISÃO GERAL (FRONTEND) - V5 CLOUD (SEM TUTORIAL)
-// app/dashboard/page.tsx
-// ================================================================================
+'use client';
 
-"use client"
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent } from "@/components/ui/card";
-import { supabase } from "@/lib/supabase";
-import { useRouter } from 'next/navigation';
-import { 
-  Users, 
-  Search, 
-  Zap, 
-  CheckCircle2, 
-  Clock, 
-  Phone, 
-  RefreshCw,
-  TrendingUp,
-  UserCheck,
-  UserPlus,
-  AlertTriangle
-} from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { useApp } from '@/context/AppContext';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  Users,
+  UserPlus,
+  DollarSign,
+  TrendingUp,
+  AlertTriangle,
+  FileText,
+  Activity,
+  Clock,
+  Ban,
+  CheckCircle,
+  ArrowUpRight,
+  ArrowDownRight,
+  Loader2,
+  BarChart3,
+  Headphones,
+} from 'lucide-react';
 
-export default function DashboardPage() {
-  const router = useRouter();
-  
-  const { operador, carregando: carregandoAuth } = useAuth();
-  const { leads: leadsBrutos = [], carregarLeads } = useApp() || {};
+// ============================================================
+// Tipos
+// ============================================================
+interface DashboardData {
+  clientes: {
+    ativos: number;
+    bloqueados: number;
+    cancelados: number;
+    total: number;
+  };
+  leads: {
+    totalMes: number;
+    convertidosMes: number;
+    emAtendimento: number;
+    totalGeral: number;
+  };
+  financeiro: {
+    faturamentoMes: number;
+    recebidoMes: number;
+    pendenteMes: number;
+    inadimplenciaMes: number;
+    totalFaturas: number;
+    faturasPagas: number;
+    faturasPendentes: number;
+    faturasVencidas: number;
+  };
+  contratos: {
+    ativos: number;
+    receitaMensal: number;
+  };
+  recebidoHoje: {
+    valor: number;
+    quantidade: number;
+  };
+  ticketsAbertos: number;
+  graficoFaturamento: Array<{
+    mes: string;
+    mes_label: string;
+    total: number;
+    recebido: number;
+    vencido: number;
+  }>;
+  faturasPendentes: Array<{
+    id: string;
+    customer_name: string;
+    customer_document: string;
+    amount: number;
+    due_date: string;
+    status: string;
+    billing_type: string;
+  }>;
+  ultimosLeads: Array<{
+    id: string;
+    nome: string;
+    whatsapp: string;
+    plano_escolhido: string;
+    status: string;
+    created_at: string;
+  }>;
+}
 
-  const [popupSucessoPlano, setPopupSucessoPlano] = useState<string | null>(null);
-  
-  const [statusAssinatura, setStatusAssinatura] = useState<string>('ativa');
-  const [planoAtual, setPlanoAtual] = useState<string>('essencial');
-  const [funcionarios, setFuncionarios] = useState<{id: string, nome: string, role?: string}[]>([]);
+// ============================================================
+// Helpers
+// ============================================================
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value);
+}
 
-  const [sessaoConfirmada, setSessaoConfirmada] = useState(false);
+function formatDate(dateStr: string): string {
+  if (!dateStr) return '-';
+  // "AAAA-MM-DD" sem passar por new Date (evita voltar 1 dia no fuso de Brasília)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [a, m, d] = dateStr.split('-');
+    return `${d}/${m}/${a}`;
+  }
+  return new Date(dateStr).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}
 
-  // Filtro de data diária
-  const dataHojeObj = new Date();
-  const diaHojeStr = String(dataHojeObj.getDate()).padStart(2, '0');
-  const mesAtualStr = String(dataHojeObj.getMonth() + 1).padStart(2, '0');
-  const anoAtualStr = String(dataHojeObj.getFullYear());
-  
-  const formatoBrDia = `${diaHojeStr}/${mesAtualStr}/${anoAtualStr}`;
-  const formatoIsoDia = `${anoAtualStr}-${mesAtualStr}-${diaHojeStr}`;
-  const formatoMesAno = `${mesAtualStr}/${anoAtualStr}`;
+function statusBadge(status: string) {
+  const map: Record<string, { label: string; color: string }> = {
+    PENDING: { label: 'Pendente', color: 'bg-yellow-500/20 text-yellow-400' },
+    OVERDUE: { label: 'Vencida', color: 'bg-red-500/20 text-red-400' },
+    RECEIVED: { label: 'Paga', color: 'bg-emerald-500/20 text-emerald-400' },
+    CONFIRMED: { label: 'Confirmada', color: 'bg-emerald-500/20 text-emerald-400' },
+    pendente: { label: 'Pendente', color: 'bg-yellow-500/20 text-yellow-400' },
+    em_atendimento: { label: 'Atendimento', color: 'bg-blue-500/20 text-blue-400' },
+    convertido: { label: 'Convertido', color: 'bg-emerald-500/20 text-emerald-400' },
+    perdido: { label: 'Perdido', color: 'bg-red-500/20 text-red-400' },
+  };
+  const s = map[status] || map[String(status || '').toLowerCase()] || { label: status || '-', color: 'bg-zinc-500/20 text-zinc-400' };
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-mono ${s.color}`}>
+      {s.label}
+    </span>
+  );
+}
 
-  const leads = Array.isArray(leadsBrutos) ? leadsBrutos.filter(l => {
-    const dataReg = l?.created_at || l?.data || '';
-    if (!dataReg) return false;
-    return dataReg.includes(formatoBrDia) || dataReg.includes(formatoIsoDia);
-  }) : [];
-
-  useEffect(() => {
-    if (carregandoAuth) return;
-    if (!operador) {
-      router.replace('/login');
-      return;
-    }
-    if (operador.role === 'atendente') {
-      router.replace('/dashboard/leads');
-      return;
-    }
-    setSessaoConfirmada(true);
-  }, [carregandoAuth, operador, router]);
-
-  useEffect(() => {
-    if (carregandoAuth) return;
-
-    const processarRetornoMudancaPlano = async () => {
-      if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        const mudancaSucesso = params.get('mudanca_plano_sucesso');
-        const novoPlano = params.get('novo_plano');
-        const empresaIdParam = params.get('empresa_id');
-
-        if (mudancaSucesso === 'true' && novoPlano && empresaIdParam) {
-          try {
-            setPopupSucessoPlano(novoPlano.toUpperCase());
-            const respostaApi = await fetch('/api/empresa/atualizar-plano', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ empresaId: empresaIdParam, plano: novoPlano })
-            });
-            const resultado = await respostaApi.json();
-            if (!resultado.sucesso) {
-              console.error("Erro ao sincronizar novo plano via API:", resultado.erro);
-            }
-            router.replace('/dashboard', { scroll: false });
-          } catch (err) {
-            console.error("Erro crítico ao processar mudança de plano:", err);
-          }
-        }
-      }
-    };
-    processarRetornoMudancaPlano();
-  }, [carregandoAuth, router]);
-
-  useEffect(() => {
-    async function sincronizarDadosReais() {
-      if (!supabase || !sessaoConfirmada) return;
-      try {
-        const idDaEmpresa = operador?.empresaId || operador?.empresa_id;
-        if (!idDaEmpresa) return;
-
-        const { data: dadosEmpresa, error: erroEmpresa } = await supabase
-          .from('empresas')
-          .select('plano, status_assinatura')
-          .eq('id', idDaEmpresa)
-          .maybeSingle();
-
-        if (!erroEmpresa && dadosEmpresa) {
-          if (dadosEmpresa.plano) setPlanoAtual(String(dadosEmpresa.plano).toLowerCase().trim());
-          if (dadosEmpresa.status_assinatura) setStatusAssinatura(String(dadosEmpresa.status_assinatura).toLowerCase().trim());
-        }
-
-        const { data: dadosEquipe, error: erroEquipe } = await supabase
-          .from('operadores')
-          .select('id, nome, role')
-          .eq('empresa_id', idDaEmpresa); 
-
-        if (!erroEquipe && dadosEquipe) {
-          setFuncionarios(dadosEquipe);
-        }
-      } catch (err) {
-        console.error("Erro ao buscar dados na visão geral:", err);
-      }
-    }
-    sincronizarDadosReais();
-  }, [operador, sessaoConfirmada]);
-
-  const [busca, setBusca] = useState('');
-  const [selecionados, setSelecionados] = useState<string[]>([]);
-  const [funcionarioSelecionado, setFuncionarioSelecionado] = useState('');
-  const [mensagemSucesso, setMensagemSucesso] = useState('');
-
-  if (carregandoAuth || !sessaoConfirmada) {
+// ============================================================
+// Barra do gráfico simples (sem dependências externas)
+// ============================================================
+function SimpleBarChart({ data }: { data: DashboardData['graficoFaturamento'] }) {
+  if (!data || data.length === 0) {
     return (
-      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-emerald-400 font-mono text-xs">
-        Autenticando acesso seguro...
+      <div className="flex items-center justify-center h-48 text-zinc-500 font-mono text-sm">
+        Sem dados de faturamento
       </div>
     );
   }
-
-  if (statusAssinatura === 'inadimplente' || statusAssinatura === 'cancelada') {
-    return (
-      <div className="min-h-screen bg-[#020804] flex items-center justify-center p-4 font-mono text-center relative overflow-hidden">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-600/10 blur-[120px] rounded-full pointer-events-none"></div>
-        <div className="max-w-lg w-full bg-[#0a0a0a]/90 border border-red-500/40 p-8 rounded-3xl shadow-2xl backdrop-blur-xl relative z-10">
-          <div className="inline-flex p-4 rounded-full bg-red-500/10 border border-red-500/30 mb-6 text-red-500">
-            <AlertTriangle className="w-12 h-12" />
-          </div>
-          <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-3">Acesso Suspenso</h2>
-          <p className="text-zinc-400 text-sm mb-8 leading-relaxed px-4">
-            Identificámos uma falha no pagamento da tua assinatura mensal (Status: <strong className="text-red-400 uppercase">{statusAssinatura}</strong>). 
-            Por favor, regulariza a tua situação para voltares a ter acesso total à plataforma.
-          </p>
-          <button 
-            onClick={() => router.push('/planos')}
-            className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-black uppercase text-sm tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(220,38,38,0.4)] cursor-pointer"
-          >
-            Regularizar Pagamento
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const totalLeadsCadastrados = Array.isArray(leads) ? leads.length : 0;
-  const totalLeadsMes = Array.isArray(leadsBrutos) ? leadsBrutos.filter(l => {
-    const dataReg = l?.created_at || l?.data || '';
-    return dataReg.includes(formatoMesAno) || dataReg.includes(`${anoAtualStr}-${mesAtualStr}`) || !dataReg;
-  }).length : 0;
-  const totalLeadsGeral = totalLeadsMes > 0 ? totalLeadsMes : totalLeadsCadastrados;
-
-  const leadsNovosHoje = Array.isArray(leads) ? leads.filter(l => {
-    const dataReg = l?.created_at || l?.data || '';
-    return dataReg.includes(formatoBrDia) || dataReg.includes(formatoIsoDia) || (!l?.status || l?.status === 'NOVO');
-  }).length : 0;
-
-  const emAtendimento = Array.isArray(leads) ? leads.filter(l => 
-    l?.status === 'EM ATENDIMENTO' || l?.status === 'AGENDADO' || l?.etapa_funil === 'EM CONTATO'
-  ).length : 0;
-
-  const convertidosMes = Array.isArray(leadsBrutos) ? leadsBrutos.filter(l => {
-    const dataReg = l?.created_at || l?.data || '';
-    const ehConvertido = l?.status === 'CONVERTIDO' || l?.etapa_funil === 'CONVERTIDO' || l?.status_instalacao === 'CONCLUIDA';
-    return ehConvertido && (dataReg.includes(formatoMesAno) || dataReg.includes(`${anoAtualStr}-${mesAtualStr}`) || !dataReg);
-  }).length : 0;
-
-  const contagemDias: Record<string, number> = { 'Dom': 0, 'Seg': 0, 'Ter': 0, 'Qua': 0, 'Qui': 0, 'Sex': 0, 'Sáb': 0 };
-  const diasSemanaMap = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-
-  if (Array.isArray(leadsBrutos)) {
-    leadsBrutos.forEach(l => {
-      const dataStr = l?.created_at || l?.data;
-      if (dataStr) {
-        const d = new Date(dataStr);
-        if (!isNaN(d.getTime())) {
-          const diaNome = diasSemanaMap[d.getDay()];
-          if (contagemDias[diaNome] !== undefined) {
-            contagemDias[diaNome] += 1;
-          }
-        }
-      }
-    });
-  }
-
-  const chartData = [
-    { date: 'Seg', leads: contagemDias['Seg'] },
-    { date: 'Ter', leads: contagemDias['Ter'] },
-    { date: 'Qua', leads: contagemDias['Qua'] },
-    { date: 'Qui', leads: contagemDias['Qui'] },
-    { date: 'Sex', leads: contagemDias['Sex'] },
-    { date: 'Sáb', leads: contagemDias['Sáb'] },
-    { date: 'Dom', leads: contagemDias['Dom'] },
-  ];
-
-  const leadsFiltrados = Array.isArray(leads) ? leads.filter(l => {
-    if (!busca) return true;
-    const termo = busca.toLowerCase();
-    return (
-      (l?.nome && l.nome.toLowerCase().includes(termo)) ||
-      (l?.whatsapp && l.whatsapp.includes(termo)) ||
-      (l?.cep && l.cep.includes(termo))
-    );
-  }) : [];
-
-  const handleSelecionarTodos = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) {
-      setSelecionados(leadsFiltrados.map(r => r.id));
-    } else {
-      setSelecionados([]);
-    }
-  };
-
-  const handleSelecionarLead = (id: string) => {
-    if (selecionados.includes(id)) {
-      setSelecionados(selecionados.filter(item => item !== id));
-    } else {
-      setSelecionados([...selecionados, id]);
-    }
-  };
-
-  const handleAtribuirFuncionario = async () => {
-    if (!funcionarioSelecionado || selecionados.length === 0 || !supabase) return;
-
-    try {
-      for (const id of selecionados) {
-        await supabase
-          .from('leads')
-          .update({ status: 'EM ATENDIMENTO', atendente: funcionarioSelecionado })
-          .eq('id', id);
-      }
-      setMensagemSucesso(`${selecionados.length} lead(s) atribuído(s) com sucesso para ${funcionarioSelecionado}!`);
-      setSelecionados([]);
-      setFuncionarioSelecionado('');
-      if (carregarLeads) carregarLeads();
-      setTimeout(() => setMensagemSucesso(''), 4000);
-    } catch (err) {
-      console.error("Erro ao atualizar atendente no Supabase:", err);
-    }
-  };
+  const maxVal = Math.max(...data.map((d) => Number(d.total) || 0), 1);
 
   return (
-    <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans relative">
-
-      {/* CABEÇALHO */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-black uppercase tracking-tight font-mono text-white">
-            Visão Geral da Operação
-          </h1>
-          <p className="text-zinc-400 text-sm mt-0.5">Gestão tática, triagem em massa, busca rápida e histórico da rede.</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-mono text-emerald-400 font-bold uppercase flex items-center gap-2">
-            <Zap className="w-3.5 h-3.5" /> Leads Diários ({totalLeadsCadastrados})
-          </span>
-          <button 
-            onClick={() => carregarLeads && carregarLeads()}
-            className="p-2.5 rounded-xl border bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {mensagemSucesso && (
-        <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-mono flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4" /> {mensagemSucesso}
-        </div>
-      )}
-
-      {/* DASHBOARD GRIDS E GRÁFICOS */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch">
-        <div className="xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur flex flex-col justify-between">
-            <CardContent className="p-5 flex flex-col justify-between h-full">
-              <div className="flex justify-between items-center text-zinc-400">
-                <span className="text-xs font-mono uppercase tracking-wider">Total de Leads (Mês)</span>
-                <Users className="w-4 h-4 text-emerald-400" />
+    <div className="flex items-end gap-2 h-48 px-2">
+      {data.map((item, i) => {
+        const totalH = ((Number(item.total) || 0) / maxVal) * 100;
+        const recebidoH = ((Number(item.recebido) || 0) / maxVal) * 100;
+        return (
+          <div key={i} className="flex-1 flex flex-col items-center gap-1">
+            <div className="w-full flex flex-col items-center justify-end h-40 relative">
+              {/* Barra total */}
+              <div
+                className="w-full bg-zinc-700/50 rounded-t relative"
+                style={{ height: `${totalH}%`, minHeight: totalH > 0 ? '4px' : '0' }}
+              >
+                {/* Barra recebido sobreposta */}
+                <div
+                  className="absolute bottom-0 left-0 w-full bg-emerald-500/70 rounded-t"
+                  style={{ height: `${totalH > 0 ? (recebidoH / totalH) * 100 : 0}%` }}
+                />
               </div>
-              <div className="mt-4">
-                <h3 className="text-2xl font-black font-mono text-white">{totalLeadsGeral}</h3>
-                <span className="text-[11px] text-zinc-500 font-mono">Convertidos e não convertidos no mês</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur flex flex-col justify-between">
-            <CardContent className="p-5 flex flex-col justify-between h-full">
-              <div className="flex justify-between items-center text-zinc-400">
-                <span className="text-xs font-mono uppercase tracking-wider">Leads Novos (Hoje)</span>
-                <UserPlus className="w-4 h-4 text-emerald-400" />
-              </div>
-              <div className="mt-4">
-                <h3 className="text-2xl font-black font-mono text-white">{leadsNovosHoje}</h3>
-                <span className="text-[11px] text-emerald-400 font-mono font-bold">Reiniciado diariamente</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur flex flex-col justify-between">
-            <CardContent className="p-5 flex flex-col justify-between h-full">
-              <div className="flex justify-between items-center text-zinc-400">
-                <span className="text-xs font-mono uppercase tracking-wider">Em Atendimento</span>
-                <Clock className="w-4 h-4 text-amber-400" />
-              </div>
-              <div className="mt-4">
-                <h3 className="text-2xl font-black font-mono text-white">{emAtendimento}</h3>
-                <span className="text-[11px] text-amber-400 font-mono font-bold">Negociação em andamento</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur flex flex-col justify-between">
-            <CardContent className="p-5 flex flex-col justify-between h-full">
-              <div className="flex justify-between items-center text-zinc-400">
-                <span className="text-xs font-mono uppercase tracking-wider">Convertidos (Mês)</span>
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              </div>
-              <div className="mt-4">
-                <h3 className="text-2xl font-black font-mono text-white">{convertidosMes}</h3>
-                <span className="text-[11px] text-zinc-500 font-mono">Contratos fechados no mês</span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="xl:col-span-5">
-          <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur h-full flex flex-col">
-            <div className="p-5 border-b border-zinc-900 flex justify-between items-center">
-              <div>
-                <h3 className="text-xs uppercase font-mono tracking-wide text-zinc-300 font-bold flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-400" /> Fluxo de Chegada de Leads
-                </h3>
-                <span className="text-[10px] text-zinc-500 font-mono">Volume semanal real baseado nas consultas</span>
-              </div>
-              <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 font-bold">
-                Ciclo Atual
-              </span>
             </div>
-            <CardContent className="p-5 flex-1 flex items-center justify-center min-h-[220px]">
-              <div className="w-full h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorLeads" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis dataKey="date" stroke="#71717a" fontSize={11} tickLine={false} />
-                    <YAxis stroke="#71717a" fontSize={11} tickLine={false} allowDecimals={false} />
-                    <Tooltip contentStyle={{ backgroundColor: '#09090b', borderColor: '#27272a', borderRadius: '12px', color: '#fff', fontSize: '12px', fontFamily: 'monospace' }} />
-                    <Area type="monotone" dataKey="leads" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorLeads)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
+            <span className="text-[10px] font-mono text-zinc-500 whitespace-nowrap">
+              {item.mes_label}
+            </span>
+            <span className="text-[10px] font-mono text-zinc-400">
+              {formatCurrency(Number(item.total) || 0)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// Componente Principal
+// ============================================================
+export default function VisaoGeralPage() {
+  const { operador, empresa } = useAuth() as any;
+  // ID REAL da empresa (vem do login), e não o v5_tenant_id antigo do navegador
+  const empresaId = operador?.empresaId || operador?.empresa_id || empresa?.id;
+
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (empresaId) fetchDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresaId]);
+
+  async function fetchDashboard() {
+    if (!empresaId) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/dashboard/overview', {
+        headers: { 'x-empresa-id': String(empresaId) },
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Erro ao carregar dashboard');
+      if (json.avisos?.length) console.warn('[Dashboard] tabelas com problema:', json.avisos);
+      const d = json.data;
+
+      // Garantir que todos os objetos existem
+      setData({
+        clientes: d?.clientes || { ativos: 0, bloqueados: 0, cancelados: 0, total: 0 },
+        leads: d?.leads || { totalMes: 0, convertidosMes: 0, emAtendimento: 0, totalGeral: 0 },
+        financeiro: d?.financeiro || { faturamentoMes: 0, recebidoMes: 0, pendenteMes: 0, inadimplenciaMes: 0, totalFaturas: 0, faturasPagas: 0, faturasPendentes: 0, faturasVencidas: 0 },
+        contratos: d?.contratos || { ativos: 0, receitaMensal: 0 },
+        recebidoHoje: d?.recebidoHoje || { valor: 0, quantidade: 0 },
+        ticketsAbertos: d?.ticketsAbertos || 0,
+        graficoFaturamento: d?.graficoFaturamento || [],
+        faturasPendentes: d?.faturasPendentes || [],
+        ultimosLeads: d?.ultimosLeads || [],
+      });
+    } catch (err: any) {
+      setError(err.message || 'Erro ao carregar dashboard');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] p-6">
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 font-mono text-sm">
+          {error}
         </div>
       </div>
+    );
+  }
 
-      {/* Tabela de Leads */}
-      <div>
-        <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur relative overflow-hidden">
-          <div className="p-4 border-b border-zinc-900 text-xs font-mono text-zinc-400 uppercase tracking-wider flex justify-between items-center">
-            <span>Registros da Operação ({leadsFiltrados.length})</span>
-          </div>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-zinc-900 text-[11px] font-mono uppercase tracking-wider text-zinc-500 bg-black/20">
-                    <th className="p-4 w-10">
-                      <input type="checkbox" checked={leadsFiltrados.length > 0 && selecionados.length === leadsFiltrados.length} onChange={handleSelecionarTodos} className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" />
-                    </th>
-                    <th className="p-4">Cliente / Contato</th>
-                    <th className="p-4">Plano</th>
-                    <th className="p-4">Status</th>
-                    <th className="p-4">Atendente</th>
-                    <th className="p-4 text-right">Ação</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-900/50 text-xs font-mono">
-                  {leadsFiltrados.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="p-12 text-center text-zinc-500">
-                        Nenhum registro encontrado para hoje.
-                      </td>
-                    </tr>
-                  ) : (
-                    leadsFiltrados.map((reg) => (
-                      <tr key={reg.id} className="hover:bg-zinc-900/35 transition-colors">
-                        <td className="p-4"><input type="checkbox" checked={selecionados.includes(reg.id)} onChange={() => handleSelecionarLead(reg.id)} className="rounded bg-zinc-900 border-zinc-800 cursor-pointer accent-emerald-500" /></td>
-                        <td className="p-4 font-bold text-white">{reg.nome || 'Sem nome'}</td>
-                        <td className="p-4">{reg.perfil || 'Gamer'}</td>
-                        <td className="p-4">{reg.status || 'NOVO'}</td>
-                        <td className="p-4 text-emerald-400">{reg.atendente || 'Atribuído'}</td>
-                        <td className="p-4 text-right"><button className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-lg">Ver</button></td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+  if (!data) return null;
+
+  const taxaInadimplencia =
+    data.financeiro.faturamentoMes > 0
+      ? ((data.financeiro.inadimplenciaMes / data.financeiro.faturamentoMes) * 100).toFixed(1)
+      : '0';
+
+  const taxaConversao =
+    data.leads.totalMes > 0
+      ? ((data.leads.convertidosMes / data.leads.totalMes) * 100).toFixed(1)
+      : '0';
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0a] p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white font-mono">Visão Geral</h1>
+          <p className="text-zinc-500 text-sm font-mono mt-1">
+            Resumo completo do seu provedor
+          </p>
+        </div>
+        <button
+          onClick={fetchDashboard}
+          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-mono transition-colors"
+        >
+          Atualizar
+        </button>
+      </div>
+
+      {/* ============================================================ */}
+      {/* ROW 1 — Financeiro destaque */}
+      {/* ============================================================ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Recebido Hoje */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Recebido Hoje
+                </p>
+                <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">
+                  {formatCurrency(data.recebidoHoje.valor)}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  {data.recebidoHoje.quantidade} pagamento(s)
+                </p>
+              </div>
+              <div className="p-3 bg-emerald-500/10 rounded-xl">
+                <DollarSign className="w-6 h-6 text-emerald-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Faturamento do Mês */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Faturamento Mês
+                </p>
+                <p className="text-2xl font-bold text-white font-mono mt-1">
+                  {formatCurrency(data.financeiro.faturamentoMes)}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  {data.financeiro.totalFaturas} faturas emitidas
+                </p>
+              </div>
+              <div className="p-3 bg-blue-500/10 rounded-xl">
+                <BarChart3 className="w-6 h-6 text-blue-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Recebido no Mês */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Recebido no Mês
+                </p>
+                <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">
+                  {formatCurrency(data.financeiro.recebidoMes)}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  {data.financeiro.faturasPagas} faturas pagas
+                </p>
+              </div>
+              <div className="p-3 bg-emerald-500/10 rounded-xl">
+                <TrendingUp className="w-6 h-6 text-emerald-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Inadimplência */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Inadimplência
+                </p>
+                <p className="text-2xl font-bold text-red-400 font-mono mt-1">
+                  {formatCurrency(data.financeiro.inadimplenciaMes)}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  {data.financeiro.faturasVencidas} vencidas ({taxaInadimplencia}%)
+                </p>
+              </div>
+              <div className="p-3 bg-red-500/10 rounded-xl">
+                <AlertTriangle className="w-6 h-6 text-red-500" />
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
+      {/* ============================================================ */}
+      {/* ROW 2 — Clientes e Leads */}
+      {/* ============================================================ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Clientes Ativos */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Clientes Ativos
+                </p>
+                <p className="text-2xl font-bold text-white font-mono mt-1">
+                  {data.clientes.ativos}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  de {data.clientes.total} total
+                </p>
+              </div>
+              <div className="p-3 bg-emerald-500/10 rounded-xl">
+                <Users className="w-6 h-6 text-emerald-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Clientes Bloqueados */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Bloqueados
+                </p>
+                <p className="text-2xl font-bold text-yellow-400 font-mono mt-1">
+                  {data.clientes.bloqueados}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  clientes bloqueados
+                </p>
+              </div>
+              <div className="p-3 bg-yellow-500/10 rounded-xl">
+                <Ban className="w-6 h-6 text-yellow-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Leads do Mês */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Leads do Mês
+                </p>
+                <p className="text-2xl font-bold text-white font-mono mt-1">
+                  {data.leads.totalMes}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  {data.leads.totalGeral} total geral
+                </p>
+              </div>
+              <div className="p-3 bg-blue-500/10 rounded-xl">
+                <UserPlus className="w-6 h-6 text-blue-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Leads Convertidos */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Leads Convertidos
+                </p>
+                <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">
+                  {data.leads.convertidosMes}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  taxa de {taxaConversao}% no mês
+                </p>
+              </div>
+              <div className="p-3 bg-emerald-500/10 rounded-xl">
+                <CheckCircle className="w-6 h-6 text-emerald-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ============================================================ */}
+      {/* ROW 3 — Mini cards extras */}
+      {/* ============================================================ */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Contratos Ativos */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Contratos Ativos
+                </p>
+                <p className="text-2xl font-bold text-white font-mono mt-1">
+                  {data.contratos.ativos}
+                </p>
+                <p className="text-xs text-emerald-400 font-mono mt-1">
+                  {formatCurrency(data.contratos.receitaMensal)}/mês em receita recorrente
+                </p>
+              </div>
+              <div className="p-3 bg-purple-500/10 rounded-xl">
+                <FileText className="w-6 h-6 text-purple-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Faturas Pendentes */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Faturas Pendentes
+                </p>
+                <p className="text-2xl font-bold text-yellow-400 font-mono mt-1">
+                  {data.financeiro.faturasPendentes}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  {formatCurrency(data.financeiro.pendenteMes)} a receber
+                </p>
+              </div>
+              <div className="p-3 bg-yellow-500/10 rounded-xl">
+                <Clock className="w-6 h-6 text-yellow-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Tickets Abertos */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Tickets Abertos
+                </p>
+                <p className="text-2xl font-bold text-white font-mono mt-1">
+                  {data.ticketsAbertos}
+                </p>
+                <p className="text-xs text-zinc-500 font-mono mt-1">
+                  suporte pendente
+                </p>
+              </div>
+              <div className="p-3 bg-orange-500/10 rounded-xl">
+                <Headphones className="w-6 h-6 text-orange-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ============================================================ */}
+      {/* ROW 4 — Gráfico de Faturamento */}
+      {/* ============================================================ */}
+      <Card className="bg-zinc-900/40 border-zinc-800">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-white font-mono text-lg">
+            Faturamento — Últimos 6 Meses
+          </CardTitle>
+          <CardDescription className="font-mono text-zinc-500">
+            <span className="inline-block w-3 h-3 bg-zinc-700/50 rounded mr-1" /> Total
+            <span className="inline-block w-3 h-3 bg-emerald-500/70 rounded ml-3 mr-1" /> Recebido
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SimpleBarChart data={data.graficoFaturamento} />
+        </CardContent>
+      </Card>
+
+      {/* ============================================================ */}
+      {/* ROW 5 — Tabelas lado a lado */}
+      {/* ============================================================ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Faturas Pendentes / Vencidas */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-white font-mono text-lg">
+              Faturas Pendentes / Vencidas
+            </CardTitle>
+            <CardDescription className="font-mono text-zinc-500">
+              Próximas a vencer ou já vencidas
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {data.faturasPendentes.length === 0 ? (
+              <p className="text-zinc-500 font-mono text-sm py-4 text-center">
+                Nenhuma fatura pendente 🎉
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-800">
+                      <th className="text-left text-zinc-500 font-mono text-xs py-2 pr-2">
+                        Cliente
+                      </th>
+                      <th className="text-right text-zinc-500 font-mono text-xs py-2 pr-2">
+                        Valor
+                      </th>
+                      <th className="text-center text-zinc-500 font-mono text-xs py-2 pr-2">
+                        Vencimento
+                      </th>
+                      <th className="text-center text-zinc-500 font-mono text-xs py-2">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.faturasPendentes.map((f) => (
+                      <tr key={f.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
+                        <td className="py-2 pr-2 text-white font-mono text-xs truncate max-w-[150px]">
+                          {f.customer_name || '-'}
+                        </td>
+                        <td className="py-2 pr-2 text-right text-white font-mono text-xs">
+                          {formatCurrency(Number(f.amount))}
+                        </td>
+                        <td className="py-2 pr-2 text-center text-zinc-400 font-mono text-xs">
+                          {formatDate(f.due_date)}
+                        </td>
+                        <td className="py-2 text-center">{statusBadge(f.status)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Últimos Leads */}
+        <Card className="bg-zinc-900/40 border-zinc-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-white font-mono text-lg">Últimos Leads</CardTitle>
+            <CardDescription className="font-mono text-zinc-500">
+              Leads mais recentes
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {data.ultimosLeads.length === 0 ? (
+              <p className="text-zinc-500 font-mono text-sm py-4 text-center">
+                Nenhum lead registrado
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-800">
+                      <th className="text-left text-zinc-500 font-mono text-xs py-2 pr-2">
+                        Nome
+                      </th>
+                      <th className="text-left text-zinc-500 font-mono text-xs py-2 pr-2">
+                        Plano
+                      </th>
+                      <th className="text-center text-zinc-500 font-mono text-xs py-2 pr-2">
+                        Data
+                      </th>
+                      <th className="text-center text-zinc-500 font-mono text-xs py-2">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.ultimosLeads.map((l) => (
+                      <tr key={l.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
+                        <td className="py-2 pr-2 text-white font-mono text-xs truncate max-w-[150px]">
+                          {l.nome || '-'}
+                        </td>
+                        <td className="py-2 pr-2 text-zinc-400 font-mono text-xs">
+                          {l.plano_escolhido || '-'}
+                        </td>
+                        <td className="py-2 pr-2 text-center text-zinc-400 font-mono text-xs">
+                          {formatDate(l.created_at)}
+                        </td>
+                        <td className="py-2 text-center">{statusBadge(l.status)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

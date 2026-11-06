@@ -1,0 +1,13 @@
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS api_key_sandbox TEXT;
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS api_key_production TEXT;
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS api_key_sandbox_masked VARCHAR(50);
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS api_key_production_masked VARCHAR(50);
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS webhook_token TEXT;
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS fine_percentage NUMERIC(5,2) DEFAULT 2;
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS interest_monthly_pct NUMERIC(5,2) DEFAULT 1;
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS discount_days_before INT DEFAULT 0;
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS discount_percentage NUMERIC(5,2) DEFAULT 0;
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS discount_type VARCHAR(20) DEFAULT 'PERCENTAGE';
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS allow_boleto BOOLEAN DEFAULT true;
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS allow_pix BOOLEAN DEFAULT true;
+ALTER TABLE gateway_configs ADD COLUMN IF NOT EXISTS allow_credit_card BOOLEAN DEFAULT false;

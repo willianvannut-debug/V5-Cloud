@@ -45,16 +45,20 @@ function PainelTecnicoMobile() {
 
   // 🛡️ GUARDA-COSTAS INTELIGENTE: Espera o sistema terminar o login antes de agir
   useEffect(() => {
-    // 1. Se ainda estiver a processar o login, não faz nada (espera)
     if (carregandoAuth) return;
 
-    // 2. Terminou de carregar e não encontrou um operador logado? Vai para o login!
     if (!operador) {
       router.replace('/login');
       return;
     }
 
-    // 3. Tudo certo, utilizador válido. Liberta a tela!
+    // Só técnico, gerente e superadmin podem acessar
+    const rolesPermitidos = ['tecnico', 'gerente', 'superadmin'];
+    if (!rolesPermitidos.includes((operador as any).role?.toLowerCase())) {
+      router.replace('/dashboard');
+      return;
+    }
+
     setSessaoConfirmada(true);
   }, [carregandoAuth, operador, router]);
 
@@ -299,7 +303,7 @@ function PainelTecnicoMobile() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Wrench size={16} color="#10b981" />
           <h1 style={{ fontSize: '10px', fontWeight: 'bold', color: '#fff', margin: 0, fontFamily: 'monospace', textTransform: 'uppercase' }}>
-            V5 Técnico - Campo
+            V5 Técnico{operador?.nome ? ` — ${operador.nome}` : ''}
           </h1>
         </div>
 

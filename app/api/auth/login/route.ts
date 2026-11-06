@@ -160,13 +160,14 @@ export async function POST(request: Request) {
     ipRateLimitMap.delete(ip);
 
     const tokenJwt = await new SignJWT({
+      operadorId: operador.id,
       email: operador.email,
       role: operador.role || 'gerente',
       empresaId: operador.empresa_id,
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
-      .setExpirationTime('8h')
+      .setExpirationTime('30d')
       .sign(JWT_SECRET);
 
     const cookieStore = await cookies();
@@ -179,7 +180,7 @@ export async function POST(request: Request) {
       secure: isProd,
       sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 60 * 8,
+      maxAge: 60 * 60 * 24 * 30,
     });
 
     await registrarLog(operador.email, 'LOGIN_SUCESSO', 'SUCCESS',

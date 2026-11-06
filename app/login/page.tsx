@@ -21,6 +21,15 @@ export default function LoginPage() {
   const [enviandoRecuperacao, setEnviandoRecuperacao] = useState(false);
   const [sucessoRecuperacao, setSucessoRecuperacao] = useState(false);
 
+  // 📱 Detecta se está rodando dentro do APK (Capacitor)
+  const [isCapacitor, setIsCapacitor] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.()) {
+      setIsCapacitor(true);
+    }
+  }, []);
+
   // 🚀 CRIAÇÃO AUTOMÁTICA NO SUPABASE APÓS O PAGAMENTO BEM-SUCEDIDO (PROTEGIDO CONTRA DUPLO DISPARO)
   useEffect(() => {
     const processarCriacaoAposPagamento = async () => {
@@ -254,15 +263,17 @@ export default function LoginPage() {
 
           </form>
 
-          {/* RODAPÉ ALTERADO PARA REDIRECIONAR AO CADASTRO */}
-          <div className="text-center pt-2 border-t border-zinc-900 font-mono">
-            <p className="text-[11px] text-zinc-500">
-              Quer assinar a V5 cloud?{' '}
-              <Link href="/cadastro" className="text-emerald-400 hover:underline font-bold">
-                Ir para o Cadastro
-              </Link>
-            </p>
-          </div>
+          {/* RODAPÉ — escondido dentro do app Capacitor */}
+          {!isCapacitor && (
+            <div className="text-center pt-2 border-t border-zinc-900 font-mono">
+              <p className="text-[11px] text-zinc-500">
+                Quer assinar a V5 cloud?{' '}
+                <Link href="/cadastro" className="text-emerald-400 hover:underline font-bold">
+                  Ir para o Cadastro
+                </Link>
+              </p>
+            </div>
+          )}
 
         </div>
       </div>
