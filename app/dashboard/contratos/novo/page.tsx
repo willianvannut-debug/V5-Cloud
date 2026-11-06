@@ -173,7 +173,9 @@ function EditorVisual({
   );
 }
 
-export default function NovoContratoPage() {
+import { Suspense } from "react";
+
+function NovoContratoContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const editarId = searchParams.get("editar");
@@ -563,5 +565,17 @@ export default function NovoContratoPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function NovoContratoPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+      </div>
+    }>
+      <NovoContratoContent />
+    </Suspense>
   );
 }
