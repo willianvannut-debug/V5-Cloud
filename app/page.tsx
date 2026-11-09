@@ -561,7 +561,7 @@ export default function LandingPage() {
               </div>
               <div className="text-center flex-grow flex flex-col">
                 <div className="text-4xl font-mono font-black mb-1 transition-all duration-300 text-white">
-                  R$ {isAnnual ? '970' : '97'}
+                  R$ {isAnnual ? '970' : '297'}
                 </div>
                 <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
                 
@@ -574,19 +574,20 @@ export default function LandingPage() {
                 </button>
                 
                 <div className="text-left text-sm mt-auto">
-                  <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
+                  <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-5">Visão Geral</h4>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 300 assinantes ativos</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1 Usuário de vendas</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 2 Técnico em campo</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 500 caixas CTO cadastradas</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 80 Leads validados por mês + 30 Leads extras</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ +1.50 por leads validado excedente</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 2 Técnico em campo</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1 servidor MikrotikTik</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 70 Leads validados por mês + 30 Leads extras</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-12">✓ +1.50 por leads validado excedente</p>
                   
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                   <ul className="space-y-2.5">
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Link de Viabilidade do meu sistema</span></li>
+                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Link simples de viabiliadde</span></li>
                     <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>CRM Básico (Kanban)</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]/40 line-through"><X className="w-4 h-4 text-[#94a3b8] shrink-0" /> <span>Integrações (Webhooks)</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]/40 line-through"><X className="w-4 h-4 text-[#94a3b8] shrink-0" /> <span>Suporte prioritário</span></li>
+                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>App para cliente e tecnico</span></li>
+                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Suporte por chamado e e-mail</span></li>
                   </ul>
                 </div>
               </div>
@@ -601,7 +602,7 @@ export default function LandingPage() {
               </div>
               <div className="text-center flex-grow flex flex-col">
                 <div className="text-4xl font-mono font-black mb-1 transition-all duration-300 text-white">
-                  R$ {isAnnual ? '2470' : '247'}
+                  R$ {isAnnual ? '2470' : '597'}
                 </div>
                 <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
                 
@@ -615,17 +616,18 @@ export default function LandingPage() {
                 
                 <div className="text-left text-sm mt-auto">
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 3 Usuário de vendas</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 10 Técnico em campo</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 1.000 caixas CTO cadastradas</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 300 Leads validados por mês + 60 Leads extras</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1.000 assinantes ativos</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 Usuário de vendas</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 Técnico em campo</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 3 servidores Mikrotik</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 150 Leads validados por mês + 60 Leads extras</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ +1.50 por leads validado excedente</p>
                   
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                   <ul className="space-y-2.5">
                     <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Tudo do Essencial</span></li>
                     <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>link de viabilidade personalizado com sua marca</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Relatórios</span></li>
+                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Suporte por chamado e e-mail</span></li>
                     <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]/40 line-through"><X className="w-4 h-4 text-[#94a3b8] shrink-0" /> <span>Setup assistido de automação</span></li>
                   </ul>
                 </div>
@@ -644,7 +646,7 @@ export default function LandingPage() {
               </div>
               <div className="text-center flex-grow flex flex-col">
                 <div className="text-4xl font-mono font-black mb-1 transition-all duration-300 text-white">
-                  R$ {isAnnual ? '4970' : '497'}
+                  R$ {isAnnual ? '4970' : '997'}
                 </div>
                 <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
                 
@@ -658,9 +660,10 @@ export default function LandingPage() {
                 
                 <div className="text-left text-sm mt-auto">
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 10 Usuário de vendas</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 30 Técnico em campo</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 5.000 caixas CTO cadastradas</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 3.000 assinantes ativos</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 25 Usuário de vendas</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 30 Técnico em campo</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 servidores MikroTik</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 500 Leads validados por mês + 100 Leads extras</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ +1.50 por leads validado excedente</p>
                   
@@ -701,13 +704,12 @@ export default function LandingPage() {
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Equipe de venda personalizado</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Equipe de campo personalizado</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Limite caixa CTO personalizado</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Limite servidores personalizados</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-20">✓ Limite de leads personalizado</p>
                   
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                   <ul className="space-y-2.5">
                     <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Setup VIP para sua operação</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>White-label (Sem marca V5)</span></li>
                     <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Gerente de sucesso dedicado</span></li>
                     <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Treinamento da equipe</span></li>
                   </ul>
