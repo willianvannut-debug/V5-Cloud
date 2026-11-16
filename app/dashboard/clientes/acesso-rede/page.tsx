@@ -1,6 +1,7 @@
 // ================================================================================
 // ACESSO A REDE / PPPoE - V5 FIBRA
 // app/dashboard/clientes/acesso-rede/page.tsx
+// NOVO: Ao salvar dados PPPoE, cria/atualiza Secret no MikroTik automaticamente
 // ================================================================================
 
 "use client"
@@ -31,6 +32,8 @@ import {
   Save,
   X,
   Monitor,
+  CloudUpload,
+  Loader2,
 } from 'lucide-react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -50,6 +53,7 @@ export default function AcessoRedePage() {
   const [senhaVisivel, setSenhaVisivel] = useState(false);
   const [copiado, setCopiado] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
 
   // Form
   const [form, setForm] = useState({
@@ -93,6 +97,7 @@ export default function AcessoRedePage() {
     setClienteSelecionado(cliente);
     setEditando(false);
     setSenhaVisivel(false);
+    setSyncMsg(null);
 
     if (!supabase) return;
 
@@ -119,21 +124,184 @@ export default function AcessoRedePage() {
     }
   };
 
+  // ============================================================
+  // SYNC SECRET NO MIKROTIK (AUTOMATICO AO SALVAR)
+  // ============================================================
+  const syncSecretNoMikroTik = async (
+    loginPPPoE: string,
+    senhaPPPoE: string,
+    profile: string,
+    ipFixo: string,
+    nomeCliente: string,
+    loginAnterior?: string
+  ): Promise<boolean> => {
+    if (!operador?.empresaId) return false
+
+    try {
+      const isEdicao = loginAnterior && loginAnterior !== loginPPPoE
+
+      if (isEdicao) {
+        // EDITAR secret existente (login mudou)
+        const res = await fetch(`/api/mk-proxy?path=pppoe/secrets/set&empresa_id=${operador.empresaId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            original_name: loginAnterior,
+            client_name: loginPPPoE,
+            client_password: senhaPPPoE,
+            profile: profile || undefined,
+            remote_address: ipFixo || undefined,
+            comment: `V5 Fibra - ${nomeCliente}`,
+          }),
+        })
+        const data = await res.json()
+        if (!data.success) {
+          console.error('Erro ao editar secret no MikroTik:', data.error)
+          // Se nao encontrou, tenta criar
+          if (data.error && data.error.includes('nao encontrado')) {
+            return await criarSecret(loginPPPoE, senhaPPPoE, profile, ipFixo, nomeCliente)
+          }
+          return false
+        }
+        return true
+      } else if (loginAnterior) {
+        // Login nao mudou, atualizar senha/profile/ip
+        const res = await fetch(`/api/mk-proxy?path=pppoe/secrets/set&empresa_id=${operador.empresaId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            original_name: loginPPPoE,
+            client_password: senhaPPPoE,
+            profile: profile || undefined,
+            remote_address: ipFixo || undefined,
+            comment: `V5 Fibra - ${nomeCliente}`,
+          }),
+        })
+        const data = await res.json()
+        if (!data.success) {
+          console.error('Erro ao atualizar secret no MikroTik:', data.error)
+          // Se nao encontrou, tenta criar
+          if (data.error && data.error.includes('nao encontrado')) {
+            return await criarSecret(loginPPPoE, senhaPPPoE, profile, ipFixo, nomeCliente)
+          }
+          return false
+        }
+        return true
+      } else {
+        // Novo — criar secret
+        return await criarSecret(loginPPPoE, senhaPPPoE, profile, ipFixo, nomeCliente)
+      }
+    } catch (err) {
+      console.error('Erro sync MikroTik:', err)
+      return false
+    }
+  }
+
+  const criarSecret = async (
+    loginPPPoE: string,
+    senhaPPPoE: string,
+    profile: string,
+    ipFixo: string,
+    nomeCliente: string
+  ): Promise<boolean> => {
+    if (!operador?.empresaId) return false
+    try {
+      const res = await fetch(`/api/mk-proxy?path=pppoe/secrets/add&empresa_id=${operador.empresaId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: loginPPPoE,
+          client_password: senhaPPPoE,
+          profile: profile || 'default',
+          remote_address: ipFixo || undefined,
+          comment: `V5 Fibra - ${nomeCliente}`,
+        }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        // Se ja existe, tenta atualizar
+        if (data.error && data.error.includes('already')) {
+          const resSet = await fetch(`/api/mk-proxy?path=pppoe/secrets/set&empresa_id=${operador.empresaId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              original_name: loginPPPoE,
+              client_password: senhaPPPoE,
+              profile: profile || undefined,
+              remote_address: ipFixo || undefined,
+              comment: `V5 Fibra - ${nomeCliente}`,
+            }),
+          })
+          const dataSet = await resSet.json()
+          return dataSet.success
+        }
+        console.error('Erro ao criar secret:', data.error)
+        return false
+      }
+      return true
+    } catch (err) {
+      console.error('Erro criar secret:', err)
+      return false
+    }
+  }
+
+  // ============================================================
+  // SALVAR ACESSO (COM SYNC AUTOMATICO AO MIKROTIK)
+  // ============================================================
   const salvarAcesso = async () => {
     if (!clienteSelecionado || !supabase) return;
     setSalvando(true);
+    setSyncMsg(null);
     try {
+      // 1. Salvar no Supabase
       const { error } = await supabase
         .from('clientes')
         .update(form)
         .eq('id', clienteSelecionado.id);
 
-      if (!error) {
-        setAcessoRede(form);
-        setEditando(false);
+      if (error) {
+        setSyncMsg({ tipo: 'erro', texto: 'Erro ao salvar no banco de dados' });
+        setSalvando(false);
+        return;
       }
+
+      // 2. Se tem login e senha PPPoE, sincronizar com MikroTik
+      if (form.login_pppoe && form.senha_pppoe) {
+        const loginAnterior = acessoRede?.login_pppoe || null;
+        const mkOk = await syncSecretNoMikroTik(
+          form.login_pppoe,
+          form.senha_pppoe,
+          form.perfil_radius,
+          form.ip_fixo,
+          clienteSelecionado.nome,
+          loginAnterior
+        );
+
+        if (mkOk) {
+          setSyncMsg({
+            tipo: 'ok',
+            texto: loginAnterior
+              ? `Dados salvos e PPPoE Secret "${form.login_pppoe}" atualizado no MikroTik!`
+              : `Dados salvos e PPPoE Secret "${form.login_pppoe}" criado no MikroTik!`
+          });
+        } else {
+          setSyncMsg({
+            tipo: 'erro',
+            texto: 'Dados salvos no sistema! (Aviso: nao foi possivel sincronizar com MikroTik)'
+          });
+        }
+      } else {
+        setSyncMsg({ tipo: 'ok', texto: 'Dados salvos com sucesso!' });
+      }
+
+      setAcessoRede({ ...form });
+      setEditando(false);
+
+      // Limpar mensagem apos 5 segundos
+      setTimeout(() => setSyncMsg(null), 5000);
     } catch (e) {
       console.error('Erro:', e);
+      setSyncMsg({ tipo: 'erro', texto: 'Erro ao salvar dados' });
     } finally {
       setSalvando(false);
     }
@@ -193,9 +361,21 @@ export default function AcessoRedePage() {
           </h1>
         </div>
         <p className="text-zinc-400 text-sm mt-0.5 ml-12">
-          Configuracao PPPoE, IP fixo, MAC, VLAN e dados de fibra
+          Configuracao PPPoE, IP fixo, MAC, VLAN e dados de fibra — <span className="text-emerald-400 font-bold">sincroniza automaticamente com o MikroTik</span>
         </p>
       </div>
+
+      {/* MENSAGEM DE SYNC */}
+      {syncMsg && (
+        <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-mono border ${
+          syncMsg.tipo === 'ok'
+            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+            : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
+        }`}>
+          {syncMsg.tipo === 'ok' ? <CheckCircle className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+          {syncMsg.texto}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -287,7 +467,7 @@ export default function AcessoRedePage() {
                     ) : (
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => setEditando(false)}
+                          onClick={() => { setEditando(false); setSyncMsg(null); }}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-[10px] font-mono uppercase transition-all"
                         >
                           <X className="w-3 h-3" /> CANCELAR
@@ -295,9 +475,10 @@ export default function AcessoRedePage() {
                         <button
                           onClick={salvarAcesso}
                           disabled={salvando}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[10px] font-mono uppercase font-bold transition-all border border-emerald-500/30"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[10px] font-mono uppercase font-bold transition-all border border-emerald-500/30 disabled:opacity-50"
                         >
-                          {salvando ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} SALVAR
+                          {salvando ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                          {salvando ? 'SALVANDO...' : 'SALVAR'}
                         </button>
                       </div>
                     )}
@@ -305,30 +486,39 @@ export default function AcessoRedePage() {
                 </CardHeader>
                 <CardContent className="p-4">
                   {editando ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className={estiloLabel}>Login PPPoE</label>
-                        <input type="text" value={form.login_pppoe} onChange={(e) => setForm({ ...form, login_pppoe: e.target.value })} placeholder="usuario@provedor" className={estiloInput} />
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className={estiloLabel}>Login PPPoE</label>
+                          <input type="text" value={form.login_pppoe} onChange={(e) => setForm({ ...form, login_pppoe: e.target.value })} placeholder="usuario@provedor" className={estiloInput} />
+                        </div>
+                        <div>
+                          <label className={estiloLabel}>Senha PPPoE</label>
+                          <input type="text" value={form.senha_pppoe} onChange={(e) => setForm({ ...form, senha_pppoe: e.target.value })} placeholder="Senha de autenticacao" className={estiloInput} />
+                        </div>
+                        <div>
+                          <label className={estiloLabel}>IP Fixo</label>
+                          <input type="text" value={form.ip_fixo} onChange={(e) => setForm({ ...form, ip_fixo: e.target.value })} placeholder="Ex: 10.0.0.100" className={estiloInput} />
+                        </div>
+                        <div>
+                          <label className={estiloLabel}>MAC Address</label>
+                          <input type="text" value={form.mac_address} onChange={(e) => setForm({ ...form, mac_address: e.target.value })} placeholder="AA:BB:CC:DD:EE:FF" className={estiloInput} />
+                        </div>
+                        <div>
+                          <label className={estiloLabel}>Perfil PPPoE (Profile MikroTik)</label>
+                          <input type="text" value={form.perfil_radius} onChange={(e) => setForm({ ...form, perfil_radius: e.target.value })} placeholder="Ex: 100M, 200M, BLOQUEADO" className={estiloInput} />
+                        </div>
+                        <div>
+                          <label className={estiloLabel}>VLAN</label>
+                          <input type="text" value={form.vlan} onChange={(e) => setForm({ ...form, vlan: e.target.value })} placeholder="Ex: 100" className={estiloInput} />
+                        </div>
                       </div>
-                      <div>
-                        <label className={estiloLabel}>Senha PPPoE</label>
-                        <input type="text" value={form.senha_pppoe} onChange={(e) => setForm({ ...form, senha_pppoe: e.target.value })} placeholder="Senha de autenticacao" className={estiloInput} />
-                      </div>
-                      <div>
-                        <label className={estiloLabel}>IP Fixo</label>
-                        <input type="text" value={form.ip_fixo} onChange={(e) => setForm({ ...form, ip_fixo: e.target.value })} placeholder="Ex: 10.0.0.100" className={estiloInput} />
-                      </div>
-                      <div>
-                        <label className={estiloLabel}>MAC Address</label>
-                        <input type="text" value={form.mac_address} onChange={(e) => setForm({ ...form, mac_address: e.target.value })} placeholder="AA:BB:CC:DD:EE:FF" className={estiloInput} />
-                      </div>
-                      <div>
-                        <label className={estiloLabel}>Perfil Radius</label>
-                        <input type="text" value={form.perfil_radius} onChange={(e) => setForm({ ...form, perfil_radius: e.target.value })} placeholder="Ex: 100M, 200M, 500M" className={estiloInput} />
-                      </div>
-                      <div>
-                        <label className={estiloLabel}>VLAN</label>
-                        <input type="text" value={form.vlan} onChange={(e) => setForm({ ...form, vlan: e.target.value })} placeholder="Ex: 100" className={estiloInput} />
+                      {/* Info sync */}
+                      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3 flex items-start gap-2">
+                        <CloudUpload className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <p className="text-[10px] font-mono text-emerald-300/70">
+                          Ao salvar, o PPPoE Secret sera {acessoRede?.login_pppoe ? 'atualizado' : 'criado'} automaticamente no MikroTik com login, senha e profile configurados.
+                        </p>
                       </div>
                     </div>
                   ) : (
@@ -337,7 +527,7 @@ export default function AcessoRedePage() {
                       <CampoLeitura label="Senha PPPoE" valor={acessoRede?.senha_pppoe} campo="senha" sensivel />
                       <CampoLeitura label="IP Fixo" valor={acessoRede?.ip_fixo} campo="ip" />
                       <CampoLeitura label="MAC Address" valor={acessoRede?.mac_address} campo="mac" />
-                      <CampoLeitura label="Perfil Radius" valor={acessoRede?.perfil_radius} campo="perfil" />
+                      <CampoLeitura label="Perfil PPPoE" valor={acessoRede?.perfil_radius} campo="perfil" />
                       <CampoLeitura label="VLAN" valor={acessoRede?.vlan} campo="vlan" />
                     </div>
                   )}
@@ -382,9 +572,10 @@ export default function AcessoRedePage() {
               <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 flex items-start gap-3">
                 <Monitor className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs font-mono font-bold text-emerald-400 uppercase">Integracao Radius</p>
+                  <p className="text-xs font-mono font-bold text-emerald-400 uppercase">Integracao MikroTik Ativa</p>
                   <p className="text-xs text-zinc-400 font-mono mt-1">
-                    A integracao com o servidor Radius (FreeRadius / MikroTik) para autenticacao automatica PPPoE sera disponibilizada em uma atualizacao futura. Por enquanto, os dados sao apenas informativos.
+                    Ao salvar o login e senha PPPoE, o sistema cria ou atualiza automaticamente o PPPoE Secret no MikroTik.
+                    O campo &quot;Perfil PPPoE&quot; define qual profile sera usado (ex: 100M, 200M). Se deixar vazio, usa o profile &quot;default&quot;.
                   </p>
                 </div>
               </div>
