@@ -159,25 +159,12 @@ export default function TabFinanceiro({ clienteId, empresa, cliente, editando, f
   // ==========================
   // VERIFICAR BACKEND + GATEWAY
   // ==========================
-  const [gatewayConfigurado, setGatewayConfigurado] = useState<boolean | null>(null);
-
   useEffect(() => {
     async function checkBackend() {
       try {
         const res = await fetch('/api/health');
         const data = await res.json();
-        const online = data.status === 'ok';
-        setBackendOnline(online);
-        // Se backend online, verificar se gateway esta configurado
-        if (online) {
-          try {
-            const gw = await fetch('/api/financial/gateway/config');
-            const gwData = await gw.json();
-            setGatewayConfigurado(!!(gwData?.data?.wallet_id));
-          } catch {
-            setGatewayConfigurado(false);
-          }
-        }
+        setBackendOnline(data.status === 'ok');
       } catch {
         setBackendOnline(false);
       }
@@ -652,16 +639,6 @@ export default function TabFinanceiro({ clienteId, empresa, cliente, editando, f
         </div>
       )}
 
-      {/* Aviso se gateway nao configurado */}
-      {backendOnline === true && gatewayConfigurado === false && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-mono">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          <div>
-            <p className="font-bold">Gateway de pagamento não configurado</p>
-            <p className="text-yellow-500/80 mt-0.5">Configure suas credenciais do Wide Pay em <strong>Configurações → Gateway de Pagamento</strong> para gerar boletos e PIX.</p>
-          </div>
-        </div>
-      )}
 
       {/* Resumo financeiro */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
