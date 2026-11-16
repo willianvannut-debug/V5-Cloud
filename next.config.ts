@@ -44,11 +44,11 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/financial/:path*',
-        destination: 'http://163.176.39.250:4000/api/financial/:path*',
+        destination: 'http://localhost:4000/api/financial/:path*',
       },
       {
         source: '/api/health',
-        destination: 'http://163.176.39.250:4000/api/health',
+        destination: 'http://localhost:4000/api/health',
       },
     ];
   },

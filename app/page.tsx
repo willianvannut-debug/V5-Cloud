@@ -561,12 +561,12 @@ export default function LandingPage() {
               </div>
               <div className="text-center flex-grow flex flex-col">
                 <div className="text-4xl font-mono font-black mb-1 transition-all duration-300 text-white">
-                  R$ {isAnnual ? '970' : '297'}
+                  R$ {isAnnual ? '2800' : '297'}
                 </div>
                 <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
                 
                 <button 
-                  onClick={() => handleAssinar('essencial', 'Plano Essencial V5 Cloud', isAnnual ? 97000 : 9700)}
+                  onClick={() => handleAssinar('essencial', 'Plano Essencial V5 Cloud', isAnnual ? 280000 : 28000)}
                   disabled={carregandoPlano !== null}
                   className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] transition-colors text-[#f8fafc] cursor-pointer"
                 >
@@ -578,9 +578,10 @@ export default function LandingPage() {
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 300 assinantes ativos</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1 Usuário de vendas</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 2 Técnico em campo</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 2 Vedendor em campo</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1 servidor MikrotikTik</p>
                   <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 70 Leads validados por mês + 30 Leads extras</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-12">✓ +1.50 por leads validado excedente</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-10">✓ +1.50 por leads validado excedente</p>
                   
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                   <ul className="space-y-2.5">
@@ -593,90 +594,92 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* PRO */}
-            <div className="relative flex flex-col border border-[#1e3b29] rounded-xl bg-[#0a0a0a] p-6 transition-all hover:shadow-md hover:border-[#f8fafc]/30">
-              <div className="flex flex-col items-center text-center mb-6 pt-2">
-                <Monitor className="w-8 h-8 text-[#f8fafc] mb-4" />
-                <h3 className="text-xl font-black uppercase tracking-wider mb-2">Pro</h3>
-                <p className="text-[11px] font-mono text-[#94a3b8] min-h-[40px] uppercase tracking-wide">Para provedores em expansão que precisam de velocidade.</p>
+            {/* PRO (Recomendado) */}
+          <div className="relative flex flex-col border border-[#f8fafc] ring-1 ring-[#f8fafc]/30 scale-[1.03] rounded-xl bg-[#0a0a0a] p-6 transition-all shadow-md z-10">
+            <div className="absolute -top-3 left-0 right-0 mx-auto w-fit bg-[#f8fafc] text-[#021708] font-mono text-[10px] uppercase tracking-widest px-4 py-1.5 rounded-full font-bold shadow-sm">
+              Recomendado
+            </div>
+            <div className="flex flex-col items-center text-center mb-6 pt-4">
+              <Monitor className="w-8 h-8 text-[#f8fafc] mb-4" />
+              <h3 className="text-xl font-black uppercase tracking-wider mb-2">Pro</h3>
+              <p className="text-[11px] font-mono text-[#94a3b8] min-h-[40px] uppercase tracking-wide">Para provedores em expansão que precisam de velocidade.</p>
+            </div>
+            <div className="text-center flex-grow flex flex-col">
+              <div className="text-4xl font-mono font-black mb-1 transition-all duration-300 text-white">
+                R$ {isAnnual ? '5700' : '597'}
               </div>
-              <div className="text-center flex-grow flex flex-col">
-                <div className="text-4xl font-mono font-black mb-1 transition-all duration-300 text-white">
-                  R$ {isAnnual ? '2470' : '597'}
-                </div>
-                <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
+              <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
+              
+              <button 
+                onClick={() => handleAssinar('pro', 'Plano Pro V5 Cloud', isAnnual ? 570000 : 57000)}
+                disabled={carregandoPlano !== null}
+                className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 bg-[#f8fafc] text-[#021708] hover:bg-[#f8fafc]/90 transition-colors shadow-[0_0_15px_rgba(248,250,252,0.15)] cursor-pointer"
+              >
+                {carregandoPlano === 'pro' ? <Loader2 className="w-4 h-4 animate-spin text-[#021708]" /> : 'Assinar Pro'}
+              </button>
+              
+              <div className="text-left text-sm mt-auto">
+                <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1.000 assinantes ativos</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 Usuário de vendas</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 Técnico em campo</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 Vendedor em campo</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 3 servidores MikroTik</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 150 Leads validados por mês + 60 Leads extras</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-8">✓ +1.50 por leads validado excedente</p>
                 
-                <button 
-                  onClick={() => handleAssinar('pro', 'Plano Pro V5 Cloud', isAnnual ? 247000 : 24700)}
-                  disabled={carregandoPlano !== null}
-                  className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] transition-colors text-[#f8fafc] cursor-pointer"
-                >
-                  {carregandoPlano === 'pro' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Começar Agora'}
-                </button>
-                
-                <div className="text-left text-sm mt-auto">
-                  <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 1.000 assinantes ativos</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 Usuário de vendas</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 Técnico em campo</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 3 servidores Mikrotik</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 150 Leads validados por mês + 60 Leads extras</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ +1.50 por leads validado excedente</p>
-                  
-                  <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
-                  <ul className="space-y-2.5">
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Tudo do Essencial</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>link de viabilidade personalizado com sua marca</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Suporte por chamado e e-mail</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]/40 line-through"><X className="w-4 h-4 text-[#94a3b8] shrink-0" /> <span>Setup assistido de automação</span></li>
-                  </ul>
-                </div>
+                <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
+                <ul className="space-y-2.5">
+                  <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Tudo do Essencial</span></li>
+                  <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>link de viabilidade personalizado com sua marca</span></li>
+                  <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Suporte por chamado e e-mail</span></li>
+                  <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]/40 line-through"><X className="w-4 h-4 text-[#94a3b8] shrink-0" /> <span>Setup assistido de automação</span></li>
+                </ul>
               </div>
             </div>
+          </div>
 
-            {/* SCALE (Recomendado) */}
-            <div className="relative flex flex-col border border-[#f8fafc] ring-1 ring-[#f8fafc]/30 scale-[1.03] rounded-xl bg-[#0a0a0a] p-6 transition-all shadow-md z-10">
-              <div className="absolute -top-3 left-0 right-0 mx-auto w-fit bg-[#f8fafc] text-[#021708] font-mono text-[10px] uppercase tracking-widest px-4 py-1.5 rounded-full font-bold shadow-sm">
-                Recomendado
+          {/* SCALE */}
+          <div className="relative flex flex-col border border-[#1e3b29] rounded-xl bg-[#0a0a0a] p-6 transition-all hover:shadow-md hover:border-[#f8fafc]/30">
+            <div className="flex flex-col items-center text-center mb-6 pt-2">
+              <Rocket className="w-8 h-8 text-[#f8fafc] mb-4" />
+              <h3 className="text-xl font-black uppercase tracking-wider mb-2">Scale</h3>
+              <p className="text-[11px] font-mono text-[#94a3b8] min-h-[40px] uppercase tracking-wide">Para equipes comerciais estruturadas e focadas em conversão.</p>
+            </div>
+            <div className="text-center flex-grow flex flex-col">
+              <div className="text-4xl font-mono font-black mb-1 transition-all duration-300 text-white">
+                R$ {isAnnual ? '9500' : '997'}
               </div>
-              <div className="flex flex-col items-center text-center mb-6 pt-4">
-                <Rocket className="w-8 h-8 text-[#f8fafc] mb-4" />
-                <h3 className="text-xl font-black uppercase tracking-wider mb-2">Scale</h3>
-                <p className="text-[11px] font-mono text-[#94a3b8] min-h-[40px] uppercase tracking-wide">Para equipes comerciais estruturadas e focadas em conversão.</p>
-              </div>
-              <div className="text-center flex-grow flex flex-col">
-                <div className="text-4xl font-mono font-black mb-1 transition-all duration-300 text-white">
-                  R$ {isAnnual ? '4970' : '997'}
-                </div>
-                <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
+              <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest">/ {isAnnual ? 'ano' : 'mês'}</p>
+              
+              <button 
+                onClick={() => handleAssinar('scale', 'Plano Scale V5 Cloud', isAnnual ? 950000 : 99700)}
+                disabled={carregandoPlano !== null}
+                className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] transition-colors text-[#f8fafc] cursor-pointer"
+              >
+                {carregandoPlano === 'scale' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Começar Agora'}
+              </button>
+              
+              <div className="text-left text-sm mt-auto">
+                <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 3.000 assinantes ativos</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 25 Usuário de vendas</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 30 Técnico em campo</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 25 vendedor em campo</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 servidores MikroTik</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 500 Leads validados por mês + 100 Leads extras</p>
+                <p className="font-mono text-xs text-[#94a3b8] mb-12">✓ +1.50 por leads validado excedente</p>
                 
-                <button 
-                  onClick={() => handleAssinar('scale', 'Plano Scale V5 Cloud', isAnnual ? 497000 : 49700)}
-                  disabled={carregandoPlano !== null}
-                  className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 bg-[#f8fafc] text-[#021708] hover:bg-[#f8fafc]/90 transition-colors shadow-[0_0_15px_rgba(248,250,252,0.15)] cursor-pointer"
-                >
-                  {carregandoPlano === 'scale' ? <Loader2 className="w-4 h-4 animate-spin text-[#021708]" /> : 'Assinar Scale'}
-                </button>
-                
-                <div className="text-left text-sm mt-auto">
-                  <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 3.000 assinantes ativos</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 25 Usuário de vendas</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 30 Técnico em campo</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ 10 servidores MikroTik</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Até 500 Leads validados por mês + 100 Leads extras</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-5">✓ +1.50 por leads validado excedente</p>
-                  
-                  <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
-                  <ul className="space-y-2.5">
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Tudo do Pro</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Roleta de Leads automática</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Analytics Avançado</span></li>
-                    <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Suporte VIP WhatsApp</span></li>
-                  </ul>
-                </div>
+                <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
+                <ul className="space-y-2.5">
+                  <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Tudo do Pro</span></li>
+                  <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Roleta de Leads automática</span></li>
+                  <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Analytics Avançado</span></li>
+                  <li className="flex items-start gap-2 font-mono text-xs text-[#94a3b8]"><Check className="w-4 h-4 text-[#f8fafc] shrink-0" /> <span>Suporte VIP WhatsApp</span></li>
+                </ul>
               </div>
             </div>
+          </div>
 
             {/* ENTERPRISE */}
             <div className="relative flex flex-col border border-[#1e3b29] rounded-xl bg-[#0a0a0a] p-6 transition-all hover:shadow-md hover:border-[#f8fafc]/30">
@@ -692,7 +695,7 @@ export default function LandingPage() {
                 <p className="text-[11px] font-mono text-[#94a3b8] mb-6 min-h-[20px] uppercase tracking-widest"></p>
                 
                 <a 
-                  href="https://api.whatsapp.com/send/?phone=556194193617&text=Olá,%20tenho%20interesse%20em%20entender%20melhor%20o%20plano%20Enterprise%20do%20SaaS%20V5."
+                  href="https://api.whatsapp.com/send/?phone=5561998798859&text=Olá,%20tenho%20interesse%20em%20entender%20melhor%20o%20plano%20Enterprise%20do%20SaaS%20V5."
                   target="_blank"
                   rel="noreferrer"
                   className="w-full mb-6 font-mono font-bold text-xs uppercase tracking-wider inline-flex items-center justify-center rounded-lg h-10 px-4 py-2 border border-[#1e3b29] bg-transparent hover:bg-[#1e3b29] transition-colors text-[#f8fafc]"
@@ -702,10 +705,12 @@ export default function LandingPage() {
                 
                 <div className="text-left text-sm mt-auto">
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Visão Geral</h4>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Equipe de venda personalizado</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Equipe de campo personalizado</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Limite servidores personalizados</p>
-                  <p className="font-mono text-xs text-[#94a3b8] mb-20">✓ Limite de leads personalizado</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Apartir de 3.000 assinantes ativos</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Usuário de vendas personalizado</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ Técnico em campo personalizado</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ vendedor em campo personalizado</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-1.5">✓ servidores MikroTik personalizado</p>
+                  <p className="font-mono text-xs text-[#94a3b8] mb-20">✓ Leads validados por mês personalizado</p>
                   
                   <h4 className="font-mono text-[11px] font-bold uppercase tracking-widest text-[#f8fafc] mb-3">Destaques</h4>
                   <ul className="space-y-2.5">

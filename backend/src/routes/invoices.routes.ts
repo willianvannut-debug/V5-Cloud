@@ -15,6 +15,14 @@ export function invoiceRoutes(db: Pool) {
   router.get('/', async (req: Request, res: Response) => {
     try {
       const empresaId = req.empresaId!;
+
+      // ===== DEBUG TEMPORÁRIO =====
+      console.log('=== DEBUG GET /invoices ===');
+      console.log('empresaId:', empresaId);
+      console.log('headers x-empresa-id:', req.headers['x-empresa-id']);
+      console.log('query:', JSON.stringify(req.query));
+      // =============================
+
       if (!empresaId) return res.status(400).json({ error: 'Empresa não informada' });
 
       const {
@@ -39,21 +47,37 @@ export function invoiceRoutes(db: Pool) {
 
       // Filtrar por cliente específico
       if (customerId) {
-        // Buscar o CPF/CNPJ do cliente para encontrar faturas antigas sem cliente_id
+        // Buscar dados do cliente para encontrar faturas por CPF ou nome
         const clienteRes = await db.query(
-          'SELECT cpf, cnpj FROM clientes WHERE id = $1 AND empresa_id = $2',
+          'SELECT cpf, cnpj, nome FROM clientes WHERE id = $1 AND empresa_id = $2',
           [customerId, empresaId]
         );
+        console.log('clienteRes rows:', clienteRes.rows.length, clienteRes.rows[0] || 'NENHUM');
         if (clienteRes.rows.length > 0) {
-          const doc = clienteRes.rows[0].cpf || clienteRes.rows[0].cnpj || '';
+          const cliente = clienteRes.rows[0];
+          const docRaw = cliente.cpf || cliente.cnpj || '';
+          const doc = docRaw.replace(/\D/g, '');
+          const nomeCliente = (cliente.nome || '').trim();
+          console.log('docRaw:', docRaw, '-> doc limpo:', doc, '| nome:', nomeCliente);
+
+          // Montar condição: cliente_id OU CPF OU nome
+          const orParts: string[] = [`cliente_id = $${idx}`];
+          values.push(customerId);
+          idx++;
+
           if (doc) {
-            conditions.push(`(cliente_id = $${idx} OR customer_document = $${idx + 1})`);
-            values.push(customerId, doc);
-            idx += 2;
-          } else {
-            conditions.push(`cliente_id = $${idx++}`);
-            values.push(customerId);
+            orParts.push(`REPLACE(REPLACE(REPLACE(customer_document, '.', ''), '-', ''), '/', '') = $${idx}`);
+            values.push(doc);
+            idx++;
           }
+
+          if (nomeCliente) {
+            orParts.push(`UPPER(TRIM(customer_name)) = UPPER($${idx})`);
+            values.push(nomeCliente);
+            idx++;
+          }
+
+          conditions.push(`(${orParts.join(' OR ')})`);
         } else {
           conditions.push(`cliente_id = $${idx++}`);
           values.push(customerId);
@@ -88,9 +112,13 @@ export function invoiceRoutes(db: Pool) {
 
       const where = conditions.join(' AND ');
 
+      console.log('SQL WHERE:', where);
+      console.log('SQL VALUES:', values);
+
       // Contar total
       const countResult = await db.query(`SELECT COUNT(*) FROM faturas WHERE ${where}`, values);
       const total = parseInt(countResult.rows[0].count);
+      console.log('TOTAL faturas encontradas:', total);
 
       // Buscar faturas
       const dataResult = await db.query(

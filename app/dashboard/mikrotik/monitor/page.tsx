@@ -1,10 +1,7 @@
 // ============================================================
 // app/dashboard/mikrotik/monitor/page.tsx
-// V5 FIBRA — Monitor de Clientes MikroTik v3
-// FIX: Conta TODOS os ativos corretamente (incluindo duplicados
-// e conexoes sem secret correspondente)
-// Detecta bloqueio por PERFIL (BLOQUEADO/Bloqueado)
-// Dropdown de perfis REAIS do MikroTik para liberar cliente
+// V5 FIBRA — Monitor de Clientes MikroTik v4
+// FIX: Trafego real via /interface (tx-byte, rx-byte)
 // ============================================================
 'use client'
 
@@ -38,6 +35,14 @@ interface PPPoEActive {
   limit_bytes_in?: string
   limit_bytes_out?: string
   encoding?: string
+}
+
+interface TrafficData {
+  name: string
+  interface_name: string
+  tx_byte: string
+  rx_byte: string
+  running: boolean
 }
 
 interface MkProfile {
@@ -122,22 +127,32 @@ export default function MonitorMikroTikPage() {
     if (!operador?.empresaId) return
 
     try {
-      // Buscar tudo em paralelo: secrets, ativos e perfis
-      const [resSecrets, resActive, resProfiles] = await Promise.all([
+      // Buscar tudo em paralelo: secrets, ativos, perfis E trafego
+      const [resSecrets, resActive, resProfiles, resTraffic] = await Promise.all([
         fetch(`/api/mk-proxy?path=pppoe/secrets&empresa_id=${operador.empresaId}`),
         fetch(`/api/mk-proxy?path=pppoe/active&empresa_id=${operador.empresaId}`),
         fetch(`/api/mk-proxy?path=pppoe/profiles&empresa_id=${operador.empresaId}`),
+        fetch(`/api/mk-proxy?path=pppoe/traffic&empresa_id=${operador.empresaId}`),
       ])
 
-      const [dataSecrets, dataActive, dataProfiles] = await Promise.all([
+      const [dataSecrets, dataActive, dataProfiles, dataTraffic] = await Promise.all([
         resSecrets.json(),
         resActive.json(),
         resProfiles.json(),
+        resTraffic.json(),
       ])
 
       // Salvar perfis (para o dropdown)
       if (dataProfiles.success && Array.isArray(dataProfiles.data)) {
         setPerfis(dataProfiles.data)
+      }
+
+      // Mapa de trafego por nome do cliente
+      const trafficMap = new Map<string, TrafficData>()
+      if (dataTraffic.success && Array.isArray(dataTraffic.data)) {
+        dataTraffic.data.forEach((t: TrafficData) => {
+          trafficMap.set(t.name, t)
+        })
       }
 
       // Lista de TODAS as conexoes ativas (sem deduplicar)
@@ -152,7 +167,6 @@ export default function MonitorMikroTikPage() {
       setTotalAtivos(listaAtivos.length)
 
       // Mapa de ativos por nome (para cruzar com secrets)
-      // Guarda ARRAY de conexoes por nome (pode ter duplicada)
       const activosMap = new Map<string, PPPoEActive[]>()
       listaAtivos.forEach((a) => {
         const lista = activosMap.get(a.name) || []
@@ -170,12 +184,9 @@ export default function MonitorMikroTikPage() {
         dataSecrets.data.forEach((secret: PPPoESecret) => {
           secretNomes.add(secret.name)
           const ativosList = activosMap.get(secret.name) || []
-          const ativo = ativosList[0] // Pegar a primeira conexao ativa
+          const ativo = ativosList[0]
+          const traffic = trafficMap.get(secret.name)
 
-          // Detectar status:
-          // 1. Se o perfil é "BLOQUEADO" ou "Bloqueado" → BLOQUEADO
-          // 2. Se tem conexão ativa → ONLINE
-          // 3. Senão → OFFLINE
           let status: 'online' | 'offline' | 'bloqueado' = 'offline'
           if (isPerfilBloqueado(secret.profile)) {
             status = 'bloqueado'
@@ -193,18 +204,18 @@ export default function MonitorMikroTikPage() {
             uptime: ativo?.uptime || '',
             comment: secret.comment || '',
             disabled: secret.disabled === 'true' || secret.disabled === true,
-            bytesIn: ativo?.limit_bytes_in,
-            bytesOut: ativo?.limit_bytes_out,
+            // Trafego vem da interface, nao do /ppp/active
+            bytesIn: traffic?.rx_byte,
+            bytesOut: traffic?.tx_byte,
           })
         })
       }
 
       // Adicionar conexoes ativas que NAO tem secret correspondente
-      // (aparecem no Active Connections mas nao no Secrets)
       activosMap.forEach((ativosList, nome) => {
         if (!secretNomes.has(nome)) {
-          // Esse cliente esta conectado mas nao tem secret
           const ativo = ativosList[0]
+          const traffic = trafficMap.get(nome)
           listaCompleta.push({
             id: ativo.id || `active-${nome}`,
             login: nome,
@@ -215,8 +226,8 @@ export default function MonitorMikroTikPage() {
             uptime: ativo.uptime || '',
             comment: 'Conexao ativa sem secret cadastrado',
             disabled: false,
-            bytesIn: ativo.limit_bytes_in,
-            bytesOut: ativo.limit_bytes_out,
+            bytesIn: traffic?.rx_byte,
+            bytesOut: traffic?.tx_byte,
           })
         }
       })
@@ -659,16 +670,11 @@ export default function MonitorMikroTikPage() {
 
       {/* ============================================================ */}
       {/* MODAL: LIBERAR CLIENTE - ESCOLHER PERFIL                     */}
-      {/* Dropdown com perfis REAIS do MikroTik (sincronizado)         */}
       {/* ============================================================ */}
       {modalLiberar && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* Backdrop */}
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => { setModalLiberar(null); setPerfilSelecionado('') }} />
-
-          {/* Modal */}
           <div className="relative bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            {/* Botao fechar */}
             <button
               onClick={() => { setModalLiberar(null); setPerfilSelecionado('') }}
               className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"
@@ -676,7 +682,6 @@ export default function MonitorMikroTikPage() {
               <X className="w-5 h-5" />
             </button>
 
-            {/* Header */}
             <div className="flex items-center gap-3 mb-6">
               <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
                 <Unlock className="w-5 h-5 text-emerald-400" />
@@ -687,7 +692,6 @@ export default function MonitorMikroTikPage() {
               </div>
             </div>
 
-            {/* Info do cliente */}
             <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-xl p-4 mb-5">
               <div className="grid grid-cols-2 gap-3 text-xs font-mono">
                 <div>
@@ -713,7 +717,6 @@ export default function MonitorMikroTikPage() {
               </div>
             </div>
 
-            {/* Dropdown de perfis */}
             <div className="mb-6">
               <label className="block text-xs font-mono font-bold text-zinc-400 uppercase tracking-wider mb-2">
                 Novo Perfil (do MikroTik)
@@ -738,7 +741,6 @@ export default function MonitorMikroTikPage() {
               </p>
             </div>
 
-            {/* Botoes */}
             <div className="flex items-center gap-3">
               <button
                 onClick={() => { setModalLiberar(null); setPerfilSelecionado('') }}

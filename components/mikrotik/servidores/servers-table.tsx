@@ -1,6 +1,7 @@
 // ============================================================
-// V5 FIBRA — Tabela de Servidores MikroTik
+// V5 FIBRA — Tabela de Servidores MikroTik v2
 // Estilo: dark neon V5 Cloud (sem shadcn — HTML puro)
+// NOVO: Botao "Script" para gerar script de integracao
 // ============================================================
 'use client'
 
@@ -14,12 +15,14 @@ import {
   Server,
   Plus,
   Search,
+  Terminal,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ServerStatusBadge } from './server-status-badge'
 import { ServerFormDialog } from './server-form-dialog'
 import { ServerDeleteDialog } from './server-delete-dialog'
+import { ScriptDialog } from './script-dialog'
 import {
   getServers,
   testServerConnection,
@@ -50,6 +53,8 @@ export function ServersTable() {
   const [editServer, setEditServer] = useState<MikrotikServer | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<MikrotikServer | null>(null)
+  const [scriptOpen, setScriptOpen] = useState(false)
+  const [scriptServer, setScriptServer] = useState<MikrotikServer | null>(null)
 
   // Action states (por servidor)
   const [testingId, setTestingId] = useState<string | null>(null)
@@ -152,6 +157,13 @@ export function ServersTable() {
   function handleDeleteClick(server: MikrotikServer) {
     setDeleteTarget(server)
     setDeleteOpen(true)
+    setMenuOpenId(null)
+  }
+
+  // Abrir script de integracao
+  function handleScript(server: MikrotikServer) {
+    setScriptServer(server)
+    setScriptOpen(true)
     setMenuOpenId(null)
   }
 
@@ -281,6 +293,15 @@ export function ServersTable() {
                     {/* Acoes */}
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {/* Script de Integracao */}
+                        <button
+                          onClick={() => handleScript(server)}
+                          title="Script de Integracao"
+                          className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-cyan-400 transition-colors cursor-pointer"
+                        >
+                          <Terminal className="h-4 w-4" />
+                        </button>
+
                         {/* Testar Conexao */}
                         <button
                           onClick={() => handleTest(server)}
@@ -359,6 +380,12 @@ export function ServersTable() {
         onOpenChange={setDeleteOpen}
         server={deleteTarget}
         onSuccess={loadServers}
+      />
+
+      <ScriptDialog
+        open={scriptOpen}
+        onOpenChange={setScriptOpen}
+        server={scriptServer}
       />
     </div>
   )

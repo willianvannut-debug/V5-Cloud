@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  { auth: { autoRefreshToken: false, persistSession: false } }
 )
 
 // GET - Carregar contrato ativo + planos disponiveis + historico
@@ -83,6 +84,7 @@ export async function GET(req) {
 
     return NextResponse.json({ success: false, error: 'Parâmetros inválidos' }, { status: 400 })
   } catch (error) {
+    console.error('ERRO CONTRATOS POST:', error)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }
@@ -167,6 +169,7 @@ export async function POST(req) {
 
     return NextResponse.json({ success: false, error: 'acao inválida' }, { status: 400 })
   } catch (error) {
+    console.error('ERRO CONTRATOS POST:', error)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }
