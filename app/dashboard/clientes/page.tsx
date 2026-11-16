@@ -321,7 +321,7 @@ export default function ClientesPage() {
   // SINCRONIZAR CLIENTES DO MIKROTIK
   // ==========================
   const sincronizarMikroTik = async () => {
-    if (!empresa?.id || !supabase || sincronizando) return;
+    if (!empresa?.id || sincronizando) return;
     setSincronizando(true);
     setSyncResultado(null);
 
@@ -342,14 +342,13 @@ export default function ClientesPage() {
         resActive.data.forEach((a: any) => ativosMap.set(a.name, a));
       }
 
-      const { data: clientesExistentes } = await supabase
-        .from('clientes')
-        .select('login_pppoe')
-        .eq('empresa_id', empresa.id)
-        .not('login_pppoe', 'is', null);
-
+            // Buscar existentes via API (server-side, sem RLS)
+      const resExistentes = await fetch(`/api/clientes?empresa_id=${empresa.id}&por_pagina=9999`, {
+        credentials: 'include',
+      });
+      const dataExistentes = await resExistentes.json();
       const loginsExistentes = new Set(
-        (clientesExistentes || [])
+        (dataExistentes.clientes || [])
           .map((c: any) => c.login_pppoe?.toLowerCase())
           .filter(Boolean)
       );
