@@ -17,7 +17,7 @@ import {
   ArrowUpCircle,
   ArrowDownCircle,
 } from 'lucide-react';
-import { supabase, estiloInput, estiloLabel, estiloSelect, estiloRotulo } from '../shared';
+import { estiloInput, estiloLabel, estiloSelect, estiloRotulo } from '../shared';
 
 interface TabPlanoProps {
   clienteId: string;
@@ -37,34 +37,25 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
   const [cancelando, setCancelando] = useState(false);
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
   const [historicContratos, setHistoricContratos] = useState<any[]>([]);
-  const [carregandoHistorico, setCarregandoHistorico] = useState(true);
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false);
 
   // ==========================
-  // CARREGAR CONTRATO + PLANOS
+  // CARREGAR TUDO VIA API
   // ==========================
-  const carregarContrato = useCallback(async () => {
-    if (!clienteId || !supabase || !empresa) return;
+  const carregarTudo = useCallback(async () => {
+    if (!clienteId || !empresa) return;
     setCarregandoContrato(true);
     try {
-      const { data: contratoData } = await supabase
-        .from('contratos')
-        .select('*')
-        .eq('cliente_id', clienteId)
-        .eq('status', 'ativo')
-        .single();
+      const res = await fetch(`/api/contratos?tipo=tudo&cliente_id=${clienteId}&empresa_id=${empresa.id}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
 
-      setContrato(contratoData);
+      setContrato(json.contrato);
+      setPlanosDisponiveis(json.planos || []);
+      setHistoricContratos(json.historico || []);
 
-      const { data: planosData } = await supabase
-        .from('planos')
-        .select('*')
-        .eq('empresa_id', empresa.id)
-        .order('nome');
-
-      setPlanosDisponiveis(planosData || []);
-
-      if (contratoData?.plano_id) {
-        const planoDoContrato = (planosData || []).find((p: any) => p.id === contratoData.plano_id);
+      if (json.contrato?.plano_id) {
+        const planoDoContrato = (json.planos || []).find((p: any) => p.id === json.contrato.plano_id);
         setPlanoAtual(planoDoContrato || null);
       } else {
         setPlanoAtual(null);
@@ -77,91 +68,35 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
   }, [clienteId, empresa]);
 
   useEffect(() => {
-    carregarContrato();
-  }, [carregarContrato]);
-
-  // ==========================
-  // CARREGAR HISTORICO
-  // ==========================
-  const carregarHistorico = useCallback(async () => {
-    if (!clienteId || !supabase) return;
-    setCarregandoHistorico(true);
-    try {
-      const { data, error } = await supabase
-        .from('contratos')
-        .select('*, planos(nome, velocidade, preco)')
-        .eq('cliente_id', clienteId)
-        .in('status', ['encerrado', 'cancelado'])
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setHistoricContratos(data || []);
-    } catch (e) {
-      console.error('Erro ao carregar historico:', e);
-    } finally {
-      setCarregandoHistorico(false);
-    }
-  }, [clienteId]);
-
-  useEffect(() => {
-    carregarHistorico();
-  }, [carregarHistorico]);
+    carregarTudo();
+  }, [carregarTudo]);
 
   // ==========================
   // VINCULAR / TROCAR PLANO
   // ==========================
   const vincularPlano = async (planoId: string) => {
-    if (!supabase || !empresa || !clienteId) return;
+    if (!empresa || !clienteId) return;
     setSalvandoPlano(true);
     try {
-      const hoje = new Date();
-      const dataInicio = hoje.toISOString().split('T')[0];
-      let dataVencimento: string | null = null;
-      if (fidelidadeMeses > 0) {
-        const venc = new Date(hoje);
-        venc.setMonth(venc.getMonth() + fidelidadeMeses);
-        dataVencimento = venc.toISOString().split('T')[0];
-      }
+      const res = await fetch('/api/contratos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'vincular',
+          empresa_id: empresa.id,
+          cliente_id: clienteId,
+          plano_id: planoId,
+          fidelidade_meses: fidelidadeMeses,
+          contrato_id: contrato?.id || null,
+          observacoes: contrato
+            ? `${modalPlano === 'upgrade' ? 'Upgrade' : modalPlano === 'downgrade' ? 'Downgrade' : 'Vinculação'} - Plano anterior: ${planoAtual?.nome || 'Nenhum'}`
+            : null,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
 
-      if (contrato) {
-        await supabase
-          .from('contratos')
-          .update({
-            status: 'encerrado',
-            observacoes: `Plano alterado em ${new Date().toLocaleDateString('pt-BR')}`,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', contrato.id);
-
-        const { error } = await supabase
-          .from('contratos')
-          .insert({
-            empresa_id: empresa.id,
-            cliente_id: clienteId,
-            plano_id: planoId,
-            data_inicio: dataInicio,
-            data_vencimento: dataVencimento,
-            fidelidade_meses: fidelidadeMeses,
-            status: 'ativo',
-            observacoes: `${modalPlano === 'upgrade' ? 'Upgrade' : modalPlano === 'downgrade' ? 'Downgrade' : 'Vinculação'} - Plano anterior: ${planoAtual?.nome || 'Nenhum'}`,
-          });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('contratos')
-          .insert({
-            empresa_id: empresa.id,
-            cliente_id: clienteId,
-            plano_id: planoId,
-            data_inicio: dataInicio,
-            data_vencimento: dataVencimento,
-            fidelidade_meses: fidelidadeMeses,
-            status: 'ativo',
-          });
-        if (error) throw error;
-      }
-      await carregarContrato();
-      await carregarHistorico();
+      await carregarTudo();
       setModalPlano(null);
       setPlanoSelecionado('');
       setFidelidadeMeses(0);
@@ -177,7 +112,7 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
   // CANCELAR CONTRATO
   // ==========================
   const cancelarContrato = async () => {
-    if (!supabase || !contrato) return;
+    if (!contrato) return;
     setCancelando(true);
     try {
       if (contrato.fidelidade_meses > 0 && contrato.data_vencimento) {
@@ -193,20 +128,23 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
         }
       }
 
-      const { error } = await supabase
-        .from('contratos')
-        .update({
-          status: 'cancelado',
+      const res = await fetch('/api/contratos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'cancelar',
+          empresa_id: empresa.id,
+          cliente_id: clienteId,
+          contrato_id: contrato.id,
           observacoes: motivoCancelamento
             ? `Cancelado em ${new Date().toLocaleDateString('pt-BR')} - Motivo: ${motivoCancelamento}`
             : `Cancelado em ${new Date().toLocaleDateString('pt-BR')}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', contrato.id);
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
 
-      if (error) throw error;
-      await carregarContrato();
-      await carregarHistorico();
+      await carregarTudo();
       setModalCancelar(false);
       setMotivoCancelamento('');
     } catch (e: any) {
@@ -497,12 +435,7 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
       {/* Historico de Planos */}
       <div>
         <p className="text-xs font-mono uppercase text-emerald-500 tracking-widest border-b border-zinc-900 pb-2 mb-4">Histórico de Planos</p>
-        {carregandoHistorico ? (
-          <div className="flex items-center gap-2 py-4">
-            <RefreshCw className="w-4 h-4 animate-spin text-zinc-500" />
-            <span className="text-xs text-zinc-500 font-mono">Carregando...</span>
-          </div>
-        ) : historicContratos.length === 0 ? (
+        {historicContratos.length === 0 ? (
           <p className="text-xs text-zinc-600 font-mono bg-zinc-900/40 rounded-xl p-4 border border-zinc-900">
             Nenhum plano anterior registrado.
           </p>
