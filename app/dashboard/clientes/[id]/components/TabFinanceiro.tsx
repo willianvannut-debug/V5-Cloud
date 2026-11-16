@@ -157,14 +157,27 @@ export default function TabFinanceiro({ clienteId, empresa, cliente, editando, f
   };
 
   // ==========================
-  // VERIFICAR BACKEND ONLINE
+  // VERIFICAR BACKEND + GATEWAY
   // ==========================
+  const [gatewayConfigurado, setGatewayConfigurado] = useState<boolean | null>(null);
+
   useEffect(() => {
     async function checkBackend() {
       try {
         const res = await fetch('/api/health');
         const data = await res.json();
-        setBackendOnline(data.status === 'ok');
+        const online = data.status === 'ok';
+        setBackendOnline(online);
+        // Se backend online, verificar se gateway esta configurado
+        if (online) {
+          try {
+            const gw = await fetch('/api/financial/gateway/config');
+            const gwData = await gw.json();
+            setGatewayConfigurado(!!(gwData?.data?.wallet_id));
+          } catch {
+            setGatewayConfigurado(false);
+          }
+        }
       } catch {
         setBackendOnline(false);
       }
@@ -633,8 +646,19 @@ export default function TabFinanceiro({ clienteId, empresa, cliente, editando, f
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-mono">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <div>
-            <p className="font-bold">Backend financeiro offline</p>
-            <p className="text-orange-500/80 mt-0.5">Inicie o backend: abra um terminal na pasta do projeto, entre na pasta <code className="bg-orange-500/10 px-1 rounded">backend</code> e execute <code className="bg-orange-500/10 px-1 rounded">npx ts-node --transpile-only server.ts</code></p>
+            <p className="font-bold">Servidor financeiro indisponivel</p>
+            <p className="text-orange-500/80 mt-0.5">O servidor de cobranças não esta respondendo. Verifique se o backend esta rodando no servidor.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Aviso se gateway nao configurado */}
+      {backendOnline === true && gatewayConfigurado === false && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-mono">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <div>
+            <p className="font-bold">Gateway de pagamento não configurado</p>
+            <p className="text-yellow-500/80 mt-0.5">Configure suas credenciais do Wide Pay em <strong>Configurações → Gateway de Pagamento</strong> para gerar boletos e PIX.</p>
           </div>
         </div>
       )}
