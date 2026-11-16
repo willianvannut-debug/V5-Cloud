@@ -1,7 +1,7 @@
 // ================================================================================
-// TAB CONEXAO - PPPoE com integração MikroTik REAL
-// Busca conexões ativas no MikroTik, mostra status real online/offline,
-// derrubar sessão, bloquear/desbloquear via PPPoE profile (Bridge Service)
+// TAB CONEXAO - MULTIPLAS CONEXOES PPPoE por cliente
+// Cada cliente pode ter N pontos (Casa, Casa da namorada, Escritorio, etc)
+// Busca status real no MikroTik para cada conexao individualmente
 // ================================================================================
 
 "use client"
@@ -14,7 +14,6 @@ import {
   Lock,
   Unlock,
   RefreshCw,
-  Activity,
   Eye,
   EyeOff,
   Copy,
@@ -22,14 +21,17 @@ import {
   AlertTriangle,
   X,
   Zap,
-  Signal,
-  Clock,
-  ArrowDownUp,
-  Shield,
   Key,
-  Globe,
-  Server,
   Loader2,
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  MapPin,
+  Save,
+  Search,
+  Download,
+  UserCheck,
 } from 'lucide-react';
 import { supabase, estiloInput, estiloRotulo, estiloValor } from '../shared';
 
@@ -38,6 +40,23 @@ interface TabConexaoProps {
   editando: boolean;
   formEdit: any;
   setFormEdit: (fn: (prev: any) => any) => void;
+}
+
+interface ConexaoPPPoE {
+  id: string;
+  cliente_id: string;
+  empresa_id: string;
+  descricao: string;
+  login_pppoe: string | null;
+  senha_pppoe: string | null;
+  mac_address: string | null;
+  perfil_radius: string | null;
+  ip_fixo: string | null;
+  vlan: string | null;
+  porta_olt: string | null;
+  onu_serial: string | null;
+  status: string;
+  created_at: string;
 }
 
 interface ConexaoMK {
@@ -52,32 +71,81 @@ interface ConexaoMK {
 
 export default function TabConexao({ cliente, editando, formEdit, setFormEdit }: TabConexaoProps) {
   const { operador } = useAuth();
-  const [mostrarSenha, setMostrarSenha] = useState(false);
+
+  // Lista de conexoes do banco
+  const [conexoes, setConexoes] = useState<ConexaoPPPoE[]>([]);
+  const [carregando, setCarregando] = useState(true);
+
+  // Status MikroTik (mapa login -> dados)
+  const [statusMK, setStatusMK] = useState<Record<string, ConexaoMK>>({});
+  const [buscandoMK, setBuscandoMK] = useState(false);
+
+  // UI
+  const [expandida, setExpandida] = useState<string | null>(null);
+  const [mostrarSenha, setMostrarSenha] = useState<Record<string, boolean>>({});
   const [sucessoMsg, setSucessoMsg] = useState('');
   const [erroMsg, setErroMsg] = useState('');
+  const [executando, setExecutando] = useState('');
   const [modalConfirmar, setModalConfirmar] = useState<{
     titulo: string;
     mensagem: string;
     tipo: 'danger' | 'warning' | 'info';
     acao: () => void;
   } | null>(null);
-  const [executando, setExecutando] = useState('');
 
-  // Estado da conexão real do MikroTik
-  const [conexaoMK, setConexaoMK] = useState<ConexaoMK | null>(null);
-  const [buscandoStatus, setBuscandoStatus] = useState(false);
-  const online = !!conexaoMK;
+  // Formulario de nova conexao / edicao individual
+  const [editandoConexao, setEditandoConexao] = useState<string | null>(null);
+  const [formConexao, setFormConexao] = useState<Partial<ConexaoPPPoE>>({});
+  const [adicionando, setAdicionando] = useState(false);
+
+  // Importar conexao existente
+  const [modalImportar, setModalImportar] = useState(false);
+  const [buscaImportar, setBuscaImportar] = useState('');
+  const [resultadosBusca, setResultadosBusca] = useState<any[]>([]);
+  const [buscandoClientes, setBuscandoClientes] = useState(false);
+  const [clienteSelecionado, setClienteSelecionado] = useState<any | null>(null);
+  const [conexoesSelecionado, setConexoesSelecionado] = useState<any[]>([]);
+  const [carregandoConexoes, setCarregandoConexoes] = useState(false);
+  const [descricaoImport, setDescricaoImport] = useState('');
 
   // ==========================
-  // BUSCAR STATUS REAL NO MIKROTIK
+  // CARREGAR CONEXOES DO BANCO
+  // ==========================
+  const carregarConexoes = useCallback(async () => {
+    if (!cliente?.id) return;
+    setCarregando(true);
+    try {
+      const { data, error } = await supabase
+        .from('conexoes_pppoe')
+        .select('*')
+        .eq('cliente_id', cliente.id)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      setConexoes(data || []);
+      // Expandir a primeira automaticamente
+      if (data && data.length > 0 && !expandida) {
+        setExpandida(data[0].id);
+      }
+    } catch (e: any) {
+      console.error('Erro ao carregar conexoes:', e);
+      mostrarErro('Erro ao carregar conexoes');
+    } finally {
+      setCarregando(false);
+    }
+  }, [cliente?.id]);
+
+  useEffect(() => {
+    carregarConexoes();
+  }, [carregarConexoes]);
+
+  // ==========================
+  // BUSCAR STATUS MIKROTIK (TODAS AS CONEXOES)
   // ==========================
   const buscarStatusMK = useCallback(async () => {
-    if (!operador?.empresaId || !cliente?.login_pppoe) {
-      setConexaoMK(null);
-      return;
-    }
+    if (!operador?.empresaId || conexoes.length === 0) return;
 
-    setBuscandoStatus(true);
+    setBuscandoMK(true);
     try {
       const res = await fetch(
         `/api/mk-proxy?path=pppoe/active&empresa_id=${operador.empresaId}`
@@ -85,27 +153,34 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
       const data = await res.json();
 
       if (data.success && Array.isArray(data.data)) {
-        const loginCliente = cliente.login_pppoe.toLowerCase();
-        const conexao = data.data.find(
-          (c: any) => c.name?.toLowerCase() === loginCliente
-        );
-        setConexaoMK(conexao || null);
-      } else {
-        setConexaoMK(null);
+        const mapa: Record<string, ConexaoMK> = {};
+        for (const conexao of conexoes) {
+          if (conexao.login_pppoe) {
+            const loginLower = conexao.login_pppoe.toLowerCase();
+            const encontrada = data.data.find(
+              (c: any) => c.name?.toLowerCase() === loginLower
+            );
+            if (encontrada) {
+              mapa[conexao.id] = encontrada;
+            }
+          }
+        }
+        setStatusMK(mapa);
       }
     } catch {
-      setConexaoMK(null);
+      // silencioso
     } finally {
-      setBuscandoStatus(false);
+      setBuscandoMK(false);
     }
-  }, [operador?.empresaId, cliente?.login_pppoe]);
+  }, [operador?.empresaId, conexoes]);
 
-  // Buscar status ao montar e a cada 30 segundos
   useEffect(() => {
-    buscarStatusMK();
-    const interval = setInterval(buscarStatusMK, 30000);
-    return () => clearInterval(interval);
-  }, [buscarStatusMK]);
+    if (conexoes.length > 0) {
+      buscarStatusMK();
+      const interval = setInterval(buscarStatusMK, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [buscarStatusMK, conexoes.length]);
 
   // ==========================
   // HELPERS
@@ -128,18 +203,6 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
     });
   };
 
-  const copiarCredenciais = () => {
-    if (!cliente.login_pppoe) {
-      mostrarErro('Login PPPoE nao configurado');
-      return;
-    }
-    const texto = `Login: ${cliente.login_pppoe}\nSenha: ${cliente.senha_pppoe || '-'}`;
-    copiar(texto, 'Credenciais');
-  };
-
-  // ==========================
-  // MASCARA MAC ADDRESS
-  // ==========================
   const mascaraMAC = (v: string) => {
     return v.replace(/[^a-fA-F0-9]/g, '')
       .toUpperCase()
@@ -148,9 +211,9 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
   };
 
   // ==========================
-  // GERAR LOGIN/SENHA PPPOE
+  // GERAR LOGIN/SENHA
   // ==========================
-  const gerarLoginPPPoE = () => {
+  const gerarLogin = () => {
     const cpf = (cliente.cpf || '').replace(/\D/g, '');
     const cnpj = (cliente.cnpj || '').replace(/\D/g, '');
     const doc = cpf || cnpj;
@@ -158,36 +221,127 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
       mostrarErro('Cliente precisa ter CPF ou CNPJ cadastrado');
       return;
     }
-    const login = `${doc}@v5fibra`;
-    setFormEdit((prev: any) => ({ ...prev, login_pppoe: login }));
+    const sufixo = conexoes.length > 0 ? `-${conexoes.length + 1}` : '';
+    const login = `${doc}${sufixo}@v5fibra`;
+    setFormConexao(prev => ({ ...prev, login_pppoe: login }));
     mostrarSucesso(`Login gerado: ${login}`);
   };
 
-  const gerarSenhaPPPoE = () => {
+  const gerarSenha = () => {
     const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
     let senha = '';
     for (let i = 0; i < 8; i++) {
       senha += chars[Math.floor(Math.random() * chars.length)];
     }
-    setFormEdit((prev: any) => ({ ...prev, senha_pppoe: senha }));
+    setFormConexao(prev => ({ ...prev, senha_pppoe: senha }));
     mostrarSucesso(`Senha gerada: ${senha}`);
   };
 
   // ==========================
-  // ACOES DE CONEXAO (VIA PPPoE PROFILE - MIKROTIK)
+  // SALVAR CONEXAO (NOVA OU EDICAO)
   // ==========================
-  const bloquearConexao = async () => {
+  const salvarConexao = async () => {
+    if (!formConexao.descricao?.trim()) {
+      mostrarErro('Descricao e obrigatoria (ex: Casa, Escritorio)');
+      return;
+    }
+
+    setExecutando('salvando');
+    try {
+      if (editandoConexao) {
+        // Atualizar existente
+        const { error } = await supabase
+          .from('conexoes_pppoe')
+          .update({
+            descricao: formConexao.descricao,
+            login_pppoe: formConexao.login_pppoe || null,
+            senha_pppoe: formConexao.senha_pppoe || null,
+            mac_address: formConexao.mac_address || null,
+            perfil_radius: formConexao.perfil_radius || null,
+            ip_fixo: formConexao.ip_fixo || null,
+            vlan: formConexao.vlan || null,
+            porta_olt: formConexao.porta_olt || null,
+            onu_serial: formConexao.onu_serial || null,
+          })
+          .eq('id', editandoConexao);
+
+        if (error) throw error;
+        mostrarSucesso('Conexao atualizada!');
+      } else {
+        // Criar nova
+        const { error } = await supabase
+          .from('conexoes_pppoe')
+          .insert({
+            cliente_id: cliente.id,
+            empresa_id: cliente.empresa_id,
+            descricao: formConexao.descricao,
+            login_pppoe: formConexao.login_pppoe || null,
+            senha_pppoe: formConexao.senha_pppoe || null,
+            mac_address: formConexao.mac_address || null,
+            perfil_radius: formConexao.perfil_radius || null,
+            ip_fixo: formConexao.ip_fixo || null,
+            vlan: formConexao.vlan || null,
+            porta_olt: formConexao.porta_olt || null,
+            onu_serial: formConexao.onu_serial || null,
+          });
+
+        if (error) throw error;
+        mostrarSucesso('Nova conexao adicionada!');
+      }
+
+      setEditandoConexao(null);
+      setAdicionando(false);
+      setFormConexao({});
+      await carregarConexoes();
+    } catch (e: any) {
+      mostrarErro('Erro ao salvar: ' + (e.message || ''));
+    } finally {
+      setExecutando('');
+    }
+  };
+
+  // ==========================
+  // EXCLUIR CONEXAO
+  // ==========================
+  const excluirConexao = async (id: string) => {
+    setExecutando('excluindo');
+    try {
+      const { error } = await supabase
+        .from('conexoes_pppoe')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      mostrarSucesso('Conexao removida!');
+      setModalConfirmar(null);
+      await carregarConexoes();
+    } catch (e: any) {
+      mostrarErro('Erro ao excluir: ' + (e.message || ''));
+    } finally {
+      setExecutando('');
+    }
+  };
+
+  // ==========================
+  // ACOES MIKROTIK
+  // ==========================
+  const bloquearConexao = async (conexao: ConexaoPPPoE) => {
     setExecutando('bloqueando');
     try {
       const res = await fetch('/api/mikrotik/block', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ cliente_id: cliente.id, acao: 'bloquear' }),
+        body: JSON.stringify({ cliente_id: cliente.id, login_pppoe: conexao.login_pppoe, acao: 'bloquear' }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Erro desconhecido');
-      mostrarSucesso('Conexao bloqueada no MikroTik (perfil bloqueado)');
+
+      // Atualizar status no banco
+      await supabase.from('conexoes_pppoe').update({ status: 'bloqueado' }).eq('id', conexao.id);
+
+      mostrarSucesso('Conexao bloqueada no MikroTik');
+      await carregarConexoes();
       buscarStatusMK();
     } catch (e: any) {
       mostrarErro('Erro ao bloquear: ' + (e.message || ''));
@@ -197,18 +351,22 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
     }
   };
 
-  const desbloquearConexao = async () => {
+  const desbloquearConexao = async (conexao: ConexaoPPPoE) => {
     setExecutando('desbloqueando');
     try {
       const res = await fetch('/api/mikrotik/block', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ cliente_id: cliente.id, acao: 'desbloquear' }),
+        body: JSON.stringify({ cliente_id: cliente.id, login_pppoe: conexao.login_pppoe, acao: 'desbloquear' }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Erro desconhecido');
-      mostrarSucesso('Conexao desbloqueada no MikroTik (perfil restaurado)');
+
+      await supabase.from('conexoes_pppoe').update({ status: 'ativo' }).eq('id', conexao.id);
+
+      mostrarSucesso('Conexao desbloqueada no MikroTik');
+      await carregarConexoes();
       buscarStatusMK();
     } catch (e: any) {
       mostrarErro('Erro ao desbloquear: ' + (e.message || ''));
@@ -218,11 +376,11 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
     }
   };
 
-  const derrubarSessao = async () => {
+  const derrubarSessao = async (conexao: ConexaoPPPoE) => {
     setExecutando('derrubando');
     try {
-      if (!operador?.empresaId || !cliente.login_pppoe) {
-        mostrarErro('Login PPPoE nao configurado');
+      if (!operador?.empresaId || !conexao.login_pppoe) {
+        mostrarErro('Login PPPoE nao configurado nesta conexao');
         setExecutando('');
         setModalConfirmar(null);
         return;
@@ -231,13 +389,17 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
       const res = await fetch(`/api/mk-proxy?path=pppoe/disconnect&empresa_id=${operador.empresaId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: cliente.login_pppoe }),
+        body: JSON.stringify({ name: conexao.login_pppoe }),
       });
 
       const data = await res.json();
       if (data.success) {
-        mostrarSucesso('Sessao derrubada com sucesso! Cliente sera desconectado.');
-        setConexaoMK(null);
+        mostrarSucesso('Sessao derrubada! Cliente sera desconectado.');
+        setStatusMK(prev => {
+          const novo = { ...prev };
+          delete novo[conexao.id];
+          return novo;
+        });
         setTimeout(buscarStatusMK, 5000);
       } else {
         mostrarErro(data.error || 'Erro ao derrubar sessao');
@@ -251,34 +413,212 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
   };
 
   // ==========================
-  // ATUALIZAR CAMPO
+  // INICIAR EDICAO DE CONEXAO
   // ==========================
-  const atualizarCampo = (campo: string, valor: string) => {
-    if (campo === 'mac_address') {
-      valor = mascaraMAC(valor);
-    }
-    setFormEdit((prev: any) => ({ ...prev, [campo]: valor }));
+  const iniciarEdicao = (conexao: ConexaoPPPoE) => {
+    setEditandoConexao(conexao.id);
+    setAdicionando(false);
+    setFormConexao({
+      descricao: conexao.descricao,
+      login_pppoe: conexao.login_pppoe || '',
+      senha_pppoe: conexao.senha_pppoe || '',
+      mac_address: conexao.mac_address || '',
+      perfil_radius: conexao.perfil_radius || '',
+      ip_fixo: conexao.ip_fixo || '',
+      vlan: conexao.vlan || '',
+      porta_olt: conexao.porta_olt || '',
+      onu_serial: conexao.onu_serial || '',
+    });
+    setExpandida(conexao.id);
   };
 
-  const CampoTexto = ({ label, campo, placeholder, copiavel }: { label: string; campo: string; placeholder?: string; copiavel?: boolean }) => (
-    <div>
-      <label className={estiloRotulo}>{label}</label>
-      {editando ? (
-        <input type="text" placeholder={placeholder || label} value={formEdit[campo] || ''} onChange={(e) => atualizarCampo(campo, e.target.value)} className={estiloInput} />
-      ) : (
+  const iniciarNova = () => {
+    setAdicionando(true);
+    setEditandoConexao(null);
+    setFormConexao({ descricao: '' });
+  };
+
+  const cancelarForm = () => {
+    setAdicionando(false);
+    setEditandoConexao(null);
+    setFormConexao({});
+  };
+
+  // ==========================
+  // IMPORTAR CONEXAO EXISTENTE
+  // ==========================
+  const buscarClientesParaImportar = async () => {
+    if (!buscaImportar.trim() || buscaImportar.trim().length < 3) {
+      mostrarErro('Digite pelo menos 3 caracteres para buscar');
+      return;
+    }
+
+    setBuscandoClientes(true);
+    setResultadosBusca([]);
+    setClienteSelecionado(null);
+    setConexoesSelecionado([]);
+    try {
+      const termo = buscaImportar.trim();
+      // Busca por nome ou CPF (diferente do cliente atual)
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('id, nome, cpf, login_pppoe, empresa_id')
+        .eq('empresa_id', cliente.empresa_id)
+        .neq('id', cliente.id)
+        .or(`nome.ilike.%${termo}%,cpf.ilike.%${termo}%,login_pppoe.ilike.%${termo}%`)
+        .limit(10);
+
+      if (error) throw error;
+      setResultadosBusca(data || []);
+      if (data?.length === 0) {
+        mostrarErro('Nenhum cliente encontrado');
+      }
+    } catch (e: any) {
+      mostrarErro('Erro na busca: ' + (e.message || ''));
+    } finally {
+      setBuscandoClientes(false);
+    }
+  };
+
+  const selecionarClienteImportar = async (cli: any) => {
+    setClienteSelecionado(cli);
+    setCarregandoConexoes(true);
+    try {
+      // Buscar conexoes desse cliente na tabela conexoes_pppoe
+      const { data: conexoesDB } = await supabase
+        .from('conexoes_pppoe')
+        .select('*')
+        .eq('cliente_id', cli.id);
+
+      if (conexoesDB && conexoesDB.length > 0) {
+        setConexoesSelecionado(conexoesDB);
+      } else if (cli.login_pppoe) {
+        // Fallback: se nao tem na tabela conexoes_pppoe, pega direto do cliente
+        setConexoesSelecionado([{
+          id: 'from_cliente',
+          login_pppoe: cli.login_pppoe,
+          senha_pppoe: cli.senha_pppoe,
+          mac_address: cli.mac_address,
+          perfil_radius: cli.perfil_radius,
+          ip_fixo: cli.ip_fixo,
+          vlan: cli.vlan,
+          porta_olt: cli.porta_olt,
+          onu_serial: cli.onu_serial,
+          descricao: 'Principal',
+        }]);
+      } else {
+        setConexoesSelecionado([]);
+        mostrarErro('Este cliente nao tem conexoes PPPoE');
+      }
+    } catch {
+      mostrarErro('Erro ao carregar conexoes do cliente');
+    } finally {
+      setCarregandoConexoes(false);
+    }
+  };
+
+  const importarConexao = async (con: any) => {
+    if (!descricaoImport.trim()) {
+      mostrarErro('Dê um nome para o ponto (ex: Casa 2, Escritório)');
+      return;
+    }
+
+    setExecutando('importando');
+    try {
+      // Inserir como nova conexao do cliente atual
+      const { error } = await supabase
+        .from('conexoes_pppoe')
+        .insert({
+          cliente_id: cliente.id,
+          empresa_id: cliente.empresa_id,
+          descricao: descricaoImport.trim(),
+          login_pppoe: con.login_pppoe || null,
+          senha_pppoe: con.senha_pppoe || null,
+          mac_address: con.mac_address || null,
+          perfil_radius: con.perfil_radius || null,
+          ip_fixo: con.ip_fixo || null,
+          vlan: con.vlan || null,
+          porta_olt: con.porta_olt || null,
+          onu_serial: con.onu_serial || null,
+        });
+
+      if (error) throw error;
+
+      // Se veio da tabela conexoes_pppoe, remover do cliente original
+      if (con.id && con.id !== 'from_cliente') {
+        await supabase.from('conexoes_pppoe').delete().eq('id', con.id);
+      }
+
+      mostrarSucesso(`Conexao "${descricaoImport}" importada com sucesso!`);
+      setModalImportar(false);
+      setBuscaImportar('');
+      setResultadosBusca([]);
+      setClienteSelecionado(null);
+      setConexoesSelecionado([]);
+      setDescricaoImport('');
+      await carregarConexoes();
+    } catch (e: any) {
+      mostrarErro('Erro ao importar: ' + (e.message || ''));
+    } finally {
+      setExecutando('');
+    }
+  };
+
+  // ==========================
+  // CAMPO DE FORMULARIO
+  // ==========================
+  const CampoForm = ({ label, campo, placeholder, copiavel, valor }: {
+    label: string; campo: string; placeholder?: string; copiavel?: boolean; valor?: string;
+  }) => {
+    const estaEditando = editandoConexao || adicionando;
+    const valorExibir = valor ?? '';
+
+    if (estaEditando) {
+      return (
+        <div>
+          <label className={estiloRotulo}>{label}</label>
+          <input
+            type="text"
+            placeholder={placeholder || label}
+            value={(formConexao as any)[campo] || ''}
+            onChange={(e) => {
+              let v = e.target.value;
+              if (campo === 'mac_address') v = mascaraMAC(v);
+              setFormConexao(prev => ({ ...prev, [campo]: v }));
+            }}
+            className={estiloInput}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <label className={estiloRotulo}>{label}</label>
         <div className="flex items-center gap-2">
-          <p className={estiloValor}>{cliente[campo] || <span className="text-zinc-600">-</span>}</p>
-          {copiavel && cliente[campo] && (
-            <button onClick={() => copiar(cliente[campo], label)} className="text-zinc-600 hover:text-emerald-400 transition-all cursor-pointer"><Copy className="w-3 h-3" /></button>
+          <p className={estiloValor}>{valorExibir || <span className="text-zinc-600">-</span>}</p>
+          {copiavel && valorExibir && (
+            <button onClick={() => copiar(valorExibir, label)} className="text-zinc-600 hover:text-emerald-400 transition-all cursor-pointer">
+              <Copy className="w-3 h-3" />
+            </button>
           )}
         </div>
-      )}
-    </div>
-  );
+      </div>
+    );
+  };
 
   // ==========================
   // RENDER
   // ==========================
+  if (carregando) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+        <span className="ml-3 text-xs font-mono text-zinc-500">Carregando conexoes...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Mensagens */}
@@ -293,202 +633,499 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
         </div>
       )}
 
-      {/* Status de conexão — DADOS REAIS DO MIKROTIK */}
-      <Card className={`border ${online ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
-        <CardContent className="p-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${online ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
-                {buscandoStatus ? (
-                  <Loader2 className="w-7 h-7 text-zinc-400 animate-spin" />
-                ) : online ? (
-                  <Wifi className="w-7 h-7 text-emerald-400" />
-                ) : (
-                  <WifiOff className="w-7 h-7 text-red-400" />
-                )}
-              </div>
-              <div>
-                <p className={`text-sm font-bold font-mono ${online ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {buscandoStatus ? 'VERIFICANDO...' : online ? 'ONLINE' : 'OFFLINE'}
-                </p>
-                <p className="text-[10px] font-mono text-zinc-500 mt-0.5">
-                  {online ? 'Conectado via PPPoE no MikroTik' : cliente.login_pppoe ? 'Sem conexao ativa no MikroTik' : 'Login PPPoE nao configurado'}
-                </p>
-                {cliente.status === 'bloqueado' && (
-                  <p className="text-[10px] font-mono text-red-500 mt-0.5 flex items-center gap-1">
-                    <Lock className="w-3 h-3" /> Conexao bloqueada pelo provedor
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-col items-end gap-2">
+      {/* Header com botao adicionar */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <p className="text-xs font-mono uppercase text-emerald-500 tracking-widest">
+            Conexoes PPPoE ({conexoes.length})
+          </p>
+          <button
+            onClick={buscarStatusMK}
+            disabled={buscandoMK}
+            className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-white transition-all cursor-pointer"
+            title="Atualizar status MikroTik"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${buscandoMK ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setModalImportar(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-mono font-bold uppercase hover:bg-blue-500/20 transition-all cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" /> IMPORTAR EXISTENTE
+          </button>
+          <button
+            onClick={iniciarNova}
+            disabled={adicionando}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono font-bold uppercase hover:bg-emerald-500/20 transition-all cursor-pointer disabled:opacity-50"
+          >
+            <Plus className="w-3.5 h-3.5" /> NOVO PONTO
+          </button>
+        </div>
+      </div>
+
+      {/* Sem conexoes */}
+      {conexoes.length === 0 && !adicionando && (
+        <Card className="border border-zinc-800/50">
+          <CardContent className="p-8 text-center">
+            <WifiOff className="w-10 h-10 text-zinc-700 mx-auto mb-3" />
+            <p className="text-xs font-mono text-zinc-500">Nenhuma conexao PPPoE cadastrada</p>
+            <p className="text-[10px] font-mono text-zinc-700 mt-1">Clique em "NOVO PONTO" para adicionar</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== FORMULARIO NOVA CONEXAO ===== */}
+      {adicionando && (
+        <Card className="border border-emerald-500/30 bg-emerald-500/5">
+          <CardContent className="p-5 space-y-4">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={buscarStatusMK}
-                  disabled={buscandoStatus}
-                  className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-white transition-all cursor-pointer disabled:opacity-50"
-                  title="Atualizar status"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${buscandoStatus ? 'animate-spin' : ''}`} />
-                </button>
-                <div className={`w-4 h-4 rounded-full ${online ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                <Plus className="w-4 h-4 text-emerald-400" />
+                <p className="text-xs font-mono font-bold text-emerald-400 uppercase">Novo Ponto de Internet</p>
               </div>
-              {cliente.login_pppoe && (
-                <p className="text-[10px] font-mono text-zinc-600">{cliente.login_pppoe}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Info real do MikroTik quando online */}
-          {online && conexaoMK && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-emerald-500/10">
-              <div>
-                <p className="text-[10px] font-mono text-emerald-600 uppercase">IP Atribuido</p>
-                <p className="text-xs font-mono text-emerald-400 font-bold">{conexaoMK.address || '-'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-mono text-emerald-600 uppercase">Uptime</p>
-                <p className="text-xs font-mono text-emerald-400 font-bold">{conexaoMK.uptime || '-'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-mono text-emerald-600 uppercase">MAC</p>
-                <p className="text-xs font-mono text-emerald-400 font-bold">{conexaoMK.caller_id || '-'}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-mono text-emerald-600 uppercase">Servico</p>
-                <p className="text-xs font-mono text-emerald-400 font-bold">{conexaoMK.service || 'pppoe'}</p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Dados PPPoE */}
-      <div>
-        <div className="flex items-center justify-between border-b border-zinc-900 pb-2 mb-4">
-          <p className="text-xs font-mono uppercase text-emerald-500 tracking-widest">Acesso PPPoE</p>
-          <div className="flex items-center gap-2">
-            {!editando && cliente.login_pppoe && (
-              <button
-                onClick={copiarCredenciais}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-900/60 text-zinc-500 text-[10px] font-mono hover:text-emerald-400 transition-all cursor-pointer"
-              >
-                <Copy className="w-3 h-3" /> COPIAR TUDO
+              <button onClick={cancelarForm} className="text-zinc-500 hover:text-white cursor-pointer">
+                <X className="w-4 h-4" />
               </button>
-            )}
-            {editando && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={gerarLoginPPPoE}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono hover:bg-emerald-500/20 transition-all cursor-pointer"
-                >
-                  <Key className="w-3 h-3" /> GERAR LOGIN
-                </button>
-                <button
-                  onClick={gerarSenhaPPPoE}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono hover:bg-emerald-500/20 transition-all cursor-pointer"
-                >
-                  <Zap className="w-3 h-3" /> GERAR SENHA
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className={estiloRotulo}>Login PPPoE</label>
-            {editando ? (
-              <input type="text" value={formEdit.login_pppoe || ''} onChange={(e) => atualizarCampo('login_pppoe', e.target.value)} className={estiloInput} placeholder="usuario@provedor" />
-            ) : (
-              <div className="flex items-center gap-2">
-                <p className={estiloValor}>{cliente.login_pppoe || <span className="text-zinc-600">Nao configurado</span>}</p>
-                {cliente.login_pppoe && (
-                  <button onClick={() => copiar(cliente.login_pppoe, 'Login')} className="text-zinc-600 hover:text-emerald-400 transition-all cursor-pointer"><Copy className="w-3 h-3" /></button>
-                )}
-              </div>
-            )}
-          </div>
-          <div>
-            <label className={estiloRotulo}>Senha PPPoE</label>
-            {editando ? (
-              <input type="text" value={formEdit.senha_pppoe || ''} onChange={(e) => atualizarCampo('senha_pppoe', e.target.value)} className={estiloInput} placeholder="senha" />
-            ) : (
-              <div className="flex items-center gap-2">
-                <p className={estiloValor}>
-                  {cliente.senha_pppoe ? (mostrarSenha ? cliente.senha_pppoe : '••••••••') : <span className="text-zinc-600">-</span>}
-                </p>
-                {cliente.senha_pppoe && (
-                  <>
-                    <button onClick={() => setMostrarSenha(!mostrarSenha)} className="text-zinc-600 hover:text-emerald-400 transition-all cursor-pointer">
-                      {mostrarSenha ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                    </button>
-                    <button onClick={() => copiar(cliente.senha_pppoe, 'Senha')} className="text-zinc-600 hover:text-emerald-400 transition-all cursor-pointer"><Copy className="w-3 h-3" /></button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+            </div>
 
-      {/* Dados de Rede */}
-      <div>
-        <p className="text-xs font-mono uppercase text-emerald-500 tracking-widest border-b border-zinc-900 pb-2 mb-4">Dados de Rede</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <CampoTexto label="IP Fixo" campo="ip_fixo" placeholder="0.0.0.0" copiavel />
-          <CampoTexto label="MAC Address" campo="mac_address" placeholder="AA:BB:CC:DD:EE:FF" copiavel />
-          <CampoTexto label="Perfil RADIUS" campo="perfil_radius" placeholder="plano_100mb" copiavel />
-          <CampoTexto label="VLAN" campo="vlan" copiavel />
-          <CampoTexto label="Porta OLT" campo="porta_olt" copiavel />
-          <CampoTexto label="Serial ONU" campo="onu_serial" copiavel />
-        </div>
-      </div>
+            <div>
+              <label className={estiloRotulo}>Descricao do ponto *</label>
+              <input
+                type="text"
+                placeholder="Ex: Casa, Escritorio, Casa da namorada"
+                value={formConexao.descricao || ''}
+                onChange={(e) => setFormConexao(prev => ({ ...prev, descricao: e.target.value }))}
+                className={estiloInput}
+              />
+            </div>
 
-      {/* Botoes de acao */}
-      <div className="flex flex-wrap gap-3">
-        {cliente.status === 'bloqueado' ? (
-          <button
-            onClick={() => setModalConfirmar({
-              titulo: 'Desbloquear Conexao',
-              mensagem: `Tem certeza que deseja DESBLOQUEAR a conexao de ${cliente.nome}? O cliente voltara a ter acesso a internet.`,
-              tipo: 'info',
-              acao: desbloquearConexao,
-            })}
-            disabled={!!executando}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-bold uppercase hover:bg-emerald-500/20 transition-all cursor-pointer disabled:opacity-50"
-          >
-            {executando === 'desbloqueando' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Unlock className="w-4 h-4" />}
-            DESBLOQUEAR
-          </button>
-        ) : (
-          <button
-            onClick={() => setModalConfirmar({
-              titulo: 'Bloquear Conexao',
-              mensagem: `Tem certeza que deseja BLOQUEAR a conexao de ${cliente.nome}? O cliente perdera acesso a internet imediatamente.`,
-              tipo: 'danger',
-              acao: bloquearConexao,
-            })}
-            disabled={!!executando}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-mono font-bold uppercase hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50"
-          >
-            {executando === 'bloqueando' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-            BLOQUEAR CONEXAO
-          </button>
-        )}
-        <button
-          onClick={() => setModalConfirmar({
-            titulo: 'Derrubar Sessao',
-            mensagem: `Derrubar a sessao PPPoE de ${cliente.nome}? O cliente sera desconectado e precisara reconectar.`,
-            tipo: 'warning',
-            acao: derrubarSessao,
-          })}
-          disabled={!!executando || !online}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono font-bold uppercase hover:bg-blue-500/20 transition-all cursor-pointer disabled:opacity-50"
-        >
-          {executando === 'derrubando' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          DERRUBAR SESSAO
-        </button>
-      </div>
+            <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+              <p className="text-[10px] font-mono text-zinc-500 uppercase">Acesso PPPoE</p>
+              <button onClick={gerarLogin} className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono hover:bg-emerald-500/20 cursor-pointer">
+                <Key className="w-3 h-3" /> GERAR LOGIN
+              </button>
+              <button onClick={gerarSenha} className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono hover:bg-emerald-500/20 cursor-pointer">
+                <Zap className="w-3 h-3" /> GERAR SENHA
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <CampoForm label="Login PPPoE" campo="login_pppoe" placeholder="usuario@v5fibra" />
+              <CampoForm label="Senha PPPoE" campo="senha_pppoe" placeholder="senha" />
+            </div>
+
+            <p className="text-[10px] font-mono text-zinc-500 uppercase border-b border-zinc-800 pb-2">Dados de Rede</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <CampoForm label="IP Fixo" campo="ip_fixo" placeholder="0.0.0.0" />
+              <CampoForm label="MAC Address" campo="mac_address" placeholder="AA:BB:CC:DD:EE:FF" />
+              <CampoForm label="Perfil RADIUS" campo="perfil_radius" placeholder="plano_100mb" />
+              <CampoForm label="VLAN" campo="vlan" />
+              <CampoForm label="Porta OLT" campo="porta_olt" />
+              <CampoForm label="Serial ONU" campo="onu_serial" />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={cancelarForm} className="flex-1 px-4 py-2.5 rounded-xl border border-zinc-800 text-zinc-400 text-xs font-mono uppercase hover:bg-zinc-900 transition-all cursor-pointer">
+                CANCELAR
+              </button>
+              <button
+                onClick={salvarConexao}
+                disabled={executando === 'salvando'}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-mono font-bold uppercase hover:bg-emerald-500 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {executando === 'salvando' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                SALVAR
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== LISTA DE CONEXOES (ACCORDION) ===== */}
+      {conexoes.map((conexao) => {
+        const online = !!statusMK[conexao.id];
+        const mkData = statusMK[conexao.id];
+        const isExpandida = expandida === conexao.id;
+        const isEditando = editandoConexao === conexao.id;
+
+        return (
+          <Card key={conexao.id} className={`border ${online ? 'border-emerald-500/20' : conexao.status === 'bloqueado' ? 'border-red-500/20' : 'border-zinc-800/50'} transition-all`}>
+            <CardContent className="p-0">
+              {/* Header do accordion */}
+              <button
+                onClick={() => {
+                  if (isEditando) return;
+                  setExpandida(isExpandida ? null : conexao.id);
+                }}
+                className="w-full flex items-center justify-between p-4 hover:bg-zinc-900/30 transition-all cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    online ? 'bg-emerald-500/20' : conexao.status === 'bloqueado' ? 'bg-red-500/20' : 'bg-zinc-800'
+                  }`}>
+                    {buscandoMK ? (
+                      <Loader2 className="w-5 h-5 text-zinc-400 animate-spin" />
+                    ) : online ? (
+                      <Wifi className="w-5 h-5 text-emerald-400" />
+                    ) : conexao.status === 'bloqueado' ? (
+                      <Lock className="w-5 h-5 text-red-400" />
+                    ) : (
+                      <WifiOff className="w-5 h-5 text-zinc-600" />
+                    )}
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-3 h-3 text-zinc-600" />
+                      <p className="text-sm font-mono font-bold text-white">{conexao.descricao}</p>
+                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full ${
+                        online ? 'bg-emerald-500/20 text-emerald-400' :
+                        conexao.status === 'bloqueado' ? 'bg-red-500/20 text-red-400' :
+                        'bg-zinc-800 text-zinc-500'
+                      }`}>
+                        {online ? 'ONLINE' : conexao.status === 'bloqueado' ? 'BLOQUEADO' : 'OFFLINE'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] font-mono text-zinc-600 mt-0.5">
+                      {conexao.login_pppoe || 'Sem login configurado'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {online && <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />}
+                  {isExpandida ? <ChevronUp className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                </div>
+              </button>
+
+              {/* Conteudo expandido */}
+              {isExpandida && (
+                <div className="px-4 pb-4 space-y-4 border-t border-zinc-900">
+                  {/* Info MikroTik quando online */}
+                  {online && mkData && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                      <div>
+                        <p className="text-[10px] font-mono text-emerald-600 uppercase">IP Atribuido</p>
+                        <p className="text-xs font-mono text-emerald-400 font-bold">{mkData.address || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-mono text-emerald-600 uppercase">Uptime</p>
+                        <p className="text-xs font-mono text-emerald-400 font-bold">{mkData.uptime || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-mono text-emerald-600 uppercase">MAC</p>
+                        <p className="text-xs font-mono text-emerald-400 font-bold">{mkData.caller_id || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-mono text-emerald-600 uppercase">Servico</p>
+                        <p className="text-xs font-mono text-emerald-400 font-bold">{mkData.service || 'pppoe'}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dados PPPoE */}
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between border-b border-zinc-900 pb-2 mb-4">
+                      <p className="text-[10px] font-mono uppercase text-emerald-500 tracking-widest">Acesso PPPoE</p>
+                      {isEditando && (
+                        <div className="flex items-center gap-1">
+                          <button onClick={gerarLogin} className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono hover:bg-emerald-500/20 cursor-pointer">
+                            <Key className="w-3 h-3" /> GERAR LOGIN
+                          </button>
+                          <button onClick={gerarSenha} className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono hover:bg-emerald-500/20 cursor-pointer">
+                            <Zap className="w-3 h-3" /> GERAR SENHA
+                          </button>
+                        </div>
+                      )}
+                      {!isEditando && conexao.login_pppoe && (
+                        <button
+                          onClick={() => {
+                            const texto = `Login: ${conexao.login_pppoe}\nSenha: ${conexao.senha_pppoe || '-'}`;
+                            copiar(texto, 'Credenciais');
+                          }}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-900/60 text-zinc-500 text-[10px] font-mono hover:text-emerald-400 transition-all cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3" /> COPIAR TUDO
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <CampoForm label="Login PPPoE" campo="login_pppoe" placeholder="usuario@v5fibra" copiavel valor={conexao.login_pppoe || ''} />
+                      <div>
+                        <label className={estiloRotulo}>Senha PPPoE</label>
+                        {isEditando ? (
+                          <input
+                            type="text"
+                            placeholder="senha"
+                            value={formConexao.senha_pppoe || ''}
+                            onChange={(e) => setFormConexao(prev => ({ ...prev, senha_pppoe: e.target.value }))}
+                            className={estiloInput}
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <p className={estiloValor}>
+                              {conexao.senha_pppoe
+                                ? (mostrarSenha[conexao.id] ? conexao.senha_pppoe : '••••••••')
+                                : <span className="text-zinc-600">-</span>
+                              }
+                            </p>
+                            {conexao.senha_pppoe && (
+                              <>
+                                <button
+                                  onClick={() => setMostrarSenha(prev => ({ ...prev, [conexao.id]: !prev[conexao.id] }))}
+                                  className="text-zinc-600 hover:text-emerald-400 transition-all cursor-pointer"
+                                >
+                                  {mostrarSenha[conexao.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                </button>
+                                <button onClick={() => copiar(conexao.senha_pppoe!, 'Senha')} className="text-zinc-600 hover:text-emerald-400 transition-all cursor-pointer">
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Dados de Rede */}
+                  <div>
+                    <p className="text-[10px] font-mono uppercase text-emerald-500 tracking-widest border-b border-zinc-900 pb-2 mb-4">Dados de Rede</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <CampoForm label="IP Fixo" campo="ip_fixo" placeholder="0.0.0.0" copiavel valor={conexao.ip_fixo || ''} />
+                      <CampoForm label="MAC Address" campo="mac_address" placeholder="AA:BB:CC:DD:EE:FF" copiavel valor={conexao.mac_address || ''} />
+                      <CampoForm label="Perfil RADIUS" campo="perfil_radius" placeholder="plano_100mb" copiavel valor={conexao.perfil_radius || ''} />
+                      <CampoForm label="VLAN" campo="vlan" copiavel valor={conexao.vlan || ''} />
+                      <CampoForm label="Porta OLT" campo="porta_olt" copiavel valor={conexao.porta_olt || ''} />
+                      <CampoForm label="Serial ONU" campo="onu_serial" copiavel valor={conexao.onu_serial || ''} />
+                    </div>
+                  </div>
+
+                  {/* Botoes de acao */}
+                  {isEditando ? (
+                    <div className="flex gap-3 pt-2">
+                      <button onClick={cancelarForm} className="flex-1 px-4 py-2.5 rounded-xl border border-zinc-800 text-zinc-400 text-xs font-mono uppercase hover:bg-zinc-900 transition-all cursor-pointer">
+                        CANCELAR
+                      </button>
+                      <button
+                        onClick={salvarConexao}
+                        disabled={executando === 'salvando'}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-mono font-bold uppercase hover:bg-emerald-500 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {executando === 'salvando' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        SALVAR
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      {/* Editar */}
+                      <button
+                        onClick={() => iniciarEdicao(conexao)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 text-[10px] font-mono uppercase hover:text-white hover:border-zinc-700 transition-all cursor-pointer"
+                      >
+                        <Key className="w-3.5 h-3.5" /> EDITAR DADOS
+                      </button>
+
+                      {/* Bloquear/Desbloquear */}
+                      {conexao.status === 'bloqueado' ? (
+                        <button
+                          onClick={() => setModalConfirmar({
+                            titulo: 'Desbloquear Conexao',
+                            mensagem: `Desbloquear "${conexao.descricao}" de ${cliente.nome}?`,
+                            tipo: 'info',
+                            acao: () => desbloquearConexao(conexao),
+                          })}
+                          disabled={!!executando}
+                          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono uppercase hover:bg-emerald-500/20 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <Unlock className="w-3.5 h-3.5" /> DESBLOQUEAR
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setModalConfirmar({
+                            titulo: 'Bloquear Conexao',
+                            mensagem: `Bloquear "${conexao.descricao}" de ${cliente.nome}? O ponto perdera acesso a internet.`,
+                            tipo: 'danger',
+                            acao: () => bloquearConexao(conexao),
+                          })}
+                          disabled={!!executando}
+                          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-mono uppercase hover:bg-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <Lock className="w-3.5 h-3.5" /> BLOQUEAR
+                        </button>
+                      )}
+
+                      {/* Derrubar sessao */}
+                      <button
+                        onClick={() => setModalConfirmar({
+                          titulo: 'Derrubar Sessao',
+                          mensagem: `Derrubar sessao PPPoE de "${conexao.descricao}"? O ponto sera desconectado.`,
+                          tipo: 'warning',
+                          acao: () => derrubarSessao(conexao),
+                        })}
+                        disabled={!!executando || !online}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-mono uppercase hover:bg-blue-500/20 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" /> DERRUBAR
+                      </button>
+
+                      {/* Excluir */}
+                      <button
+                        onClick={() => setModalConfirmar({
+                          titulo: 'Excluir Conexao',
+                          mensagem: `Excluir permanentemente "${conexao.descricao}"? Esta acao nao pode ser desfeita.`,
+                          tipo: 'danger',
+                          acao: () => excluirConexao(conexao.id),
+                        })}
+                        disabled={!!executando}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 text-[10px] font-mono uppercase hover:text-red-400 hover:border-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> EXCLUIR
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+
+      {/* ================================================================ */}
+      {/* MODAL: IMPORTAR CONEXAO EXISTENTE */}
+      {/* ================================================================ */}
+      {modalImportar && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setModalImportar(false)}>
+          <div className="bg-[#111] border border-zinc-800 rounded-2xl w-full max-w-lg p-6 space-y-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-500/20">
+                  <Download className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold font-mono text-white uppercase">Importar Conexao Existente</h3>
+                  <p className="text-[10px] font-mono text-zinc-500">Busque outro cliente e puxe o PPPoE dele</p>
+                </div>
+              </div>
+              <button onClick={() => { setModalImportar(false); setClienteSelecionado(null); setResultadosBusca([]); setBuscaImportar(''); setDescricaoImport(''); }} className="text-zinc-500 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Busca */}
+            {!clienteSelecionado && (
+              <>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Buscar por nome, CPF ou login PPPoE..."
+                    value={buscaImportar}
+                    onChange={(e) => setBuscaImportar(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && buscarClientesParaImportar()}
+                    className={estiloInput + ' flex-1'}
+                  />
+                  <button
+                    onClick={buscarClientesParaImportar}
+                    disabled={buscandoClientes}
+                    className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-mono uppercase hover:bg-blue-500 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {buscandoClientes ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {/* Resultados */}
+                {resultadosBusca.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-mono text-zinc-500 uppercase">Selecione o cliente:</p>
+                    {resultadosBusca.map((cli) => (
+                      <button
+                        key={cli.id}
+                        onClick={() => selecionarClienteImportar(cli)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 hover:border-blue-500/30 hover:bg-blue-500/5 transition-all cursor-pointer text-left"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center">
+                          <UserCheck className="w-4 h-4 text-zinc-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-mono font-bold text-white truncate">{cli.nome}</p>
+                          <p className="text-[10px] font-mono text-zinc-500">
+                            CPF: {cli.cpf || '-'} | PPPoE: {cli.login_pppoe || 'sem login'}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Cliente selecionado — mostrar conexoes */}
+            {clienteSelecionado && (
+              <>
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                  <UserCheck className="w-5 h-5 text-blue-400" />
+                  <div>
+                    <p className="text-xs font-mono font-bold text-blue-400">{clienteSelecionado.nome}</p>
+                    <p className="text-[10px] font-mono text-blue-300/60">CPF: {clienteSelecionado.cpf || '-'}</p>
+                  </div>
+                  <button
+                    onClick={() => { setClienteSelecionado(null); setConexoesSelecionado([]); setDescricaoImport(''); }}
+                    className="ml-auto text-zinc-500 hover:text-white text-[10px] font-mono cursor-pointer"
+                  >
+                    TROCAR
+                  </button>
+                </div>
+
+                {carregandoConexoes ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                  </div>
+                ) : conexoesSelecionado.length === 0 ? (
+                  <p className="text-xs font-mono text-zinc-500 text-center py-4">Nenhuma conexao PPPoE encontrada neste cliente</p>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-mono text-zinc-500 uppercase">Conexoes disponiveis para importar:</p>
+                    {conexoesSelecionado.map((con, idx) => (
+                      <div key={con.id || idx} className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Wifi className="w-4 h-4 text-emerald-400" />
+                          <p className="text-xs font-mono font-bold text-white">{con.descricao || 'Conexao'}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                          <div><span className="text-zinc-600">Login:</span> <span className="text-zinc-300">{con.login_pppoe || '-'}</span></div>
+                          <div><span className="text-zinc-600">Perfil:</span> <span className="text-zinc-300">{con.perfil_radius || '-'}</span></div>
+                          <div><span className="text-zinc-600">MAC:</span> <span className="text-zinc-300">{con.mac_address || '-'}</span></div>
+                          <div><span className="text-zinc-600">IP:</span> <span className="text-zinc-300">{con.ip_fixo || '-'}</span></div>
+                        </div>
+
+                        {/* Nome do ponto + botao importar */}
+                        <div className="flex gap-2 pt-1">
+                          <input
+                            type="text"
+                            placeholder="Nome do ponto (ex: Casa 2)"
+                            value={descricaoImport}
+                            onChange={(e) => setDescricaoImport(e.target.value)}
+                            className={estiloInput + ' flex-1 !text-xs'}
+                          />
+                          <button
+                            onClick={() => importarConexao(con)}
+                            disabled={executando === 'importando'}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-mono font-bold uppercase hover:bg-blue-500 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                          >
+                            {executando === 'importando' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                            IMPORTAR
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ================================================================ */}
       {/* MODAL: CONFIRMACAO */}
@@ -512,9 +1149,7 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             <p className="text-xs font-mono text-zinc-400 leading-relaxed">{modalConfirmar.mensagem}</p>
-
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setModalConfirmar(null)}
@@ -530,7 +1165,7 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
                   modalConfirmar.tipo === 'warning' ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-blue-600 hover:bg-blue-500'
                 }`}
               >
-                {executando ? <RefreshCw className="w-4 h-4 animate-spin mx-auto" /> : 'CONFIRMAR'}
+                {executando ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'CONFIRMAR'}
               </button>
             </div>
           </div>

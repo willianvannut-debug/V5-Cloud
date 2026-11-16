@@ -1,7 +1,7 @@
 // ============================================================
 // app/dashboard/mikrotik/planos/page.tsx
-// V5 FIBRA — Planos PPPoE (com Sync MikroTik)
-// CORRIGIDO: Sync agora IMPORTA perfis DO MikroTik para o Supabase
+// V5 FIBRA — Planos PPPoE (com Sync AUTOMATICO ao MikroTik)
+// NOVO: Ao criar/editar plano, cria/atualiza Profile no MikroTik
 // ============================================================
 'use client'
 
@@ -265,6 +265,109 @@ export default function PlanosPPPoEPage() {
   }
 
   // ============================================================
+  // CRIAR/ATUALIZAR PROFILE NO MIKROTIK (AUTOMATICO)
+  // ============================================================
+  const syncProfileNoMikroTik = async (
+    profileName: string,
+    download: string,
+    upload: string,
+    originalName?: string
+  ): Promise<boolean> => {
+    if (!operador?.empresaId) return false
+
+    try {
+      // Se tem originalName diferente, e edicao -> usar /set
+      // Se nao, e criacao -> usar /add
+      const isEdicao = originalName && originalName !== profileName
+
+      // Montar rate-limit no formato MikroTik: "downloadM/uploadM"
+      const rateLimit = `${download}M/${upload}M`
+
+      if (isEdicao) {
+        // EDITAR profile existente
+        const res = await fetch(`/api/mk-proxy?path=pppoe/profiles/set&empresa_id=${operador.empresaId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            original_name: originalName,
+            name: profileName,
+            rate_limit: rateLimit,
+          }),
+        })
+        const data = await res.json()
+        if (!data.success) {
+          console.error('Erro ao editar profile no MikroTik:', data.error)
+          return false
+        }
+      } else {
+        // CRIAR novo profile
+        const res = await fetch(`/api/mk-proxy?path=pppoe/profiles/add&empresa_id=${operador.empresaId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: profileName,
+            rate_limit: rateLimit,
+          }),
+        })
+        const data = await res.json()
+        if (!data.success) {
+          // Se ja existe, tenta atualizar
+          if (data.error && data.error.includes('already')) {
+            const resSet = await fetch(`/api/mk-proxy?path=pppoe/profiles/set&empresa_id=${operador.empresaId}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                original_name: profileName,
+                name: profileName,
+                rate_limit: rateLimit,
+              }),
+            })
+            const dataSet = await resSet.json()
+            if (!dataSet.success) {
+              console.error('Erro ao atualizar profile no MikroTik:', dataSet.error)
+              return false
+            }
+          } else {
+            console.error('Erro ao criar profile no MikroTik:', data.error)
+            return false
+          }
+        }
+      }
+
+      return true
+    } catch (err) {
+      console.error('Erro sync MikroTik:', err)
+      return false
+    }
+  }
+
+  // ============================================================
+  // REMOVER PROFILE DO MIKROTIK (AUTOMATICO)
+  // ============================================================
+  const removerProfileDoMikroTik = async (profileName: string): Promise<boolean> => {
+    if (!operador?.empresaId) return false
+
+    try {
+      const res = await fetch(`/api/mk-proxy?path=pppoe/profiles/remove&empresa_id=${operador.empresaId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: profileName,
+        }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        console.error('Erro ao remover profile do MikroTik:', data.error)
+        return false
+      }
+      return true
+    } catch (err) {
+      console.error('Erro remover MikroTik:', err)
+      return false
+    }
+  }
+
+  // ============================================================
   // ABRIR MODAL
   // ============================================================
   const abrirNovo = () => {
@@ -299,7 +402,7 @@ export default function PlanosPPPoEPage() {
   }
 
   // ============================================================
-  // SALVAR PLANO
+  // SALVAR PLANO (COM SYNC AUTOMATICO AO MIKROTIK)
   // ============================================================
   const salvar = async () => {
     if (!form.nome || !form.velocidade_download || !form.velocidade_upload || !form.preco) {
@@ -308,17 +411,19 @@ export default function PlanosPPPoEPage() {
     }
     setSalvando(true)
     try {
+      const profileName = form.mikrotik_profile || form.nome.toLowerCase().replace(/\s+/g, '_')
       const payload = {
         nome: form.nome,
         velocidade_download: form.velocidade_download + 'M',
         velocidade_upload: form.velocidade_upload + 'M',
         preco: precoParaNumero(form.preco),
-        mikrotik_profile: form.mikrotik_profile || form.nome.toLowerCase().replace(/\s+/g, '_'),
+        mikrotik_profile: profileName,
         descricao: form.descricao,
         ativo: form.ativo,
         empresa_id: operador?.empresaId,
       }
 
+      // 1. Salvar no Supabase
       const res = await fetch('/api/planos', {
         method: planoEditando ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -326,13 +431,36 @@ export default function PlanosPPPoEPage() {
       })
 
       const data = await res.json()
-      if (data.success) {
-        toast.success(planoEditando ? 'Plano atualizado!' : 'Plano criado!')
-        setModalAberto(false)
-        carregarPlanos()
-      } else {
+      if (!data.success) {
         toast.error(data.error || 'Erro ao salvar')
+        setSalvando(false)
+        return
       }
+
+      // 2. Sincronizar com MikroTik AUTOMATICAMENTE
+      const originalProfile = planoEditando?.mikrotik_profile
+      const mkOk = await syncProfileNoMikroTik(
+        profileName,
+        form.velocidade_download,
+        form.velocidade_upload,
+        originalProfile
+      )
+
+      if (mkOk) {
+        toast.success(
+          planoEditando
+            ? `Plano atualizado e sincronizado com MikroTik!`
+            : `Plano criado e Profile "${profileName}" criado no MikroTik!`
+        )
+      } else {
+        toast.success(
+          (planoEditando ? 'Plano atualizado!' : 'Plano criado!') +
+          ' (Aviso: nao foi possivel sincronizar com MikroTik)'
+        )
+      }
+
+      setModalAberto(false)
+      carregarPlanos()
     } catch {
       toast.error('Erro ao salvar plano')
     } finally {
@@ -341,20 +469,37 @@ export default function PlanosPPPoEPage() {
   }
 
   // ============================================================
-  // DELETAR PLANO
+  // DELETAR PLANO (COM REMOCAO DO MIKROTIK)
   // ============================================================
   const deletar = async (id: string) => {
-    if (!confirm('Tem certeza que deseja excluir este plano?')) return
+    const plano = planos.find(p => p.id === id)
+    if (!plano) return
+    if (!confirm(`Tem certeza que deseja excluir o plano "${plano.nome}"?\n\nIsso tambem vai REMOVER o profile "${plano.mikrotik_profile}" do MikroTik.`)) return
+
     setDeletando(id)
     try {
+      // 1. Remover do Supabase
       const res = await fetch(`/api/planos?id=${id}`, { method: 'DELETE' })
       const data = await res.json()
-      if (data.success) {
-        toast.success('Plano excluido!')
-        carregarPlanos()
-      } else {
+      if (!data.success) {
         toast.error(data.error || 'Erro ao excluir')
+        setDeletando(null)
+        return
       }
+
+      // 2. Remover do MikroTik
+      if (plano.mikrotik_profile) {
+        const mkOk = await removerProfileDoMikroTik(plano.mikrotik_profile)
+        if (mkOk) {
+          toast.success(`Plano excluido e profile "${plano.mikrotik_profile}" removido do MikroTik!`)
+        } else {
+          toast.success('Plano excluido! (Aviso: profile nao removido do MikroTik)')
+        }
+      } else {
+        toast.success('Plano excluido!')
+      }
+
+      carregarPlanos()
     } catch {
       toast.error('Erro ao excluir plano')
     } finally {
@@ -571,9 +716,14 @@ export default function PlanosPPPoEPage() {
           <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg mx-4 p-6 space-y-5">
             <div className="flex items-center gap-3">
               <Gauge className="w-5 h-5 text-cyan-400" />
-              <h2 className="text-lg font-mono font-black text-white uppercase tracking-wider">
-                {planoEditando ? 'Editar Plano' : 'Novo Plano PPPoE'}
-              </h2>
+              <div>
+                <h2 className="text-lg font-mono font-black text-white uppercase tracking-wider">
+                  {planoEditando ? 'Editar Plano' : 'Novo Plano PPPoE'}
+                </h2>
+                <p className="text-[10px] font-mono text-emerald-400">
+                  {planoEditando ? 'Atualiza no sistema e no MikroTik' : 'Cria no sistema e no MikroTik automaticamente'}
+                </p>
+              </div>
             </div>
 
             <div className="space-y-4">
@@ -700,6 +850,14 @@ export default function PlanosPPPoEPage() {
                 >
                   <div className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform ${form.ativo ? 'translate-x-5.5' : 'translate-x-0.5'}`} />
                 </button>
+              </div>
+
+              {/* Info sync automatico */}
+              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3 flex items-start gap-2">
+                <CloudUpload className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <p className="text-[10px] font-mono text-emerald-300/70">
+                  Ao salvar, o profile PPPoE sera {planoEditando ? 'atualizado' : 'criado'} automaticamente no MikroTik com o rate-limit configurado.
+                </p>
               </div>
             </div>
 
