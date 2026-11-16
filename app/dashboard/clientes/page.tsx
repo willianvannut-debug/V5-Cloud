@@ -383,16 +383,22 @@ export default function ClientesPage() {
         };
       });
 
-      const { data: inseridos, error: insertError } = await supabase
-        .from('clientes')
-        .insert(clientesParaInserir)
-        .select();
+      const resInsert = await fetch('/api/clientes/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          empresa_id: empresa.id,
+          clientes: clientesParaInserir,
+        }),
+      });
+      const jsonInsert = await resInsert.json();
 
-      if (insertError) {
-        console.error('Erro ao inserir clientes:', insertError);
+      if (!jsonInsert.success) {
+        console.error('Erro ao inserir clientes:', jsonInsert.error);
         setSyncResultado({ importados: 0, erros: novos.length });
       } else {
-        setSyncResultado({ importados: inseridos?.length || novos.length, erros: 0 });
+        setSyncResultado({ importados: jsonInsert.data?.length || novos.length, erros: 0 });
         carregarClientes();
       }
     } catch (err) {
