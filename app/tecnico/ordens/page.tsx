@@ -1,7 +1,7 @@
 // ================================================================================
 // ORDENS DE SERVIÇO - APP DO TÉCNICO (mobile-first)
 // Caminho: app/tecnico/ordens/page.tsx
-// v5 — com aviso de "sem conexão" e rascunho automático
+// v6 — navegação por coordenadas GPS + botão bloqueado sem pin
 // ================================================================================
 
 "use client"
@@ -22,6 +22,8 @@ interface OS {
   prioridade: string;
   descricao: string | null;
   endereco: string | null;
+  latitude: number | null;
+  longitude: number | null;
   agendada_para: string | null;
   iniciada_em: string | null;
   concluida_em: string | null;
@@ -206,13 +208,28 @@ export default function TecnicoOrdensPage() {
     }
   };
 
-  const abrirGPS = (endereco: string) => {
-    const encoded = encodeURIComponent(endereco);
-    if (gpsApp === 'waze') {
-      window.open(`https://waze.com/ul?q=${encoded}&navigate=yes`, '_blank');
-    } else {
-      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`, '_blank');
+  // Navegação GPS — usa coordenadas quando disponível, senão endereço texto
+  const abrirGPS = (os: OS) => {
+    if (os.latitude && os.longitude) {
+      const dest = `${os.latitude},${os.longitude}`;
+      if (gpsApp === 'waze') {
+        window.open(`https://waze.com/ul?ll=${os.latitude},${os.longitude}&navigate=yes`, '_blank');
+      } else {
+        window.open(`https://www.google.com/maps/dir/?api=1&destination=${dest}`, '_blank');
+      }
+    } else if (os.endereco) {
+      const encoded = encodeURIComponent(os.endereco);
+      if (gpsApp === 'waze') {
+        window.open(`https://waze.com/ul?q=${encoded}&navigate=yes`, '_blank');
+      } else {
+        window.open(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`, '_blank');
+      }
     }
+  };
+
+  // Verifica se a OS tem localização navegável (coordenadas GPS do pin)
+  const temNavegacao = (os: OS): boolean => {
+    return !!(os.latitude && os.longitude);
   };
 
   const abrirWhatsApp = (telefone: string, nome: string) => {
@@ -315,8 +332,8 @@ export default function TecnicoOrdensPage() {
 
               {/* Botões GPS e WhatsApp */}
               <div className="flex gap-2 mt-3">
-                {detalhe.endereco ? (
-                  <button onClick={() => abrirGPS(detalhe.endereco!)}
+                {temNavegacao(detalhe) ? (
+                  <button onClick={() => abrirGPS(detalhe)}
                     className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform min-h-[44px]">
                     <Navigation className="w-4 h-4" /> Navegar
                   </button>
@@ -341,30 +358,27 @@ export default function TecnicoOrdensPage() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
               <span className="text-[10px] font-mono uppercase text-zinc-500 block mb-2">Localização</span>
               {detalhe.endereco ? (
-                <>
-                  <p className="text-sm text-zinc-300 flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-blue-400 shrink-0" /> {detalhe.endereco}
-                  </p>
-                  <div className="flex gap-2 mt-3">
-                    <button onClick={() => abrirGPS(detalhe.endereco!)}
-                      className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform min-h-[44px]">
-                      <Navigation className="w-4 h-4" /> Navegar
-                    </button>
-                  </div>
-                </>
+                <p className="text-sm text-zinc-300 flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-blue-400 shrink-0" /> {detalhe.endereco}
+                </p>
               ) : (
-                <>
-                  <p className="text-sm text-zinc-500 flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-zinc-600 shrink-0" /> Nenhuma localização definida
-                  </p>
-                  <div className="flex gap-2 mt-3">
-                    <button disabled
-                      className="flex-1 bg-zinc-800/50 border border-zinc-700/30 text-zinc-600 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 min-h-[44px] cursor-not-allowed">
-                      <Navigation className="w-4 h-4" /> Localização não configurada
-                    </button>
-                  </div>
-                </>
+                <p className="text-sm text-zinc-500 flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-zinc-600 shrink-0" /> Nenhuma localização definida
+                </p>
               )}
+              <div className="flex gap-2 mt-3">
+                {temNavegacao(detalhe) ? (
+                  <button onClick={() => abrirGPS(detalhe)}
+                    className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform min-h-[44px]">
+                    <Navigation className="w-4 h-4" /> Navegar
+                  </button>
+                ) : (
+                  <button disabled
+                    className="flex-1 bg-zinc-800/50 border border-zinc-700/30 text-zinc-600 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 min-h-[44px] cursor-not-allowed">
+                    <Navigation className="w-4 h-4" /> Localização não configurada
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

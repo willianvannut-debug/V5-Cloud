@@ -1,13 +1,14 @@
 // ================================================================================
-// CRIAR OS - V2 (TIPOS EXPANDIDOS + LOCALIZAÇÃO)
+// CRIAR OS - V4 (MAPA COM PIN + COORDENADAS GPS)
 // Caminho: app/dashboard/ordens/criar/page.tsx
 // ================================================================================
 
 "use client"
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import {
-  Wrench, Search, Loader2, User, X, XCircle, Plus, CheckCircle2, ArrowLeft, MapPin
+  Wrench, Search, Loader2, User, X, XCircle, Plus, CheckCircle2, ArrowLeft, MapPin, Crosshair
 } from 'lucide-react';
 
 // Tipos organizados por categoria
@@ -56,6 +57,85 @@ Object.entries(CATEGORIAS).forEach(([catKey, cat]) => {
 // Tipos que exigem cliente
 const TIPOS_CLIENTE_OBRIGATORIO = ['reparo', 'troca_equipamento', 'mudanca_endereco', 'retirada'];
 
+
+// ==================== COMPONENTE MAPA LEAFLET (dynamic, SSR off) ====================
+const MapaPinComponent = dynamic(() => Promise.resolve(MapaPin), { ssr: false });
+
+function MapaPin({ latitude, longitude, onChange }: {
+  latitude: number | null;
+  longitude: number | null;
+  onChange: (lat: number, lng: number) => void;
+}) {
+  const mapRef = useRef<any>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const markerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    const initMap = async () => {
+      const L = (await import('leaflet')).default;
+      await import('leaflet/dist/leaflet.css');
+
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+      });
+
+      if (mapRef.current) return;
+
+      const defaultLat = latitude || -15.7801;
+      const defaultLng = longitude || -47.9292;
+      const defaultZoom = latitude ? 16 : 4;
+
+      const map = L.map(mapContainerRef.current!, {
+        center: [defaultLat, defaultLng],
+        zoom: defaultZoom,
+        zoomControl: true,
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '\u00a9 OpenStreetMap',
+        maxZoom: 19,
+      }).addTo(map);
+
+      if (latitude && longitude) {
+        markerRef.current = L.marker([latitude, longitude]).addTo(map);
+      }
+
+      map.on('click', (e: any) => {
+        const { lat, lng } = e.latlng;
+        if (markerRef.current) {
+          markerRef.current.setLatLng([lat, lng]);
+        } else {
+          markerRef.current = L.marker([lat, lng]).addTo(map);
+        }
+        onChange(lat, lng);
+      });
+
+      mapRef.current = map;
+      setTimeout(() => map.invalidateSize(), 100);
+    };
+
+    initMap();
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markerRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div ref={mapContainerRef} className="w-full h-[280px] rounded-lg border border-zinc-800 overflow-hidden" />
+  );
+}
+
 export default function CriarOSPage() {
   const router = useRouter();
   const [tecnicos, setTecnicos] = useState<any[]>([]);
@@ -70,6 +150,10 @@ export default function CriarOSPage() {
   const [tecnicosIds, setTecnicosIds] = useState<string[]>([]);
   const [agendadaPara, setAgendadaPara] = useState('');
   const [localizacao, setLocalizacao] = useState('');
+
+  // Coordenadas do mapa
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
 
   const toggleTecnico = (id: string) => {
     setTecnicosIds(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
@@ -115,6 +199,16 @@ export default function CriarOSPage() {
     return () => clearTimeout(t);
   }, [buscaCliente]);
 
+  const handleMapChange = (lat: number, lng: number) => {
+    setLatitude(lat);
+    setLongitude(lng);
+  };
+
+  const removerPin = () => {
+    setLatitude(null);
+    setLongitude(null);
+  };
+
   const criarOS = async (e: React.FormEvent) => {
     e.preventDefault();
     setErro('');
@@ -139,6 +233,8 @@ export default function CriarOSPage() {
           tecnicos_ids: tecnicosIds,
           agendada_para: agendadaPara || null,
           endereco: localizacao || null,
+          latitude: latitude || null,
+          longitude: longitude || null,
         }),
       });
 
@@ -285,6 +381,45 @@ export default function CriarOSPage() {
               </p>
             </div>
           )}
+
+
+          {/* ==================== MAPA COM PIN ==================== */}
+          <div className="relative z-0 border border-zinc-900 bg-zinc-900/40 rounded-xl p-5">
+            <label className="text-[10px] font-mono uppercase text-zinc-500 block mb-2 flex items-center gap-1.5">
+              <Crosshair className="w-3 h-3" /> Pin no Mapa (GPS do Técnico)
+            </label>
+            <p className="text-[10px] font-mono text-zinc-600 mb-3">
+              Clique no mapa para marcar a localização exata. O técnico usará essas coordenadas para navegar.
+            </p>
+
+            <MapaPinComponent
+              latitude={latitude}
+              longitude={longitude}
+              onChange={handleMapChange}
+            />
+
+            {latitude && longitude ? (
+              <div className="mt-3 flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-emerald-400" />
+                  <span className="text-[11px] font-mono text-emerald-400 font-bold">
+                    Pin definido: {latitude.toFixed(6)}, {longitude.toFixed(6)}
+                  </span>
+                </div>
+                <button type="button" onClick={removerPin}
+                  className="text-zinc-400 hover:text-red-400 cursor-pointer p-1 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                <MapPin className="w-4 h-4 text-amber-400" />
+                <span className="text-[11px] font-mono text-amber-400">
+                  Nenhum pin colocado — o técnico não terá navegação GPS
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* DESCRICAO */}
           <div className="relative z-0 border border-zinc-900 bg-zinc-900/40 rounded-xl p-5">

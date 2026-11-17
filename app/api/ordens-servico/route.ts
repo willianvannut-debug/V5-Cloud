@@ -1,5 +1,5 @@
 // ================================================================================
-// API ORDENS DE SERVICO - V3 (múltiplos técnicos + tipos expandidos)
+// API ORDENS DE SERVICO - V4 (múltiplos técnicos + coordenadas GPS)
 // Caminho: app/api/ordens-servico/route.ts
 // ================================================================================
 
@@ -168,6 +168,12 @@ export async function POST(request: NextRequest) {
       agendada_para: body.agendada_para || null,
     };
 
+    // Coordenadas GPS (do pin no mapa)
+    if (body.latitude != null && body.longitude != null) {
+      insertData.latitude = body.latitude;
+      insertData.longitude = body.longitude;
+    }
+
     // Só inclui tecnicos_ids se a coluna existir (graceful)
     if (tecnicosIds.length > 0) {
       insertData.tecnicos_ids = tecnicosIds;
@@ -181,8 +187,10 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       // Se o erro for por causa da coluna tecnicos_ids não existir, tenta sem ela
-      if (error.message?.includes('tecnicos_ids')) {
-        delete insertData.tecnicos_ids;
+      const colunasOpcionais = ['tecnicos_ids', 'latitude', 'longitude'];
+      const colunaProblema = colunasOpcionais.find(col => error.message?.includes(col));
+      if (colunaProblema) {
+        colunasOpcionais.forEach(col => delete insertData[col]);
         const { data: data2, error: error2 } = await supabase
           .from('ordens_servico')
           .insert(insertData)
@@ -230,6 +238,8 @@ export async function PATCH(request: NextRequest) {
     if (body.motivo_cancelamento !== undefined) update.motivo_cancelamento = body.motivo_cancelamento;
     if (body.prioridade !== undefined) update.prioridade = body.prioridade;
     if (body.descricao !== undefined) update.descricao = body.descricao;
+    if (body.latitude !== undefined) update.latitude = body.latitude;
+    if (body.longitude !== undefined) update.longitude = body.longitude;
 
     if (body.status === 'em_deslocamento') update.deslocamento_em = new Date().toISOString();
     if (body.status === 'em_execucao') update.iniciada_em = new Date().toISOString();
