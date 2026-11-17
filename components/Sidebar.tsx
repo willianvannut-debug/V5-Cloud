@@ -316,7 +316,12 @@ export function Sidebar() {
   ];
 
   const menuInferior: MenuItem[] = [
-    { name: 'Configurações', href: '/dashboard/config', icon: Settings, roles: ['gerente', 'atendente', 'superadmin'] },
+    { name: 'Configurações', href: '/dashboard/config', icon: Settings, roles: ['gerente', 'atendente', 'superadmin'],
+      subMenu: [
+        { name: 'Geral', href: '/dashboard/config', icon: Settings, cor: 'text-emerald-400' },
+        { name: 'White-Label App', href: '/dashboard/config/white-label', icon: Smartphone, cor: 'text-purple-400' },
+      ],
+    },
     { name: 'Help...', href: '/dashboard/help', icon: HelpCircle, roles: ['gerente', 'atendente', 'superadmin'] },
   ];
 
