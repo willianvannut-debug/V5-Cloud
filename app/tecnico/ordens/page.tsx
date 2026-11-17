@@ -315,10 +315,15 @@ export default function TecnicoOrdensPage() {
 
               {/* Botões GPS e WhatsApp */}
               <div className="flex gap-2 mt-3">
-                {detalhe.endereco && (
+                {detalhe.endereco ? (
                   <button onClick={() => abrirGPS(detalhe.endereco!)}
                     className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform min-h-[44px]">
                     <Navigation className="w-4 h-4" /> Navegar
+                  </button>
+                ) : (
+                  <button disabled
+                    className="flex-1 bg-zinc-800/50 border border-zinc-700/30 text-zinc-600 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 min-h-[44px] cursor-not-allowed">
+                    <Navigation className="w-4 h-4" /> Localização não configurada
                   </button>
                 )}
                 {detalhe.clientes.telefone && (
@@ -332,18 +337,34 @@ export default function TecnicoOrdensPage() {
           )}
 
           {/* Localização (OS de infraestrutura sem cliente) */}
-          {!detalhe.clientes && detalhe.endereco && (
+          {!detalhe.clientes && (
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
               <span className="text-[10px] font-mono uppercase text-zinc-500 block mb-2">Localização</span>
-              <p className="text-sm text-zinc-300 flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-blue-400 shrink-0" /> {detalhe.endereco}
-              </p>
-              <div className="flex gap-2 mt-3">
-                <button onClick={() => abrirGPS(detalhe.endereco!)}
-                  className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform min-h-[44px]">
-                  <Navigation className="w-4 h-4" /> Navegar
-                </button>
-              </div>
+              {detalhe.endereco ? (
+                <>
+                  <p className="text-sm text-zinc-300 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-blue-400 shrink-0" /> {detalhe.endereco}
+                  </p>
+                  <div className="flex gap-2 mt-3">
+                    <button onClick={() => abrirGPS(detalhe.endereco!)}
+                      className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform min-h-[44px]">
+                      <Navigation className="w-4 h-4" /> Navegar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-zinc-500 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-zinc-600 shrink-0" /> Nenhuma localização definida
+                  </p>
+                  <div className="flex gap-2 mt-3">
+                    <button disabled
+                      className="flex-1 bg-zinc-800/50 border border-zinc-700/30 text-zinc-600 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 min-h-[44px] cursor-not-allowed">
+                      <Navigation className="w-4 h-4" /> Localização não configurada
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
