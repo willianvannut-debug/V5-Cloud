@@ -46,7 +46,6 @@ async function buscarTudo(sb: SupabaseClient, tabela: string, colunas: string, e
 }
 
 export async function GET(req: Request) {
-  console.log('COOKIE-DEBUG:', req.headers.get('cookie'));
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

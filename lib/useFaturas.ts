@@ -75,6 +75,16 @@ export interface InvoicesResponse {
   };
 }
 
+// Resumo mensal (cards do topo - reinicia todo dia 1)
+export interface MonthlySummary {
+  totalPending: number;
+  countPending: number;
+  totalReceived: number;
+  countReceived: number;
+  totalCancelled: number;
+  countCancelled: number;
+}
+
 // --- Hook ---
 
 export function useFaturas() {
@@ -85,7 +95,7 @@ export function useFaturas() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Estado do resumo (cards do topo)
+  // Estado do resumo geral (vem da API)
   const [summary, setSummary] = useState({
     totalPending: 0,
     totalReceived: 0,
@@ -95,16 +105,76 @@ export function useFaturas() {
     countOverdue: 0,
   });
 
-  // Filtros atuais
+  // Estado do resumo MENSAL (cards do topo - só mês atual)
+  const [monthlySummary, setMonthlySummary] = useState<MonthlySummary>({
+    totalPending: 0,
+    countPending: 0,
+    totalReceived: 0,
+    countReceived: 0,
+    totalCancelled: 0,
+    countCancelled: 0,
+  });
+
+  // Calcular primeiro e último dia do mês atual
+  const getMonthRange = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth(); // 0-11
+    const lastDay = new Date(y, m + 1, 0); // último dia do mês
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return {
+      startDate: `${y}-${pad(m + 1)}-01`,
+      endDate: `${y}-${pad(m + 1)}-${pad(lastDay.getDate())}`,
+    };
+  };
+
+  // Filtros atuais — já inicia com o mês atual
+  const { startDate: mesIni, endDate: mesFim } = getMonthRange();
   const [filters, setFilters] = useState<InvoiceFilters>({
     status: '',
     billingType: '',
-    startDate: '',
-    endDate: '',
+    startDate: mesIni,
+    endDate: mesFim,
     search: '',
     page: 1,
     limit: 20,
   });
+
+  // Buscar resumo do mês atual (separado dos filtros da tabela)
+  const fetchMonthlySummary = useCallback(async () => {
+    const { startDate, endDate } = getMonthRange();
+    try {
+      const res = await api.get<any>(
+        `/financial/invoices?startDate=${startDate}&endDate=${endDate}&limit=500`
+      );
+      const raw = res?.data || res;
+      const list: Invoice[] = Array.isArray(raw) ? raw : (raw?.data || []);
+
+      let totalPending = 0, countPending = 0;
+      let totalReceived = 0, countReceived = 0;
+      let totalCancelled = 0, countCancelled = 0;
+
+      for (const inv of list) {
+        const amount = typeof inv.amount === 'number' ? inv.amount : parseFloat(String(inv.amount)) || 0;
+
+        if (inv.status === 'PENDING' || inv.status === 'OVERDUE') {
+          totalPending += amount;
+          countPending++;
+        } else if (inv.status === 'RECEIVED' || inv.status === 'CONFIRMED') {
+          totalReceived += amount;
+          countReceived++;
+        } else if (inv.status === 'CANCELLED') {
+          totalCancelled += amount;
+          countCancelled++;
+        }
+      }
+
+      setMonthlySummary({ totalPending, countPending, totalReceived, countReceived, totalCancelled, countCancelled });
+    } catch (err) {
+      // Silently fail - cards ficam zerados
+      console.error('Erro ao buscar resumo mensal:', err);
+    }
+  }, []);
 
   // Buscar faturas na API com os filtros atuais
   const fetchInvoices = useCallback(async () => {
@@ -139,6 +209,11 @@ export function useFaturas() {
     fetchInvoices();
   }, [fetchInvoices]);
 
+  // Buscar resumo mensal na primeira carga e ao atualizar
+  useEffect(() => {
+    fetchMonthlySummary();
+  }, [fetchMonthlySummary]);
+
   // Atualizar um filtro específico (volta pra página 1)
   const updateFilter = (field: keyof InvoiceFilters, value: any) => {
     setFilters((prev) => ({ ...prev, [field]: value, page: 1 }));
@@ -152,20 +227,31 @@ export function useFaturas() {
   // Cancelar uma fatura
   const cancelInvoice = async (invoiceId: string) => {
     const res = await api.post(`/financial/invoices/${invoiceId}/cancel`);
-    if (!res.error) await fetchInvoices();
+    if (!res.error) {
+      await fetchInvoices();
+      await fetchMonthlySummary();
+    }
     return res;
   };
 
   // Gerar segunda via (nova data de vencimento)
   const generateSecondCopy = async (invoiceId: string, newDueDate: string) => {
     const res = await api.post(`/financial/invoices/${invoiceId}/second-copy`, { newDueDate });
-    if (!res.error) await fetchInvoices();
+    if (!res.error) {
+      await fetchInvoices();
+      await fetchMonthlySummary();
+    }
     return res;
   };
 
   // Buscar QR Code PIX de uma fatura
   const getPixQrCode = async (invoiceId: string) => {
     return api.get<{ qrCode: string; copyPaste: string }>(`/financial/invoices/pix/${invoiceId}/qrcode`);
+  };
+
+  // Atualizar tudo (tabela + resumo mensal)
+  const refreshAll = async () => {
+    await Promise.all([fetchInvoices(), fetchMonthlySummary()]);
   };
 
   return {
@@ -175,12 +261,13 @@ export function useFaturas() {
     loading,
     error,
     summary,
+    monthlySummary,
     filters,
     updateFilter,
     goToPage,
     cancelInvoice,
     generateSecondCopy,
     getPixQrCode,
-    refresh: fetchInvoices,
+    refresh: refreshAll,
   };
 }

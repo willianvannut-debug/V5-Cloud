@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "f14a3696-9710-4004-865c-45ee7669883a"
+      }
+    },
+    "android": {
+      "package": "com.v5fibra.app"
+    }
+  }
+}

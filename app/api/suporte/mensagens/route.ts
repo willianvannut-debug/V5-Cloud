@@ -7,6 +7,29 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
+async function enviarPushChamado(clienteId: string, empresaId: string, titulo: string, corpo: string, chamadoId: string) {
+  try {
+    const { data: tokens } = await supabase
+      .from('push_tokens')
+      .select('token')
+      .eq('cliente_id', clienteId)
+      .eq('empresa_id', empresaId)
+      .eq('ativo', true);
+    if (!tokens || tokens.length === 0) return;
+    const messages = tokens.map((t: any) => ({
+      to: t.token, sound: 'default', title: titulo, body: corpo,
+      data: { tipo: 'chamado_respondido', chamado_id: chamadoId },
+    }));
+    await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(messages),
+    });
+  } catch (e) { console.error('Erro push chamado:', e); }
+}
+
 // GET — listar mensagens de um chamado
 export async function GET(req: NextRequest) {
   const sessao = await getEmpresaDaSessao(req);
@@ -88,6 +111,22 @@ export async function POST(req: NextRequest) {
         .update(updates)
         .eq("id", chamado_id)
         .eq("empresa_id", empresaId);
+    }
+
+    // Enviar push notification pro cliente
+    const { data: chamadoInfo } = await supabase
+      .from("chamados")
+      .select("cliente_id, protocolo")
+      .eq("id", chamado_id)
+      .single();
+    if (chamadoInfo) {
+      enviarPushChamado(
+        chamadoInfo.cliente_id,
+        empresaId,
+        "Chamado respondido",
+        `Seu chamado #${chamadoInfo.protocolo} recebeu uma nova resposta.`,
+        chamado_id
+      );
     }
   }
 

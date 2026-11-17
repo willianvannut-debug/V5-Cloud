@@ -213,6 +213,77 @@ export async function PATCH(request: NextRequest) {
       tecnico = tec;
     }
 
+    // Se concluiu OS e tem chamado vinculado, resolver o chamado + push
+    if (body.status === 'concluida' && data.chamado_id) {
+      // Resolver chamado
+      await supabase
+        .from('chamados')
+        .update({ status: 'resolvido', resolvido_em: new Date().toISOString() })
+        .eq('id', data.chamado_id)
+        .eq('empresa_id', session.empresaId);
+
+      // Buscar info do chamado pra push
+      const { data: chamadoInfo } = await supabase
+        .from('chamados')
+        .select('cliente_id, protocolo')
+        .eq('id', data.chamado_id)
+        .single();
+
+      if (chamadoInfo) {
+        // Enviar push pro cliente
+        const { data: tokens } = await supabase
+          .from('push_tokens')
+          .select('token')
+          .eq('cliente_id', chamadoInfo.cliente_id)
+          .eq('empresa_id', session.empresaId)
+          .eq('ativo', true);
+
+        if (tokens && tokens.length > 0) {
+          const messages = tokens.map((t: any) => ({
+            to: t.token,
+            sound: 'default',
+            title: 'Chamado resolvido!',
+            body: `Seu chamado #${chamadoInfo.protocolo} foi resolvido pelo tecnico. Avalie o atendimento!`,
+            data: { tipo: 'chamado_resolvido', chamado_id: data.chamado_id },
+          }));
+          try {
+            await fetch('https://exp.host/--/api/v2/push/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(messages),
+            });
+          } catch (e) { console.error('Erro push:', e); }
+        }
+      }
+    }
+
+    // Se técnico saiu em deslocamento, enviar push pro cliente
+    if (body.status === 'em_deslocamento' && data.cliente_id) {
+      const { data: tokens } = await supabase
+        .from('push_tokens')
+        .select('token')
+        .eq('cliente_id', data.cliente_id)
+        .eq('empresa_id', session.empresaId)
+        .eq('ativo', true);
+
+      if (tokens && tokens.length > 0) {
+        const messages = tokens.map((t: any) => ({
+          to: t.token,
+          sound: 'default',
+          title: 'Tecnico a caminho!',
+          body: 'Um tecnico esta indo ate voce. Acompanhe em tempo real no app!',
+          data: { tipo: 'tecnico_a_caminho', os_id: data.id },
+        }));
+        try {
+          await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(messages),
+          });
+        } catch (e) { console.error('Erro push:', e); }
+      }
+    }
+
     return NextResponse.json({ ...data, tecnico });
   } catch (error) {
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });

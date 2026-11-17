@@ -199,6 +199,17 @@ export default function ClientesPage() {
     semPppoe: 0,
   });
 
+  // Limite de assinantes do plano
+  const [limiteAssinantes, setLimiteAssinantes] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!empresa?.plano) return;
+    import('@/lib/planLimites').then(({ obterLimitesDaEmpresa }) => {
+      const limites = obterLimitesDaEmpresa(empresa.plano);
+      setLimiteAssinantes(limites.max_assinantes ?? null);
+    });
+  }, [empresa?.plano]);
+
   // ==========================
   // CARREGAR CLIENTES (via API server-side — seguro)
   // ==========================
@@ -577,13 +588,41 @@ export default function ClientesPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-2">
               <div>
                 <p className="text-[10px] font-mono uppercase text-zinc-500">Total</p>
                 <p className="text-2xl font-black text-white mt-1">{contadores.total}</p>
               </div>
               <Users className="w-8 h-8 text-zinc-700" />
             </div>
+            {limiteAssinantes !== null && (
+              <div className="mt-2 space-y-1">
+                <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                  <span>{contadores.total} de {limiteAssinantes}</span>
+                  <span className={
+                    contadores.total / limiteAssinantes >= 0.9
+                      ? 'text-red-400'
+                      : contadores.total / limiteAssinantes >= 0.7
+                        ? 'text-yellow-400'
+                        : 'text-emerald-400'
+                  }>
+                    {Math.round((contadores.total / limiteAssinantes) * 100)}%
+                  </span>
+                </div>
+                <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      contadores.total / limiteAssinantes >= 0.9
+                        ? 'bg-red-500'
+                        : contadores.total / limiteAssinantes >= 0.7
+                          ? 'bg-yellow-400'
+                          : 'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min((contadores.total / limiteAssinantes) * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

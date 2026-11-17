@@ -116,6 +116,40 @@ class Logger {
 
   private async enviarParaServidor(logData: LogData) {
     try {
+      // Se estiver no servidor (API routes), gravar direto no Supabase sem HTTP
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+      if (serviceKey && supabaseUrl && typeof window === 'undefined') {
+        const { createClient } = await import('@supabase/supabase-js');
+        const supabaseAdmin = createClient(supabaseUrl, serviceKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+
+        const { error } = await supabaseAdmin
+          .from('logs_sistema')
+          .insert([{
+            nivel: logData.nivel,
+            acao: logData.acao,
+            entidade: logData.entidade,
+            mensagem: logData.mensagem,
+            operador_email: logData.operadorEmail || null,
+            operador_id: logData.operadorId || null,
+            empresa_id: logData.empresaId || null,
+            entidade_id: logData.entidadeId || null,
+            ip: logData.ip || null,
+            detalhes: logData.detalhes || {},
+            timestamp: logData.timestamp || new Date().toISOString(),
+            criado_em: new Date().toISOString(),
+          }]);
+
+        if (!error) {
+          this.logs = this.logs.filter(l => l.timestamp !== logData.timestamp);
+        }
+        return;
+      }
+
+      // Se estiver no cliente (browser), usar fetch normal
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
       const res = await fetch(`${baseUrl}/api/logs`, {
         method: 'POST',
@@ -123,13 +157,11 @@ class Logger {
         body: JSON.stringify(logData),
       });
 
-      if (!res.ok) {
-        console.warn('Falha ao enviar log para servidor:', res.status);
-      } else {
+      if (res.ok) {
         this.logs = this.logs.filter(l => l.timestamp !== logData.timestamp);
       }
     } catch (erro) {
-      console.warn('Erro ao conectar ao servidor de logs:', erro);
+      // Silencioso - log falhar nao deve quebrar a operacao principal
     }
   }
 

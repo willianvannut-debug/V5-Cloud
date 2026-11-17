@@ -25,14 +25,16 @@ interface OS {
   agendada_para: string | null;
   iniciada_em: string | null;
   concluida_em: string | null;
+  chamado_id: string | null;
   created_at: string;
   clientes: { id: string; nome: string; cpf: string; telefone: string; bairro: string; cidade: string } | null;
   tecnico: { id: string; nome: string } | null;
 }
 
 const TIPOS: Record<string, string> = {
-  reparo: 'Reparo', manutencao: 'Manutenção',
+  instalacao: 'Instalação', reparo: 'Reparo', manutencao: 'Manutenção',
   troca_equipamento: 'Troca Equipamento', mudanca_endereco: 'Mudança Endereço', retirada: 'Retirada',
+  chamado: 'Chamado',
 };
 
 const PRIO_CONF: Record<string, { label: string; cor: string; bg: string }> = {
@@ -406,7 +408,7 @@ export default function TecnicoOrdensPage() {
               className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-mono font-bold uppercase text-sm py-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition-transform disabled:opacity-50 min-h-[52px]"
             >
               {atualizando ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
-              Concluir OS
+              {detalhe.chamado_id ? 'Resolver Chamado' : 'Concluir OS'}
             </button>
           )}
         </div>

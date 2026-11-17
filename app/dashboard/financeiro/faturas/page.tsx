@@ -61,6 +61,10 @@ const billingConfig: Record<string, { label: string; icon: string }> = {
   UNDEFINED: { label: '—', icon: '—' },
 };
 
+// Nome do mês atual
+const mesesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const mesAtualLabel = `${mesesNomes[new Date().getMonth()]}/${new Date().getFullYear()}`;
+
 // ============================================================
 // Componente Principal
 // ============================================================
@@ -71,7 +75,7 @@ export default function FaturasPage() {
     totalPages,
     loading,
     error,
-    summary,
+    monthlySummary,
     filters,
     updateFilter,
     goToPage,
@@ -130,41 +134,46 @@ export default function FaturasPage() {
         </div>
       )}
 
-      {/* Summary Cards */}
+      {/* Summary Cards - APENAS MÊS ATUAL (reinicia dia 1) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Pendentes - faturas não pagas do mês */}
         <Card className="bg-zinc-900/40 backdrop-blur border border-zinc-900">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-mono uppercase text-zinc-500">Pendentes</p>
-                <p className="text-xl font-mono font-bold text-yellow-400">{formatCurrency(summary.totalPending)}</p>
-                <p className="text-[10px] font-mono text-zinc-500">{summary.countPending} faturas</p>
+                <p className="text-[10px] font-mono uppercase text-zinc-500">Pendentes — {mesAtualLabel}</p>
+                <p className="text-xl font-mono font-bold text-yellow-400">{formatCurrency(monthlySummary.totalPending)}</p>
+                <p className="text-[10px] font-mono text-zinc-500">{monthlySummary.countPending} faturas</p>
               </div>
               <Clock className="w-8 h-8 text-yellow-400/30" />
             </div>
           </CardContent>
         </Card>
+
+        {/* Recebidos - somente quem pagou no mês */}
         <Card className="bg-zinc-900/40 backdrop-blur border border-zinc-900">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-mono uppercase text-zinc-500">Recebidos</p>
-                <p className="text-xl font-mono font-bold text-emerald-400">{formatCurrency(summary.totalReceived)}</p>
-                <p className="text-[10px] font-mono text-zinc-500">{summary.countReceived} faturas</p>
+                <p className="text-[10px] font-mono uppercase text-zinc-500">Recebidos — {mesAtualLabel}</p>
+                <p className="text-xl font-mono font-bold text-emerald-400">{formatCurrency(monthlySummary.totalReceived)}</p>
+                <p className="text-[10px] font-mono text-zinc-500">{monthlySummary.countReceived} faturas</p>
               </div>
               <CheckCircle2 className="w-8 h-8 text-emerald-400/30" />
             </div>
           </CardContent>
         </Card>
+
+        {/* Cancelados - faturas canceladas no mês */}
         <Card className="bg-zinc-900/40 backdrop-blur border border-zinc-900">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-mono uppercase text-zinc-500">Vencidos</p>
-                <p className="text-xl font-mono font-bold text-red-400">{formatCurrency(summary.totalOverdue)}</p>
-                <p className="text-[10px] font-mono text-zinc-500">{summary.countOverdue} faturas</p>
+                <p className="text-[10px] font-mono uppercase text-zinc-500">Cancelados — {mesAtualLabel}</p>
+                <p className="text-xl font-mono font-bold text-red-400">{formatCurrency(monthlySummary.totalCancelled)}</p>
+                <p className="text-[10px] font-mono text-zinc-500">{monthlySummary.countCancelled} faturas</p>
               </div>
-              <AlertTriangle className="w-8 h-8 text-red-400/30" />
+              <XCircle className="w-8 h-8 text-red-400/30" />
             </div>
           </CardContent>
         </Card>

@@ -181,6 +181,7 @@ export function Sidebar() {
       name: 'Clientes', href: '/dashboard/clientes', icon: UserCheck, roles: ['gerente', 'atendente', 'superadmin'],
       subMenu: [
         { name: 'Todos Clientes', href: '/dashboard/clientes', icon: UserCheck, cor: 'text-emerald-400' },
+        { name: 'Mapa de Clientes', href: '/dashboard/clientes/mapa', icon: Map, cor: 'text-blue-400' },
         { name: 'Importar Base', href: '/dashboard/clientes/importar', icon: Upload, cor: 'text-cyan-400' },
         { name: 'Exportar', href: '/dashboard/clientes/exportar', icon: Download, cor: 'text-purple-400' },
         { name: 'Observacoes', href: '/dashboard/clientes/observacoes', icon: StickyNote, cor: 'text-yellow-400' },

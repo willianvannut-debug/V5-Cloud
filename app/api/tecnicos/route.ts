@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { jwtVerify } from 'jose';
-import { PLANOS } from '@/lib/planLimites';
+import { verificarLimite } from '@/lib/verificarLimite';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -15,8 +15,8 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 const API_SECRET = process.env.API_SECRET;
 const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET_KEY);
 
-async function validarAutorizacao(request: NextRequest): Promise<{ 
-  autorizado: boolean; 
+async function validarAutorizacao(request: NextRequest): Promise<{
+  autorizado: boolean;
   empresaIdSessao?: string;
 }> {
   const authHeader = request.headers.get('authorization');
@@ -29,8 +29,8 @@ async function validarAutorizacao(request: NextRequest): Promise<{
   if (cookieSessao?.value) {
     try {
       const { payload } = await jwtVerify(cookieSessao.value, JWT_SECRET);
-      return { 
-        autorizado: true, 
+      return {
+        autorizado: true,
         empresaIdSessao: payload.empresaId as string
       };
     } catch (e) {
@@ -42,7 +42,7 @@ async function validarAutorizacao(request: NextRequest): Promise<{
 }
 
 // ============================================================
-// GET - Listar técnicos (busca na tabela operadores onde role = 'tecnico')
+// GET - Listar técnicos
 // ============================================================
 export async function GET(request: NextRequest) {
   try {
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 }
 
 // ============================================================
-// POST - Criar técnico (mantém a lógica original com validação de plano)
+// POST - Criar técnico (com verificarLimite centralizado)
 // ============================================================
 export async function POST(request: NextRequest) {
   try {
@@ -87,34 +87,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'ID da empresa não encontrado na sessão.' }, { status: 400 });
     }
 
-    // Buscar plano da empresa
-    const { data: dadosEmpresa, error: erroEmpresa } = await supabase
-      .from('empresas')
-      .select('plano')
-      .eq('id', empresaIdAlvo)
-      .single();
-
-    if (erroEmpresa || !dadosEmpresa) {
-      return NextResponse.json({ error: 'Empresa não encontrada no sistema.' }, { status: 404 });
-    }
-
-    const planoAtual = (dadosEmpresa.plano || 'essencial').toLowerCase().trim();
-    const limiteTecnicos = PLANOS[planoAtual]?.max_tecnicos || 2;
-
-    // Contar técnicos da empresa (na tabela operadores)
-    const { count, error: erroContagem } = await supabase
-      .from('operadores')
-      .select('*', { count: 'exact', head: true })
-      .eq('empresa_id', empresaIdAlvo)
-      .eq('role', 'tecnico');
-
-    const totalTecnicos = count || 0;
-
-    if (totalTecnicos >= limiteTecnicos) {
-      return NextResponse.json(
-        { error: `Limite atingido! Seu plano permite apenas ${limiteTecnicos} técnico(s).` }, 
-        { status: 403 }
-      );
+    // ✅ Verificação de limite centralizada
+    const limite = await verificarLimite(empresaIdAlvo, 'max_tecnicos');
+    if (!limite.permitido) {
+      return NextResponse.json({ error: limite.mensagem }, { status: 403 });
     }
 
     // Criar operador com role tecnico

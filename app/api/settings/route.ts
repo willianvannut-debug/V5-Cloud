@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
           nome_empresa: body.nomeProvedor || null,
           endereco: body.cidadeEmpresa || null,
           telefone: body.telefone || null,
-          email: body.email || null,
+          email: body.emailEmpresa || null,
           cep: body.cep || null,
           lat: body.latEmpresa || null,
           lon: body.lonEmpresa || null
@@ -199,36 +199,79 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      if (body.planos && Array.isArray(body.planos)) {
-        const planosParaInserir = body.planos.map((p: any) => ({
-          empresa_id: empresaIdAlvo,
-          nome: String(p.nome ?? '').trim(),
-          velocidade: String(p.velocidade ?? '').trim(),
-          preco: String(p.preco ?? '').trim(),
-        }));
+      // 🔹 ATUALIZAR NOME DE EXIBIÇÃO DO OPERADOR
+      if (body.nomeUsuario && operadorId) {
+        const { error: nomeErr } = await supabase
+          .from('operadores')
+          .update({ nome: body.nomeUsuario })
+          .eq('id', operadorId);
 
-        const { error: deletePlanosError } = await supabase
+        if (nomeErr) {
+          console.warn('⚠️ Erro ao atualizar nome do operador:', nomeErr.message);
+        }
+      }
+
+      if (body.planos && Array.isArray(body.planos)) {
+        // Buscar planos atuais do banco
+        const { data: planosAtuais } = await supabase
           .from('planos')
-          .delete()
+          .select('id')
           .eq('empresa_id', empresaIdAlvo);
 
-        if (deletePlanosError) {
-          return NextResponse.json(
-            { success: false, error: 'Erro ao limpar planos antigos: ' + deletePlanosError.message },
-            { status: 500 }
-          );
+        const idsAtuaisNoBanco = new Set((planosAtuais || []).map((p: any) => p.id));
+        const idsEnviados = new Set(body.planos.map((p: any) => p.id).filter(Boolean));
+
+        // 1. ATUALIZAR planos existentes
+        for (const p of body.planos) {
+          if (p.id && idsAtuaisNoBanco.has(p.id)) {
+            await supabase
+              .from('planos')
+              .update({
+                nome: String(p.nome ?? '').trim(),
+                velocidade: String(p.velocidade ?? '').trim(),
+                preco: String(p.preco ?? '').trim(),
+              })
+              .eq('id', p.id)
+              .eq('empresa_id', empresaIdAlvo);
+          }
         }
 
-        if (planosParaInserir.length > 0) {
+        // 2. INSERIR planos novos (id temporario do frontend ou sem id no banco)
+        const novosPlanos = body.planos
+          .filter((p: any) => !p.id || !idsAtuaisNoBanco.has(p.id))
+          .map((p: any) => ({
+            empresa_id: empresaIdAlvo,
+            nome: String(p.nome ?? '').trim(),
+            velocidade: String(p.velocidade ?? '').trim(),
+            preco: String(p.preco ?? '').trim(),
+          }));
+
+        if (novosPlanos.length > 0) {
           const { error: insertPlanosError } = await supabase
             .from('planos')
-            .insert(planosParaInserir);
+            .insert(novosPlanos);
 
           if (insertPlanosError) {
             return NextResponse.json(
-              { success: false, error: 'Erro ao salvar planos: ' + insertPlanosError.message },
+              { success: false, error: 'Erro ao salvar novos planos: ' + insertPlanosError.message },
               { status: 500 }
             );
+          }
+        }
+
+        // 3. REMOVER planos que foram deletados pelo usuario (somente se nao tem contratos)
+        const idsParaRemover = [...idsAtuaisNoBanco].filter(id => !idsEnviados.has(id));
+
+        for (const idRemover of idsParaRemover) {
+          const { error: delErr } = await supabase
+            .from('planos')
+            .delete()
+            .eq('id', idRemover)
+            .eq('empresa_id', empresaIdAlvo);
+
+          if (delErr && delErr.message.includes('foreign key')) {
+            console.warn(`⚠️ Plano ${idRemover} tem contratos vinculados, não pode ser removido.`);
+            // Plano com contrato vinculado - ignora a exclusao silenciosamente
           }
         }
       }
@@ -236,7 +279,7 @@ export async function POST(request: NextRequest) {
 
     const mudancas: string[] = [];
     if (String(dadosAntigos?.telefone || '') !== String(body.telefone || '')) mudancas.push('Telefone');
-    if (String(dadosAntigos?.email || '') !== String(body.email || '')) mudancas.push('E-mail');
+    if (String(dadosAntigos?.email || '') !== String(body.emailEmpresa || '')) mudancas.push('E-mail');
     if (String(dadosAntigos?.cep || '') !== String(body.cep || '')) mudancas.push('CEP');
     if (body.planos) mudancas.push('Planos');
 
