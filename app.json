@@ -7,6 +7,12 @@
     },
     "android": {
       "package": "com.v5fibra.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.v5fibra.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     }
   }
 }

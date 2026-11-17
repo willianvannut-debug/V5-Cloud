@@ -10,7 +10,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import {
   Wrench, ArrowLeft, Clock, Zap, CheckCircle2, MapPin, Phone,
-  User, ChevronRight, Loader2, AlertTriangle, MessageCircle,
+  User, Users, ChevronRight, Loader2, AlertTriangle, MessageCircle,
   Navigation, X, Send, WifiOff
 } from 'lucide-react';
 
@@ -29,12 +29,20 @@ interface OS {
   created_at: string;
   clientes: { id: string; nome: string; cpf: string; telefone: string; bairro: string; cidade: string } | null;
   tecnico: { id: string; nome: string } | null;
+  tecnicos?: { id: string; nome: string }[];
 }
 
 const TIPOS: Record<string, string> = {
-  instalacao: 'Instalação', reparo: 'Reparo', manutencao: 'Manutenção',
-  troca_equipamento: 'Troca Equipamento', mudanca_endereco: 'Mudança Endereço', retirada: 'Retirada',
-  chamado: 'Chamado',
+  // Cliente
+  reparo: 'Reparo', troca_equipamento: 'Troca Equip.',
+  mudanca_endereco: 'Mudança End.', retirada: 'Retirada',
+  // Infraestrutura
+  cto_caixa: 'CTO / Caixa', cabo_rompido: 'Cabo Rompido',
+  poste_infraestrutura: 'Poste / Infra', equipamento_rede: 'Equip. Rede',
+  // Outros
+  manutencao_preventiva: 'Manutenção Prev.', vistoria: 'Vistoria', outros: 'Outros',
+  // Legado
+  manutencao: 'Manutenção', instalacao: 'Instalação', chamado: 'Chamado',
 };
 
 const PRIO_CONF: Record<string, { label: string; cor: string; bg: string }> = {
@@ -323,6 +331,38 @@ export default function TecnicoOrdensPage() {
             </div>
           )}
 
+          {/* Localização (OS de infraestrutura sem cliente) */}
+          {!detalhe.clientes && detalhe.endereco && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <span className="text-[10px] font-mono uppercase text-zinc-500 block mb-2">Localização</span>
+              <p className="text-sm text-zinc-300 flex items-center gap-1.5">
+                <MapPin className="w-4 h-4 text-blue-400 shrink-0" /> {detalhe.endereco}
+              </p>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => abrirGPS(detalhe.endereco!)}
+                  className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono font-bold uppercase text-[10px] py-3 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform min-h-[44px]">
+                  <Navigation className="w-4 h-4" /> Navegar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Equipe (múltiplos técnicos) */}
+          {detalhe.tecnicos && detalhe.tecnicos.length > 1 && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <span className="text-[10px] font-mono uppercase text-zinc-500 block mb-2 flex items-center gap-1">
+                <Users className="w-3 h-3" /> Equipe ({detalhe.tecnicos.length} técnicos)
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {detalhe.tecnicos.map(t => (
+                  <span key={t.id} className="inline-flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-mono font-bold px-2.5 py-1 rounded-full">
+                    <User className="w-3 h-3" /> {t.nome}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Descrição do problema */}
           {detalhe.descricao && (
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
@@ -599,9 +639,11 @@ function OSCard({ os, onClick }: { os: OS; onClick: () => void }) {
           <span className={`text-[10px] font-mono font-bold ${prio?.cor}`}>● {prio?.label}</span>
         </div>
         <p className="text-[11px] font-mono text-zinc-500">{TIPOS[os.tipo] || os.tipo}</p>
-        {os.clientes && (
+        {os.clientes ? (
           <p className="text-[11px] text-zinc-400 truncate mt-0.5">{os.clientes.nome}</p>
-        )}
+        ) : os.endereco ? (
+          <p className="text-[11px] text-zinc-400 truncate mt-0.5 flex items-center gap-1"><MapPin className="w-3 h-3 text-blue-400 shrink-0" /> {os.endereco}</p>
+        ) : null}
       </div>
 
       <div className="text-right shrink-0">

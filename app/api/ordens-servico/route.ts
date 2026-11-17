@@ -1,5 +1,5 @@
 // ================================================================================
-// API ORDENS DE SERVICO - MVP (usando operadores em vez de tecnicos)
+// API ORDENS DE SERVICO - V3 (múltiplos técnicos + tipos expandidos)
 // Caminho: app/api/ordens-servico/route.ts
 // ================================================================================
 
@@ -28,14 +28,19 @@ async function getSession(request: NextRequest) {
   return null;
 }
 
-// Helper: buscar OS e juntar nome do tecnico manualmente (sem FK para tecnicos)
+// Helper: buscar OS e juntar nomes dos tecnicos (suporta array tecnicos_ids)
 async function enriquecerOS(ordens: any[]) {
   if (!ordens || ordens.length === 0) return ordens;
 
-  // Pegar IDs unicos dos tecnicos
-  const tecIds = [...new Set(ordens.map(o => o.tecnico_id).filter(Boolean))];
-  
-  if (tecIds.length === 0) return ordens.map(o => ({ ...o, tecnico: null }));
+  // Pegar TODOS os IDs únicos (do tecnico_id legado + tecnicos_ids array)
+  const todosIds = new Set<string>();
+  ordens.forEach(o => {
+    if (o.tecnico_id) todosIds.add(o.tecnico_id);
+    if (Array.isArray(o.tecnicos_ids)) o.tecnicos_ids.forEach((id: string) => todosIds.add(id));
+  });
+
+  const tecIds = [...todosIds];
+  if (tecIds.length === 0) return ordens.map(o => ({ ...o, tecnico: null, tecnicos: [] }));
 
   const { data: tecs } = await supabase
     .from('operadores')
@@ -44,10 +49,20 @@ async function enriquecerOS(ordens: any[]) {
 
   const tecMap = new Map((tecs || []).map(t => [t.id, t]));
 
-  return ordens.map(o => ({
-    ...o,
-    tecnico: o.tecnico_id ? tecMap.get(o.tecnico_id) || null : null,
-  }));
+  return ordens.map(o => {
+    // Array de técnicos com nomes
+    const ids = Array.isArray(o.tecnicos_ids) && o.tecnicos_ids.length > 0
+      ? o.tecnicos_ids
+      : o.tecnico_id ? [o.tecnico_id] : [];
+
+    const tecnicos = ids.map((id: string) => tecMap.get(id)).filter(Boolean);
+
+    return {
+      ...o,
+      tecnico: o.tecnico_id ? tecMap.get(o.tecnico_id) || null : null,
+      tecnicos, // Array com todos os técnicos {id, nome}
+    };
+  });
 }
 
 // GET - Listar OS ou buscar por ID
@@ -72,14 +87,8 @@ export async function GET(request: NextRequest) {
 
       if (error) return NextResponse.json({ error: 'OS não encontrada' }, { status: 404 });
 
-      // Buscar tecnico
-      let tecnico = null;
-      if (data.tecnico_id) {
-        const { data: tec } = await supabase.from('operadores').select('id, nome').eq('id', data.tecnico_id).single();
-        tecnico = tec;
-      }
-
-      return NextResponse.json({ ...data, tecnico });
+      const enriched = await enriquecerOS([data]);
+      return NextResponse.json(enriched[0]);
     }
 
     // Listar
@@ -90,9 +99,9 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(200);
 
-    // Técnico só vê as OS atribuídas a ele
+    // Técnico só vê as OS atribuídas a ele (via tecnicos_ids OU tecnico_id legado)
     if (session.role === 'tecnico' && session.operadorId) {
-      query = query.eq('tecnico_id', session.operadorId);
+      query = query.or(`tecnico_id.eq.${session.operadorId},tecnicos_ids.cs.{${session.operadorId}}`);
     }
 
     if (status) query = query.eq('status', status);
@@ -108,7 +117,8 @@ export async function GET(request: NextRequest) {
       resultado = resultado.filter((os: any) =>
         (os.numero && os.numero.toLowerCase().includes(termo)) ||
         (os.clientes?.nome && os.clientes.nome.toLowerCase().includes(termo)) ||
-        (os.clientes?.cpf && os.clientes.cpf.includes(termo))
+        (os.clientes?.cpf && os.clientes.cpf.includes(termo)) ||
+        (os.endereco && os.endereco.toLowerCase().includes(termo))
       );
     }
 
@@ -137,38 +147,60 @@ export async function POST(request: NextRequest) {
       if (cli) endereco = [cli.logradouro, cli.numero, cli.bairro, cli.cidade, cli.uf].filter(Boolean).join(', ');
     }
 
+    // tecnicos_ids: array completo; tecnico_id: primeiro (líder), para compat
+    const tecnicosIds = Array.isArray(body.tecnicos_ids) && body.tecnicos_ids.length > 0
+      ? body.tecnicos_ids
+      : body.tecnico_id ? [body.tecnico_id] : [];
+    const tecnicoLider = tecnicosIds[0] || body.tecnico_id || null;
+
     let statusInicial = 'aberta';
-    if (body.tecnico_id && body.agendada_para) statusInicial = 'agendada';
+    if (tecnicoLider && body.agendada_para) statusInicial = 'agendada';
+
+    const insertData: any = {
+      empresa_id: session.empresaId,
+      tipo: body.tipo,
+      cliente_id: body.cliente_id || null,
+      endereco,
+      descricao: body.descricao || null,
+      prioridade: body.prioridade || 'media',
+      status: statusInicial,
+      tecnico_id: tecnicoLider,
+      agendada_para: body.agendada_para || null,
+    };
+
+    // Só inclui tecnicos_ids se a coluna existir (graceful)
+    if (tecnicosIds.length > 0) {
+      insertData.tecnicos_ids = tecnicosIds;
+    }
 
     const { data, error } = await supabase
       .from('ordens_servico')
-      .insert({
-        empresa_id: session.empresaId,
-        tipo: body.tipo,
-        cliente_id: body.cliente_id || null,
-        endereco,
-        descricao: body.descricao || null,
-        prioridade: body.prioridade || 'media',
-        status: statusInicial,
-        tecnico_id: body.tecnico_id || null,
-        agendada_para: body.agendada_para || null,
-      })
+      .insert(insertData)
       .select('*, clientes(id, nome, cpf, telefone, bairro, cidade)')
       .single();
 
     if (error) {
+      // Se o erro for por causa da coluna tecnicos_ids não existir, tenta sem ela
+      if (error.message?.includes('tecnicos_ids')) {
+        delete insertData.tecnicos_ids;
+        const { data: data2, error: error2 } = await supabase
+          .from('ordens_servico')
+          .insert(insertData)
+          .select('*, clientes(id, nome, cpf, telefone, bairro, cidade)')
+          .single();
+        if (error2) {
+          console.error('Erro ao criar OS:', error2);
+          return NextResponse.json({ error: 'Erro ao criar OS' }, { status: 500 });
+        }
+        const enriched = await enriquecerOS([data2]);
+        return NextResponse.json(enriched[0], { status: 201 });
+      }
       console.error('Erro ao criar OS:', error);
       return NextResponse.json({ error: 'Erro ao criar OS' }, { status: 500 });
     }
 
-    // Buscar tecnico
-    let tecnico = null;
-    if (data.tecnico_id) {
-      const { data: tec } = await supabase.from('operadores').select('id, nome').eq('id', data.tecnico_id).single();
-      tecnico = tec;
-    }
-
-    return NextResponse.json({ ...data, tecnico }, { status: 201 });
+    const enriched = await enriquecerOS([data]);
+    return NextResponse.json(enriched[0], { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
   }
@@ -186,6 +218,13 @@ export async function PATCH(request: NextRequest) {
     const update: any = {};
     if (body.status !== undefined) update.status = body.status;
     if (body.tecnico_id !== undefined) update.tecnico_id = body.tecnico_id;
+    if (body.tecnicos_ids !== undefined) {
+      update.tecnicos_ids = body.tecnicos_ids;
+      // Manter tecnico_id sincronizado com o primeiro do array
+      if (Array.isArray(body.tecnicos_ids) && body.tecnicos_ids.length > 0) {
+        update.tecnico_id = body.tecnicos_ids[0];
+      }
+    }
     if (body.agendada_para !== undefined) update.agendada_para = body.agendada_para;
     if (body.observacoes_tecnico !== undefined) update.observacoes_tecnico = body.observacoes_tecnico;
     if (body.motivo_cancelamento !== undefined) update.motivo_cancelamento = body.motivo_cancelamento;
@@ -207,22 +246,17 @@ export async function PATCH(request: NextRequest) {
 
     if (error) return NextResponse.json({ error: 'Erro ao atualizar OS' }, { status: 500 });
 
-    let tecnico = null;
-    if (data.tecnico_id) {
-      const { data: tec } = await supabase.from('operadores').select('id, nome').eq('id', data.tecnico_id).single();
-      tecnico = tec;
-    }
+    const enriched = await enriquecerOS([data]);
+    const osEnriquecida = enriched[0];
 
     // Se concluiu OS e tem chamado vinculado, resolver o chamado + push
     if (body.status === 'concluida' && data.chamado_id) {
-      // Resolver chamado
       await supabase
         .from('chamados')
         .update({ status: 'resolvido', resolvido_em: new Date().toISOString() })
         .eq('id', data.chamado_id)
         .eq('empresa_id', session.empresaId);
 
-      // Buscar info do chamado pra push
       const { data: chamadoInfo } = await supabase
         .from('chamados')
         .select('cliente_id, protocolo')
@@ -230,7 +264,6 @@ export async function PATCH(request: NextRequest) {
         .single();
 
       if (chamadoInfo) {
-        // Enviar push pro cliente
         const { data: tokens } = await supabase
           .from('push_tokens')
           .select('token')
@@ -240,16 +273,14 @@ export async function PATCH(request: NextRequest) {
 
         if (tokens && tokens.length > 0) {
           const messages = tokens.map((t: any) => ({
-            to: t.token,
-            sound: 'default',
+            to: t.token, sound: 'default',
             title: 'Chamado resolvido!',
             body: `Seu chamado #${chamadoInfo.protocolo} foi resolvido pelo tecnico. Avalie o atendimento!`,
             data: { tipo: 'chamado_resolvido', chamado_id: data.chamado_id },
           }));
           try {
             await fetch('https://exp.host/--/api/v2/push/send', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(messages),
             });
           } catch (e) { console.error('Erro push:', e); }
@@ -268,23 +299,21 @@ export async function PATCH(request: NextRequest) {
 
       if (tokens && tokens.length > 0) {
         const messages = tokens.map((t: any) => ({
-          to: t.token,
-          sound: 'default',
+          to: t.token, sound: 'default',
           title: 'Tecnico a caminho!',
           body: 'Um tecnico esta indo ate voce. Acompanhe em tempo real no app!',
           data: { tipo: 'tecnico_a_caminho', os_id: data.id },
         }));
         try {
           await fetch('https://exp.host/--/api/v2/push/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(messages),
           });
         } catch (e) { console.error('Erro push:', e); }
       }
     }
 
-    return NextResponse.json({ ...data, tecnico });
+    return NextResponse.json(osEnriquecida);
   } catch (error) {
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
   }

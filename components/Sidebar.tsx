@@ -465,20 +465,22 @@ export function Sidebar() {
       onMouseLeave={() => setOpen(false)}
     >
       <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
-        {/* LOGO E NOME DO PROVEDOR */}
-        <div className="flex items-center gap-3 px-2 py-3 mb-4">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0">
-            <Radio className="w-5 h-5 text-black stroke-[2.5]" />
-          </div>
+        {/* LOGO V5 CLOUD */}
+        <div className="flex items-center gap-3 px-2 py-4 mb-4">
+          <img
+            src="/logo-v5-novo.png"
+            alt="V5 Cloud"
+            className="w-14 h-14 object-contain shrink-0"
+          />
           <motion.div
             className="flex flex-col whitespace-nowrap overflow-hidden"
             animate={{ opacity: open ? 1 : 0, display: open ? "flex" : "none" }}
             transition={{ duration: 0.2 }}
           >
-            <span className="font-black tracking-wider text-sm font-mono text-white truncate max-w-[150px]">
-              {nomeProvedor || 'V5 Fibra'}
+            <span className="font-black tracking-wider text-xl font-mono text-white truncate max-w-[180px]">
+              V5 Cloud
             </span>
-            <span className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase">Enterprise SaaS</span>
+            <span className="text-[9px] text-zinc-500 uppercase font-light" style={{letterSpacing: "0.22em"}}>Sistema de Gestão</span>
           </motion.div>
         </div>
 

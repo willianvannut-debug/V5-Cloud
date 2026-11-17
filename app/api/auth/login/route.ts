@@ -122,6 +122,7 @@ export async function POST(request: Request) {
     }
 
     const emailLimpo = email.trim().toLowerCase();
+    const senhaLimpa = senha.trim();
 
     // 2. Busca o operador
     const { data: operador, error } = await supabaseAdmin
@@ -142,7 +143,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const senhaCorreta = await bcrypt.compare(senha, operador.senha_hash);
+    const senhaCorreta = await bcrypt.compare(senhaLimpa, operador.senha_hash);
 
     if (!senhaCorreta) {
       await registrarLog(emailLimpo, 'TENTATIVA_LOGIN_SENHA_INCORRETA', 'WARNING',
@@ -178,7 +179,7 @@ export async function POST(request: Request) {
       value: tokenJwt,
       httpOnly: true,
       secure: isProd,
-      sameSite: 'lax',
+      sameSite: isProd ? 'none' : 'lax',
       path: '/',
       maxAge: 60 * 60 * 24 * 30,
     });
