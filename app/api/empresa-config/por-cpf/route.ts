@@ -21,14 +21,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'CPF é obrigatório' }, { status: 400 });
     }
 
-    // Buscar cliente pelo CPF
-    const { data: cliente, error: clienteError } = await supabase
-      .from('clientes')
-      .select('empresa_id')
-      .eq('cpf', cpf)
-      .single();
+    // Normalizar CPF - tentar com e sem máscara
+    const cpfLimpo = cpf.replace(/\D/g, '');
+    const cpfMascara = cpfLimpo.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 
-    if (clienteError || !cliente) {
+    // Buscar cliente pelo CPF (tenta com máscara, depois sem)
+    let cliente = null;
+    const r1 = await supabase.from('clientes').select('empresa_id').eq('cpf', cpfMascara).single();
+    if (r1.data) {
+      cliente = r1.data;
+    } else {
+      const r2 = await supabase.from('clientes').select('empresa_id').eq('cpf', cpfLimpo).single();
+      if (r2.data) {
+        cliente = r2.data;
+      } else {
+        const r3 = await supabase.from('clientes').select('empresa_id').eq('cpf', cpf).single();
+        cliente = r3.data;
+      }
+    }
+
+    if (!cliente) {
       return NextResponse.json(
         { error: 'CPF não encontrado no sistema' },
         { status: 404 }
