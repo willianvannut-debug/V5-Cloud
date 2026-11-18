@@ -1,7 +1,7 @@
 //app/layout.tsx
 
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 
@@ -13,6 +13,12 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+const jakartaSans = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
@@ -39,7 +45,7 @@ export default function RootLayout({
       <head>
         <meta name="theme-color" content="#10b981" />
       </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0a0a0a] text-zinc-50`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${jakartaSans.variable} antialiased bg-[#0a0a0a] text-zinc-50`}>
         {/* O AuthProvider deve envolver toda a aplicação */}
         <AuthProvider>
           {children}

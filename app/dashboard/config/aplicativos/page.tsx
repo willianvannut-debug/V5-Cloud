@@ -1,122 +1,80 @@
 "use client"
 import React, { useState, useEffect } from 'react';
-import { Smartphone, Download, Users, Wrench, QrCode, Share2, Copy, Check, ExternalLink, Upload } from 'lucide-react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Smartphone, Download, Users, Wrench, Share2, Copy, Check, ExternalLink, CheckCircle2, Save, Link } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 export default function AplicativosPage() {
-  const supabase = createClientComponentClient();
-  const [apkCliente, setApkCliente] = useState<string | null>(null);
-  const [apkTecnico, setApkTecnico] = useState<string | null>(null);
+  const { operador, carregando: carregandoAuth } = useAuth();
+  const [apkCliente, setApkCliente] = useState('');
+  const [apkTecnico, setApkTecnico] = useState('');
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [empresaNome, setEmpresaNome] = useState('');
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [editCliente, setEditCliente] = useState('');
+  const [editTecnico, setEditTecnico] = useState('');
+
+  const isSuperAdmin = operador?.role === 'superadmin' || operador?.role === 'root';
 
   useEffect(() => {
-    carregarAPKs();
-  }, []);
+    if (!carregandoAuth && operador) {
+      carregarDados();
+    }
+  }, [carregandoAuth, operador]);
 
-  async function carregarAPKs() {
+  async function carregarDados() {
+    if (!supabase || !operador) { setLoading(false); return; }
     try {
-      // Buscar empresa do usuario logado
-      const cookieStr = document.cookie;
-      const sessionCookie = cookieStr.split('; ').find(c => c.startsWith('v5_session='));
-      if (!sessionCookie) return;
-      const token = sessionCookie.split('=')[1];
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const empresaId = payload.empresa_id;
-
-      // Buscar nome da empresa
       const { data: empresa } = await supabase
         .from('empresas')
-        .select('nome_empresa')
-        .eq('id', empresaId)
+        .select('nome_empresa, apk_cliente_url, apk_tecnico_url')
+        .eq('id', operador.empresa_id)
         .single();
-      if (empresa) setEmpresaNome(empresa.nome_empresa);
 
-      // Listar APKs no bucket
-      const { data: filesCliente } = await supabase.storage
-        .from('aplicativos')
-        .list(`${empresaId}/cliente`, { limit: 1, sortBy: { column: 'created_at', order: 'desc' } });
-
-      const { data: filesTecnico } = await supabase.storage
-        .from('aplicativos')
-        .list(`${empresaId}/tecnico`, { limit: 1, sortBy: { column: 'created_at', order: 'desc' } });
-
-      // APKs globais (para todos os provedores)
-      const { data: filesClienteGlobal } = await supabase.storage
-        .from('aplicativos')
-        .list('global/cliente', { limit: 1, sortBy: { column: 'created_at', order: 'desc' } });
-
-      const { data: filesTecnicoGlobal } = await supabase.storage
-        .from('aplicativos')
-        .list('global/tecnico', { limit: 1, sortBy: { column: 'created_at', order: 'desc' } });
-
-      // Priorizar APK da empresa, senão usar global
-      if (filesCliente && filesCliente.length > 0 && filesCliente[0].name.endsWith('.apk')) {
-        const { data } = supabase.storage.from('aplicativos').getPublicUrl(`${empresaId}/cliente/${filesCliente[0].name}`);
-        setApkCliente(data.publicUrl);
-      } else if (filesClienteGlobal && filesClienteGlobal.length > 0 && filesClienteGlobal[0].name.endsWith('.apk')) {
-        const { data } = supabase.storage.from('aplicativos').getPublicUrl(`global/cliente/${filesClienteGlobal[0].name}`);
-        setApkCliente(data.publicUrl);
-      }
-
-      if (filesTecnico && filesTecnico.length > 0 && filesTecnico[0].name.endsWith('.apk')) {
-        const { data } = supabase.storage.from('aplicativos').getPublicUrl(`${empresaId}/tecnico/${filesTecnico[0].name}`);
-        setApkTecnico(data.publicUrl);
-      } else if (filesTecnicoGlobal && filesTecnicoGlobal.length > 0 && filesTecnicoGlobal[0].name.endsWith('.apk')) {
-        const { data } = supabase.storage.from('aplicativos').getPublicUrl(`global/tecnico/${filesTecnicoGlobal[0].name}`);
-        setApkTecnico(data.publicUrl);
+      if (empresa) {
+        setEmpresaNome(empresa.nome_empresa);
+        setApkCliente(empresa.apk_cliente_url || '');
+        setApkTecnico(empresa.apk_tecnico_url || '');
+        setEditCliente(empresa.apk_cliente_url || '');
+        setEditTecnico(empresa.apk_tecnico_url || '');
       }
     } catch (err) {
-      console.error('Erro ao carregar APKs:', err);
+      console.error('Erro ao carregar dados:', err);
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleUpload(tipo: 'cliente' | 'tecnico') {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.apk';
-    input.onchange = async (e: any) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      if (!file.name.endsWith('.apk')) {
-        alert('Por favor, selecione um arquivo .apk');
-        return;
-      }
-      if (file.size > 150 * 1024 * 1024) {
-        alert('O arquivo APK deve ter no máximo 150MB');
-        return;
-      }
+  async function salvarLinks() {
+    if (!supabase || !operador) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('empresas')
+        .update({
+          apk_cliente_url: editCliente || null,
+          apk_tecnico_url: editTecnico || null
+        })
+        .eq('id', operador.empresa_id);
 
-      setUploading(tipo);
-      try {
-        const cookieStr = document.cookie;
-        const sessionCookie = cookieStr.split('; ').find(c => c.startsWith('v5_session='));
-        if (!sessionCookie) return;
-        const token = sessionCookie.split('=')[1];
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const empresaId = payload.empresa_id;
+      if (error) throw error;
 
-        const path = `${empresaId}/${tipo}/${file.name}`;
-        const { error } = await supabase.storage
-          .from('aplicativos')
-          .upload(path, file, { upsert: true });
-
-        if (error) throw error;
-
-        const { data } = supabase.storage.from('aplicativos').getPublicUrl(path);
-        if (tipo === 'cliente') setApkCliente(data.publicUrl);
-        else setApkTecnico(data.publicUrl);
-      } catch (err: any) {
-        alert('Erro ao enviar APK: ' + err.message);
-      } finally {
-        setUploading(null);
-      }
-    };
-    input.click();
+      setApkCliente(editCliente);
+      setApkTecnico(editTecnico);
+      setSuccessMsg('Links salvos com sucesso!');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      alert('Erro ao salvar: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function copiarLink(url: string, tipo: string) {
@@ -132,162 +90,224 @@ export default function AplicativosPage() {
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   }
 
-  return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Smartphone className="w-7 h-7 text-emerald-400" />
-          Aplicativos
-        </h1>
-        <p className="text-gray-400 mt-1">
-          Baixe os APKs e envie para seus clientes e técnicos
-        </p>
+  if (carregandoAuth || loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-400"></div>
       </div>
+    );
+  }
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* App do Cliente */}
-        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-              <Users className="w-6 h-6 text-emerald-400" />
+  return (
+    <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto">
+      {/* Header */}
+      <Card className="border border-emerald-500/30 bg-emerald-500/5 backdrop-blur">
+        <CardContent className="p-6 w-full flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+              <Smartphone className="w-6 h-6 text-emerald-400" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">App do Cliente</h2>
-              <p className="text-sm text-gray-400">V5 Fibra</p>
+              <h1 className="text-lg font-bold text-white tracking-tight">Aplicativos</h1>
+              <p className="text-xs text-zinc-400">Baixe os APKs e distribua para seus clientes e técnicos</p>
             </div>
           </div>
+        </CardContent>
+      </Card>
 
-          <p className="text-gray-400 text-sm mb-4">
-            Aplicativo para seus clientes acompanharem faturas, abrirem chamados e verem informações da conexão.
-          </p>
+      {/* Mensagem de sucesso */}
+      {successMsg && (
+        <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3 text-emerald-400 text-sm">
+          <CheckCircle2 className="w-4 h-4" />
+          {successMsg}
+        </div>
+      )}
 
-          <div className="space-y-3">
+      {/* SUPERADMIN: Configurar links */}
+      {isSuperAdmin && (
+        <Card className="border border-amber-500/20 bg-amber-500/5 backdrop-blur">
+          <CardHeader className="border-b border-zinc-900/85 pb-4">
+            <CardTitle className="text-xs uppercase font-mono tracking-wide text-amber-400 flex items-center gap-2">
+              <Link className="w-4 h-4" />
+              Configurar Links dos APKs (Admin)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-5 space-y-4">
+            <p className="text-zinc-500 text-xs">Cole os links de download dos APKs. Pode usar Google Drive, Expo/EAS Build, ou qualquer link direto.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-zinc-400 mb-1 block">Link do APK do Cliente (V5 Fibra)</label>
+                <input
+                  type="url"
+                  value={editCliente}
+                  onChange={(e) => setEditCliente(e.target.value)}
+                  placeholder="https://expo.dev/... ou link do Google Drive"
+                  className="w-full bg-zinc-900/80 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-emerald-500/50 transition-colors"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 mb-1 block">Link do APK do Técnico (V5 Cloud Técnico)</label>
+                <input
+                  type="url"
+                  value={editTecnico}
+                  onChange={(e) => setEditTecnico(e.target.value)}
+                  placeholder="https://expo.dev/... ou link do Google Drive"
+                  className="w-full bg-zinc-900/80 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500/50 transition-colors"
+                />
+              </div>
+              <button
+                onClick={salvarLinks}
+                disabled={saving}
+                className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white py-2 px-4 rounded-lg text-sm font-medium transition-all duration-200"
+              >
+                <Save className="w-4 h-4" />
+                {saving ? 'Salvando...' : 'Salvar Links'}
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Cards dos APKs */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* App do Cliente */}
+        <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
+          <CardHeader className="border-b border-zinc-900/85 pb-4">
+            <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
+              <Users className="w-4 h-4 text-emerald-400" />
+              App do Cliente
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-5 space-y-4">
+            <div className="flex items-center gap-4 p-4 rounded-xl bg-zinc-800/50 border border-zinc-800">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500/30 to-emerald-600/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                <Smartphone className="w-7 h-7 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-semibold text-sm">V5 Fibra</h3>
+                <p className="text-zinc-500 text-xs mt-0.5">Faturas, chamados e informações da conexão</p>
+              </div>
+            </div>
+
             {apkCliente ? (
-              <>
+              <div className="space-y-3">
                 <a
                   href={apkCliente}
-                  download
-                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-3 px-4 rounded-lg font-medium transition-colors"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 px-4 rounded-lg text-sm font-medium transition-all duration-200 shadow-lg shadow-emerald-500/10"
                 >
-                  <Download className="w-5 h-5" />
-                  Baixar APK do Cliente
+                  <Download className="w-4 h-4" />
+                  Baixar APK
                 </a>
                 <div className="flex gap-2">
                   <button
                     onClick={() => copiarLink(apkCliente, 'cliente')}
-                    className="flex-1 flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded-lg text-sm transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 py-2 px-3 rounded-lg text-xs font-medium transition-all duration-200"
                   >
-                    {copied === 'cliente' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    {copied === 'cliente' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     {copied === 'cliente' ? 'Copiado!' : 'Copiar Link'}
                   </button>
                   <button
                     onClick={() => compartilharWhatsApp(apkCliente, 'cliente')}
-                    className="flex-1 flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 px-3 rounded-lg text-sm transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 bg-green-800/50 hover:bg-green-700/50 border border-green-700/30 text-green-400 py-2 px-3 rounded-lg text-xs font-medium transition-all duration-200"
                   >
-                    <Share2 className="w-4 h-4" />
+                    <Share2 className="w-3.5 h-3.5" />
                     WhatsApp
                   </button>
                 </div>
-              </>
+              </div>
             ) : (
-              <div className="text-center py-4">
-                <p className="text-gray-500 text-sm mb-3">Nenhum APK disponível ainda</p>
+              <div className="text-center py-6 rounded-lg border border-dashed border-zinc-800">
+                <Smartphone className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
+                <p className="text-zinc-600 text-xs">Nenhum APK disponível</p>
               </div>
             )}
-            <button
-              onClick={() => handleUpload('cliente')}
-              disabled={uploading === 'cliente'}
-              className="w-full flex items-center justify-center gap-2 border border-dashed border-gray-600 hover:border-emerald-500 text-gray-400 hover:text-emerald-400 py-2 px-4 rounded-lg text-sm transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              {uploading === 'cliente' ? 'Enviando...' : 'Enviar novo APK'}
-            </button>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* App do Técnico */}
-        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
-              <Wrench className="w-6 h-6 text-blue-400" />
+        <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
+          <CardHeader className="border-b border-zinc-900/85 pb-4">
+            <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
+              <Wrench className="w-4 h-4 text-blue-400" />
+              App do Técnico
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-5 space-y-4">
+            <div className="flex items-center gap-4 p-4 rounded-xl bg-zinc-800/50 border border-zinc-800">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/30 to-blue-600/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+                <Wrench className="w-7 h-7 text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-semibold text-sm">V5 Cloud Técnico</h3>
+                <p className="text-zinc-500 text-xs mt-0.5">Ordens de serviço, navegação e fotos</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">App do Técnico</h2>
-              <p className="text-sm text-gray-400">V5 Cloud Técnico</p>
-            </div>
-          </div>
 
-          <p className="text-gray-400 text-sm mb-4">
-            Aplicativo para seus técnicos receberem ordens de serviço, navegarem até o cliente e registrarem fotos.
-          </p>
-
-          <div className="space-y-3">
             {apkTecnico ? (
-              <>
+              <div className="space-y-3">
                 <a
                   href={apkTecnico}
-                  download
-                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-medium transition-colors"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-2.5 px-4 rounded-lg text-sm font-medium transition-all duration-200 shadow-lg shadow-blue-500/10"
                 >
-                  <Download className="w-5 h-5" />
-                  Baixar APK do Técnico
+                  <Download className="w-4 h-4" />
+                  Baixar APK
                 </a>
                 <div className="flex gap-2">
                   <button
                     onClick={() => copiarLink(apkTecnico, 'tecnico')}
-                    className="flex-1 flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white py-2 px-3 rounded-lg text-sm transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 py-2 px-3 rounded-lg text-xs font-medium transition-all duration-200"
                   >
-                    {copied === 'tecnico' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    {copied === 'tecnico' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     {copied === 'tecnico' ? 'Copiado!' : 'Copiar Link'}
                   </button>
                   <button
                     onClick={() => compartilharWhatsApp(apkTecnico, 'tecnico')}
-                    className="flex-1 flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white py-2 px-3 rounded-lg text-sm transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 bg-green-800/50 hover:bg-green-700/50 border border-green-700/30 text-green-400 py-2 px-3 rounded-lg text-xs font-medium transition-all duration-200"
                   >
-                    <Share2 className="w-4 h-4" />
+                    <Share2 className="w-3.5 h-3.5" />
                     WhatsApp
                   </button>
                 </div>
-              </>
+              </div>
             ) : (
-              <div className="text-center py-4">
-                <p className="text-gray-500 text-sm mb-3">Nenhum APK disponível ainda</p>
+              <div className="text-center py-6 rounded-lg border border-dashed border-zinc-800">
+                <Wrench className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
+                <p className="text-zinc-600 text-xs">Nenhum APK disponível</p>
               </div>
             )}
-            <button
-              onClick={() => handleUpload('tecnico')}
-              disabled={uploading === 'tecnico'}
-              className="w-full flex items-center justify-center gap-2 border border-dashed border-gray-600 hover:border-blue-500 text-gray-400 hover:text-blue-400 py-2 px-4 rounded-lg text-sm transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              {uploading === 'tecnico' ? 'Enviando...' : 'Enviar novo APK'}
-            </button>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Instruções */}
-      <div className="mt-8 bg-gray-800/30 border border-gray-700 rounded-xl p-6">
-        <h3 className="text-white font-semibold mb-3">📱 Como distribuir os aplicativos</h3>
-        <div className="space-y-3 text-sm text-gray-400">
-          <div className="flex gap-3">
-            <span className="bg-emerald-500/20 text-emerald-400 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">1</span>
-            <p>Faça o upload dos APKs clicando em &quot;Enviar novo APK&quot; acima</p>
+      <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
+        <CardHeader className="border-b border-zinc-900/85 pb-4">
+          <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
+            <ExternalLink className="w-4 h-4 text-amber-400" />
+            Como distribuir
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { n: '1', title: 'Configure os links', desc: 'Cole os links de download dos APKs na seção de admin acima' },
+              { n: '2', title: 'Compartilhe', desc: 'Use "Copiar Link" ou "WhatsApp" para enviar aos seus clientes ou técnicos' },
+              { n: '3', title: 'Instale', desc: 'O cliente abre o link no celular Android, baixa e instala o APK' },
+              { n: '4', title: 'Permissão', desc: 'No primeiro acesso, permitir "Fontes desconhecidas" nas configurações' },
+            ].map((step) => (
+              <div key={step.n} className="flex flex-col items-center text-center p-4 rounded-xl bg-zinc-800/30 border border-zinc-800/50">
+                <span className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center text-xs font-bold mb-3">{step.n}</span>
+                <h4 className="text-white text-xs font-semibold mb-1">{step.title}</h4>
+                <p className="text-zinc-500 text-[11px] leading-relaxed">{step.desc}</p>
+              </div>
+            ))}
           </div>
-          <div className="flex gap-3">
-            <span className="bg-emerald-500/20 text-emerald-400 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
-            <p>Clique em &quot;Copiar Link&quot; ou &quot;WhatsApp&quot; para enviar o link de download para seus clientes/técnicos</p>
-          </div>
-          <div className="flex gap-3">
-            <span className="bg-emerald-500/20 text-emerald-400 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>
-            <p>O cliente/técnico abre o link no celular Android, baixa e instala o APK</p>
-          </div>
-          <div className="flex gap-3">
-            <span className="bg-emerald-500/20 text-emerald-400 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">4</span>
-            <p>No primeiro acesso, pode ser necessário permitir &quot;Instalar de fontes desconhecidas&quot; nas configurações do celular</p>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

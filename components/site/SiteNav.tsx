@@ -4,7 +4,8 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Wifi, ArrowRight, Menu, X } from 'lucide-react';
+import { ArrowRight, Menu, X } from 'lucide-react';
+import Image from 'next/image';
 import { WHATSAPP_DEMO } from './links';
 
 const LINKS = [
@@ -21,10 +22,8 @@ export default function SiteNav() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-6">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-3 shrink-0" onClick={() => setAberto(false)}>
-          <div className="p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400">
-            <Wifi className="w-6 h-6" />
-          </div>
-          <span className="text-xl font-bold tracking-wider text-white">V5 CLOUD</span>
+          <Image src="/v5-logo-transparent.png" alt="V5 Cloud" width={80} height={60} className="rounded-lg" />
+          <span className="text-2xl font-bold tracking-tight text-white" style={{ fontFamily: "var(--font-jakarta), system-ui" }}>V5 Cloud</span>
         </Link>
 
         {/* Abas (desktop) */}

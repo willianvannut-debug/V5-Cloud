@@ -1,8 +1,9 @@
 "use client"
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Mail, Lock, ArrowRight, Loader2, KeyRound, CheckCircle2, X, Ban } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Loader2, KeyRound, CheckCircle2, X, Ban } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -160,13 +161,18 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#021708] flex items-center justify-center p-4 font-sans text-zinc-50">
-      <div className="w-full max-w-md space-y-6">
+    <div className="min-h-screen relative flex items-center justify-center p-4 font-sans text-zinc-50">
+      {/* Background Image */}
+      <div className="absolute inset-0 z-0">
+        <Image src="/bg-login.webp" alt="" fill className="object-cover" priority />
+        <div className="absolute inset-0 bg-[#021708]/80 backdrop-blur-[2px]" />
+      </div>
+      <div className="w-full max-w-md space-y-6 relative z-10">
 
         {/* CABEÇALHO */}
         <div className="text-center space-y-3">
-          <div className="inline-flex p-3 bg-black border border-emerald-500/30 rounded-2xl text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
-            <ShieldCheck className="w-7 h-7" />
+          <div className="inline-flex">
+            <Image src="/v5-logo-transparent.png" alt="V5 Cloud" width={160} height={120} className="rounded-2xl drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]" />
           </div>
           <div>
             <h1 className="text-2xl font-black uppercase tracking-widest font-mono text-white">V5 Cloud</h1>
