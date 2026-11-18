@@ -320,6 +320,7 @@ export function Sidebar() {
       subMenu: [
         { name: 'Geral', href: '/dashboard/config', icon: Settings, cor: 'text-emerald-400' },
         { name: 'White-Label App', href: '/dashboard/config/white-label', icon: Smartphone, cor: 'text-purple-400' },
+        { name: 'Aplicativos', href: '/dashboard/config/aplicativos', icon: Download, cor: 'text-cyan-400' },
       ],
     },
     { name: 'Help...', href: '/dashboard/help', icon: HelpCircle, roles: ['gerente', 'atendente', 'superadmin'] },
