@@ -205,6 +205,8 @@ export default function ConverterLeadPage() {
           dia_vencimento: dadosExtras.dia_vencimento,
           forma_pagamento: dadosExtras.forma_pagamento,
           observacoes: dadosExtras.observacoes,
+          latitude: leadSelecionado.lat ?? leadSelecionado.latitude ?? null,
+          longitude: leadSelecionado.lon ?? leadSelecionado.longitude ?? null,
           empresa_id: empresa.id,
           lead_origem_id: leadSelecionado.id,
         }),

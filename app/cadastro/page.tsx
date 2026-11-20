@@ -66,6 +66,16 @@ function DraggableMarker({ coords, setCoords }: { coords: { lat: number; lon: nu
 
 function CadastroProvedoraContent() {
   const router = useRouter();
+  // Forçar dark mode na tela de login/registro independente da configuração
+  useEffect(() => {
+    const html = document.documentElement;
+    const wasDark = html.classList.contains('dark');
+    html.classList.add('dark');
+    return () => {
+      if (!wasDark) html.classList.remove('dark');
+    };
+  }, []);
+
 
   // Etapas: 1 (Credenciais e Contato), 2 (Empresa, CEP, Mapa, Termos)
   const [etapa, setEtapa] = useState<1 | 2>(1);

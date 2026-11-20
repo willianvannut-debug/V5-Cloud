@@ -240,7 +240,13 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
-        if (!document.getElementById('leaflet-dark-mode')) {
+        const temaEscuro = localStorage.getItem('v5_pref_tema') !== 'claro';
+        
+        // Remove estilos antigos se existirem
+        document.getElementById('leaflet-dark-mode')?.remove();
+        document.getElementById('leaflet-dark-popup')?.remove();
+        
+        if (temaEscuro) {
           const style = document.createElement('style');
           style.id = 'leaflet-dark-mode';
           style.innerHTML = `
@@ -248,9 +254,7 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
             .leaflet-container { background: #0a0a0a !important; }
           `;
           document.head.appendChild(style);
-        }
 
-        if (!document.getElementById('leaflet-dark-popup')) {
           const stylePopup = document.createElement('style');
           stylePopup.id = 'leaflet-dark-popup';
           stylePopup.innerHTML = `
@@ -259,6 +263,13 @@ export default function Mapa({ centroMapa, ctos = [], leads = [] }: { centroMapa
             .leaflet-container a.leaflet-popup-close-button { color: #a1a1aa !important; padding: 8px !important; }
           `;
           document.head.appendChild(stylePopup);
+        } else {
+          const style = document.createElement('style');
+          style.id = 'leaflet-dark-mode';
+          style.innerHTML = `
+            .leaflet-container { background: #f9fafb !important; }
+          `;
+          document.head.appendChild(style);
         }
       } catch (e) {}
     }

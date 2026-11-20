@@ -7,6 +7,16 @@ import Image from 'next/image';
 
 export default function LoginPage() {
   const router = useRouter();
+
+  // Forçar dark mode na tela de login independente da configuração
+  useEffect(() => {
+    const html = document.documentElement;
+    const wasDark = html.classList.contains('dark');
+    html.classList.add('dark');
+    return () => {
+      if (!wasDark) html.classList.remove('dark');
+    };
+  }, []);
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [carregando, setCarregando] = useState(false);

@@ -16,6 +16,8 @@ import {
   HelpCircle,
   Network,
   LogOut,
+  Moon,
+  Sun,
   CreditCard,
   LifeBuoy,
   UserCheck,
@@ -129,6 +131,7 @@ import {
 } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 // =============================================
 // TIPO PARA ITEM COM SUBMENU
@@ -152,6 +155,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { nomeProvedor } = useSettings();
   const { operador, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
 
   const [open, setOpen] = useState(false);
 
@@ -311,8 +315,17 @@ export function Sidebar() {
     // FATURAS & PAGAMENTOS (area do cliente - historico de pagamentos)
     { name: 'Faturas & Pagamentos', href: '/dashboard/faturas', icon: CreditCard, roles: ['gerente', 'atendente', 'superadmin'] },
 
-    { name: 'Tickets Admin', href: '/dashboard/superadmin/tickets', icon: LifeBuoy, roles: ['superadmin'] },
-    { name: 'Root Master', href: '/dashboard/superadmin', icon: ShieldCheck, roles: ['superadmin'] },
+    // ROOT MASTER (ADM do V5 Cloud em si — empresas/provedores que assinam o sistema,
+    // nunca os clientes finais de cada provedor)
+    // Clientes/Mapa das EMPRESAS do V5 Cloud agora aparecem dentro da aba
+    // "Clientes" normal (quando quem loga é superadmin/root), e não aqui.
+    {
+      name: 'Root Master', href: '/dashboard/superadmin', icon: ShieldCheck, roles: ['superadmin'],
+      subMenu: [
+        { name: 'Visão Geral', href: '/dashboard/superadmin', icon: ShieldCheck, cor: 'text-emerald-400' },
+        { name: 'Tickets Admin', href: '/dashboard/superadmin/tickets', icon: LifeBuoy, cor: 'text-amber-400' },
+      ],
+    },
   ];
 
   const menuInferior: MenuItem[] = [
@@ -320,7 +333,6 @@ export function Sidebar() {
       subMenu: [
         { name: 'Geral', href: '/dashboard/config', icon: Settings, cor: 'text-emerald-400' },
         { name: 'White-Label App', href: '/dashboard/config/white-label', icon: Smartphone, cor: 'text-purple-400' },
-        { name: 'Aplicativos', href: '/dashboard/config/aplicativos', icon: Download, cor: 'text-cyan-400' },
       ],
     },
     { name: 'Help...', href: '/dashboard/help', icon: HelpCircle, roles: ['gerente', 'atendente', 'superadmin'] },
@@ -525,6 +537,29 @@ export function Sidebar() {
 
       {/* RODAPÉ (SAIR E STATUS) */}
       <div className="pt-4 border-t border-zinc-900 space-y-3 shrink-0">
+
+        {/* TOGGLE DE TEMA */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Mudar para Tema Claro' : 'Mudar para Tema Escuro'}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-zinc-800/60 hover:bg-zinc-700/60 border border-zinc-700/60 text-zinc-300 hover:text-white font-mono text-xs font-bold uppercase transition-all cursor-pointer"
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 shrink-0 text-yellow-400" />
+            ) : (
+              <Moon className="w-4 h-4 shrink-0 text-blue-400" />
+            )}
+            <motion.span
+              className="whitespace-nowrap overflow-hidden"
+              animate={{ opacity: open ? 1 : 0, display: open ? 'inline-block' : 'none' }}
+              transition={{ duration: 0.15 }}
+            >
+              {theme === 'dark' ? 'Tema Claro' : 'Tema Escuro'}
+            </motion.span>
+          </button>
+        </div>
+
         <button
           onClick={logout}
           title="Sair da Conta"

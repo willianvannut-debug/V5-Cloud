@@ -13,6 +13,8 @@ import { useSettings, SettingsProvider } from '@/context/SettingsContext';
 import { useApp, AppProvider } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext'; // 🚀 IMPORTAMOS O CONTEXTO DE AUTENTICAÇÃO
 import { lerOperacional, salvarOperacional } from '@/lib/operacional';
+import TecnicoSplash from '@/components/TecnicoSplash';
+import TecnicoWelcome from '@/components/TecnicoWelcome';
 
 const Mapa = dynamic(() => import('./Mapa'), { 
   ssr: false,
@@ -35,6 +37,12 @@ function PainelTecnicoMobile() {
   const [leadsFinais, setLeadsFinais] = useState<any[]>([]);
   
   const [isMounted, setIsMounted] = useState(false);
+  const [temaEscuro, setTemaEscuro] = useState(true);
+
+  useEffect(() => {
+    const tema = localStorage.getItem('v5_pref_tema');
+    if (tema === 'claro') setTemaEscuro(false);
+  }, []);
   const [centroMapa, setCentroMapa] = useState<[number, number] | null>(null);
   const [mapaPronto, setMapaPronto] = useState(false);
 
@@ -240,7 +248,7 @@ function PainelTecnicoMobile() {
   }
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: '#0a0a0a', zIndex: 99999, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: temaEscuro ? '#0a0a0a' : '#f9fafb', zIndex: 99999, display: 'flex', flexDirection: 'column' }}>
       
       {/* TELA DE BLOQUEIO DE PROGRESSO */}
       {instalacaoAtiva && (
@@ -299,7 +307,7 @@ function PainelTecnicoMobile() {
       )}
 
       {/* HEADER TÉCNICO COM BOTÃO DE SAIR */}
-      <div style={{ height: '50px', backgroundColor: '#000', borderBottom: '1px solid #27272a', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+      <div style={{ height: '50px', backgroundColor: temaEscuro ? '#000' : '#ffffff', borderBottom: temaEscuro ? '1px solid #27272a' : '1px solid #e5e7eb', padding: '0 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Wrench size={16} color="#10b981" />
           <h1 style={{ fontSize: '10px', fontWeight: 'bold', color: '#fff', margin: 0, fontFamily: 'monospace', textTransform: 'uppercase' }}>
@@ -333,7 +341,7 @@ function PainelTecnicoMobile() {
       {/* MAPA OCUPANDO 100% DA TELA */}
       <div style={{ flex: 1, width: '100%', position: 'relative' }}>
         <style dangerouslySetInnerHTML={{ __html: `
-          .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%) !important; }
+          .leaflet-tile-pane { filter: ${temaEscuro ? 'invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)' : 'none'} !important; }
         `}} />
         
         {mapaPronto && centroMapa ? (
@@ -350,6 +358,30 @@ function PainelTecnicoMobile() {
 }
 
 export default function TecnicoPageWrapper() {
+  const [fase, setFase] = useState<'splash' | 'welcome' | 'mapa'>('splash');
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('v5_splash_visto')) setFase('mapa');
+    } catch(e) {}
+  }, []);
+  const { operador, carregando } = useAuth();
+
+  const avancar = (proxima: 'welcome' | 'mapa') => {
+    if (proxima === 'mapa') {
+      try { sessionStorage.setItem('v5_splash_visto', '1'); } catch(e) {}
+    }
+    setFase(proxima);
+  };
+
+  if (fase === 'splash') {
+    return <TecnicoSplash onFinish={() => avancar('welcome')} />;
+  }
+
+  if (fase === 'welcome') {
+    return <TecnicoWelcome operador={operador} onStart={() => avancar('mapa')} />;
+  }
+
   return (
     <SettingsProvider>
       <AppProvider>

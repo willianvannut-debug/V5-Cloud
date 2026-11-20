@@ -39,8 +39,11 @@ import {
   Shield,
   LockKeyhole,
   Volume2,
-  VolumeX
+  VolumeX,
+  Moon,
+  Sun
 } from 'lucide-react';
+import { useTheme } from '@/context/ThemeContext';
 import { useSettings, PlanoItem, FuncionarioItem } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { logger } from '@/lib/logger';
@@ -185,6 +188,7 @@ export default function ConfiguracoesPage() {
   const [carregandoBackup, setCarregandoBackup] = useState(false);
   const [carregandoRestauracao, setCarregandoRestauracao] = useState(false);
 
+  const { theme = 'dark', setTheme } = useTheme();
   // 🔊 Estado do Som (Ligar / Desligar)
   const [soundEnabled, setSoundEnabled] = useState(true);
 
@@ -937,6 +941,37 @@ export default function ConfiguracoesPage() {
                   placeholder="Ex: Vannut"
                   className="w-full bg-black/50 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
                 />
+              </div>
+
+              {/* 🎨 TEMA DO SISTEMA */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono uppercase text-zinc-400 block">Aparência do Sistema</label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTheme('dark')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border transition-all cursor-pointer ${
+                      theme === 'dark'
+                        ? 'bg-zinc-700/60 border-zinc-500 text-white shadow-[0_0_12px_rgba(255,255,255,0.05)]'
+                        : 'bg-black/30 border-zinc-800 text-zinc-500 hover:border-zinc-600'
+                    }`}
+                  >
+                    <Moon className="w-4 h-4" />
+                    <span className="text-xs font-mono font-bold uppercase tracking-wider">Escuro</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTheme('light')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border transition-all cursor-pointer ${
+                      theme === 'light'
+                        ? 'bg-yellow-400/20 border-yellow-400/50 text-yellow-300 shadow-[0_0_12px_rgba(250,204,21,0.15)]'
+                        : 'bg-black/30 border-zinc-800 text-zinc-500 hover:border-zinc-600'
+                    }`}
+                  >
+                    <Sun className="w-4 h-4" />
+                    <span className="text-xs font-mono font-bold uppercase tracking-wider">Claro</span>
+                  </button>
+                </div>
               </div>
 
               {/* 🔊 NOVO BOTÃO DE ATIVAR / DESATIVAR EFEITOS SONOROS */}

@@ -41,11 +41,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
       <head>
         <meta name="theme-color" content="#10b981" />
       </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} ${jakartaSans.variable} antialiased bg-[#0a0a0a] text-zinc-50`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${jakartaSans.variable} antialiased`}>
         {/* O AuthProvider deve envolver toda a aplicação */}
         <AuthProvider>
           {children}

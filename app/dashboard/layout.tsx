@@ -11,6 +11,7 @@ import { SettingsProvider } from "@/context/SettingsContext";
 import { useRouter } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { playSound } from '@/lib/sound';
+import { ThemeProvider } from '@/context/ThemeContext';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -61,10 +62,11 @@ export default function DashboardLayout({
   }, [router]);
 
   return (
+    <ThemeProvider>
     <SettingsProvider>
       <AppProvider>
         <GlobalListenerWrapper>
-          <div className="min-h-screen flex font-sans bg-[#0a0a0a] text-zinc-50">
+          <div className="min-h-screen flex font-sans text-zinc-50">
             <Sidebar />
             <main className="flex-1 overflow-y-auto">
               {children}
@@ -73,5 +75,6 @@ export default function DashboardLayout({
         </GlobalListenerWrapper>
       </AppProvider>
     </SettingsProvider>
+    </ThemeProvider>
   );
 }

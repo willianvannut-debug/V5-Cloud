@@ -17,9 +17,17 @@ export async function POST(req: Request) {
     }
 
     // 1. Busca todas as empresas
+    // IMPORTANTE: nunca usar select('*') aqui — essa lista vai para o
+    // front-end do Root Master, então só trazemos os campos de empresa
+    // que fazem sentido mostrar (nunca termo_hash/termo_ip/senha/tokens
+    // de gateway, que não vivem nesta tabela mas poderiam vir no futuro).
+    // "cnpj" NAO e uma coluna real de "empresas" (so existe em "clientes",
+    // a tabela de clientes finais de cada provedor) - selecionar essa coluna
+    // aqui quebrava a query inteira com "column empresas.cnpj does not exist"
+    // e por isso a lista de clientes do Root Master aparecia vazia.
     const { data: empresas, error: erroEmpresas } = await supabaseAdmin
       .from('empresas')
-      .select('*')
+      .select('id, nome_empresa, endereco, lat, lon, plano, status_assinatura, telefone_suporte, email, telefone, criado_em')
       .order('criado_em', { ascending: true });
 
     if (erroEmpresas) throw erroEmpresas;

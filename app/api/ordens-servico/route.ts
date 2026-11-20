@@ -128,6 +128,28 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Vincula a OS recem-criada ao chamado de origem (quando a OS nasceu de um
+// despacho feito a partir de um chamado) e marca o chamado como
+// em_andamento com o tecnico atribuido. Antes dessa funcao a coluna
+// chamados.tecnico_id e ordens_servico.chamado_id existiam no banco mas
+// nada nunca escrevia nelas -- essa era a lacuna entre chamado e OS.
+async function vincularChamadoOS(
+  chamadoId: string | null | undefined,
+  tecnicoId: string | null,
+  empresaId: string,
+) {
+  if (!chamadoId) return;
+  try {
+    await supabase
+      .from('chamados')
+      .update({ tecnico_id: tecnicoId, status: 'em_andamento' })
+      .eq('id', chamadoId)
+      .eq('empresa_id', empresaId);
+  } catch (e) {
+    console.error('Erro ao vincular OS ao chamado:', e);
+  }
+}
+
 // POST - Criar nova OS
 export async function POST(request: NextRequest) {
   try {
@@ -166,6 +188,7 @@ export async function POST(request: NextRequest) {
       status: statusInicial,
       tecnico_id: tecnicoLider,
       agendada_para: body.agendada_para || null,
+      chamado_id: body.chamado_id || null,
     };
 
     // Coordenadas GPS (do pin no mapa)
@@ -187,7 +210,7 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       // Se o erro for por causa da coluna tecnicos_ids não existir, tenta sem ela
-      const colunasOpcionais = ['tecnicos_ids', 'latitude', 'longitude'];
+      const colunasOpcionais = ['tecnicos_ids', 'latitude', 'longitude', 'chamado_id'];
       const colunaProblema = colunasOpcionais.find(col => error.message?.includes(col));
       if (colunaProblema) {
         colunasOpcionais.forEach(col => delete insertData[col]);
@@ -201,6 +224,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Erro ao criar OS' }, { status: 500 });
         }
         const enriched = await enriquecerOS([data2]);
+        await vincularChamadoOS(body.chamado_id, tecnicoLider, session.empresaId);
         return NextResponse.json(enriched[0], { status: 201 });
       }
       console.error('Erro ao criar OS:', error);
@@ -208,6 +232,7 @@ export async function POST(request: NextRequest) {
     }
 
     const enriched = await enriquecerOS([data]);
+    await vincularChamadoOS(body.chamado_id, tecnicoLider, session.empresaId);
     return NextResponse.json(enriched[0], { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
@@ -313,6 +338,33 @@ export async function PATCH(request: NextRequest) {
           title: 'Tecnico a caminho!',
           body: 'Um tecnico esta indo ate voce. Acompanhe em tempo real no app!',
           data: { tipo: 'tecnico_a_caminho', os_id: data.id },
+        }));
+        try {
+          await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(messages),
+          });
+        } catch (e) { console.error('Erro push:', e); }
+      }
+    }
+
+    // Se o tecnico apertou "Cheguei" (em_execucao), avisa o cliente que
+    // ele chegou -- essa notificacao nao existia antes, so tinha a de
+    // "a caminho" e a de "concluida".
+    if (body.status === 'em_execucao' && data.cliente_id) {
+      const { data: tokensChegou } = await supabase
+        .from('push_tokens')
+        .select('token')
+        .eq('cliente_id', data.cliente_id)
+        .eq('empresa_id', session.empresaId)
+        .eq('ativo', true);
+
+      if (tokensChegou && tokensChegou.length > 0) {
+        const messages = tokensChegou.map((t: any) => ({
+          to: t.token, sound: 'default',
+          title: 'Seu tecnico chegou!',
+          body: 'O tecnico ja esta no local e vai iniciar o atendimento.',
+          data: { tipo: 'tecnico_chegou', os_id: data.id },
         }));
         try {
           await fetch('https://exp.host/--/api/v2/push/send', {

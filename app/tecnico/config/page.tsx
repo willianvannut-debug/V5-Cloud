@@ -4,7 +4,7 @@
 // ================================================================================
 
 "use client"
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Wrench, ArrowLeft, MapPin, Bell, RefreshCw, LogOut, Smartphone, Check, Hand, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -15,6 +15,12 @@ export default function TecnicoConfigPage() {
   
   // 🚀 Puxa os dados dinâmicos diretamente do banco de dados/sessão
   const { operador, carregando } = useAuth() as any;
+
+  // Forcar tema escuro na pagina de config
+  useEffect(() => {
+    document.documentElement.classList.add('dark');
+    return () => { document.documentElement.classList.remove('dark'); };
+  }, []);
 
   // Estados locais para preferências
   const [gpsApp, setGpsApp] = useState(() => {

@@ -51,6 +51,11 @@ interface Categoria {
   nome: string;
 }
 
+interface Tecnico {
+  id: string;
+  nome: string;
+}
+
 interface Chamado {
   id: string;
   empresa_id: string;
@@ -353,6 +358,9 @@ export default function TicketsPage() {
   const [filtroStatus, setFiltroStatus] = useState("");
   const [filtroPrioridade, setFiltroPrioridade] = useState("");
   const [busca, setBusca] = useState("");
+  const [tecnicos, setTecnicos] = useState<Tecnico[]>([]);
+  const [tecnicoEscolhido, setTecnicoEscolhido] = useState("");
+  const [despachando, setDespachando] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch chamados ───────────────────────────────────
@@ -378,7 +386,15 @@ export default function TicketsPage() {
     } catch (e) { console.error(e); }
   }, []);
 
-  useEffect(() => { fetchChamados(); fetchCategorias(); }, [fetchChamados, fetchCategorias]);
+  // Tecnicos da empresa, para o despacho a partir do chamado
+  const fetchTecnicos = useCallback(async () => {
+    try {
+      const data = await apiFetch("/api/tecnicos");
+      setTecnicos(data);
+    } catch (e) { console.error(e); }
+  }, []);
+
+  useEffect(() => { fetchChamados(); fetchCategorias(); fetchTecnicos(); }, [fetchChamados, fetchCategorias, fetchTecnicos]);
 
   // ── Realtime: novos chamados ─────────────────────────
   useEffect(() => {
@@ -490,6 +506,35 @@ export default function TicketsPage() {
       setChamadoDetalhe(detalhe);
       fetchChamados();
     } catch (e) { console.error(e); }
+  }
+
+  // ── Despachar tecnico: cria a OS ja vinculada a este chamado ─────
+  // (antes nao existia nenhum jeito de sair do chamado pra uma OS com
+  // tecnico atribuido -- o chamado e a OS viviam em tabelas sem ligacao)
+  async function despacharTecnico() {
+    if (!selectedId || !chamadoDetalhe || !tecnicoEscolhido) return;
+    setDespachando(true);
+    try {
+      await apiFetch("/api/ordens-servico", {
+        method: "POST",
+        body: JSON.stringify({
+          tipo: "reparo",
+          cliente_id: chamadoDetalhe.cliente_id,
+          tecnico_id: tecnicoEscolhido,
+          descricao: `Chamado #${chamadoDetalhe.protocolo}: ${chamadoDetalhe.assunto}`,
+          prioridade: chamadoDetalhe.prioridade,
+          chamado_id: chamadoDetalhe.id,
+        }),
+      });
+      const detalhe = await apiFetch(`/api/suporte/chamados?id=${selectedId}`);
+      setChamadoDetalhe(detalhe);
+      fetchChamados();
+      setTecnicoEscolhido("");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDespachando(false);
+    }
   }
 
   // ── Cards de resumo ──────────────────────────────────
@@ -747,6 +792,41 @@ export default function TicketsPage() {
                           </span>
                         );
                       })()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Despacho de tecnico: cria uma OS ja vinculada a este chamado */}
+                <div className="mt-3 pt-3 border-t border-zinc-800/60">
+                  <label className="block text-[9px] font-mono uppercase text-zinc-600 mb-1">
+                    Tecnico
+                  </label>
+                  {chamadoDetalhe.tecnico_id ? (
+                    <div className="flex items-center gap-2 text-[11px] font-mono text-emerald-400">
+                      <UserCog size={12} />
+                      {tecnicos.find((t) => t.id === chamadoDetalhe.tecnico_id)?.nome || "Tecnico atribuido"}
+                      <span className="text-zinc-600">· OS criada</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={tecnicoEscolhido}
+                        onChange={(e) => setTecnicoEscolhido(e.target.value)}
+                        className="bg-black/50 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-[11px] text-white font-mono focus:border-emerald-500/50 focus:outline-none"
+                      >
+                        <option value="">Selecionar tecnico...</option>
+                        {tecnicos.map((tec) => (
+                          <option key={tec.id} value={tec.id}>{tec.nome}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={despacharTecnico}
+                        disabled={!tecnicoEscolhido || despachando}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {despachando ? <Loader2 size={12} className="animate-spin" /> : <UserCog size={12} />}
+                        Despachar tecnico
+                      </button>
                     </div>
                   )}
                 </div>

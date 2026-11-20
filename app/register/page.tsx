@@ -8,6 +8,16 @@ import { PasswordStrengthMeter } from '@/components/ui/password-strength';
 
 function RegisterForm() {
   const router = useRouter();
+  // Forçar dark mode na tela de login/registro independente da configuração
+  useEffect(() => {
+    const html = document.documentElement;
+    const wasDark = html.classList.contains('dark');
+    html.classList.add('dark');
+    return () => {
+      if (!wasDark) html.classList.remove('dark');
+    };
+  }, []);
+
   const searchParams = useSearchParams();
   const emailParam = searchParams.get('email') || '';
 

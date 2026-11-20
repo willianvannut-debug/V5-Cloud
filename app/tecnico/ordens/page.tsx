@@ -5,7 +5,7 @@
 // ================================================================================
 
 "use client"
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import {
@@ -77,6 +77,7 @@ export default function TecnicoOrdensPage() {
   const [atualizando, setAtualizando] = useState(false);
   const [abaAtiva, setAbaAtiva] = useState<'hoje' | 'proximas' | 'concluidas'>('hoje');
   const [gpsApp, setGpsApp] = useState('google');
+  const [showAvisoDeslocamento, setShowAvisoDeslocamento] = useState(false);
 
   // ==================== DETECTOR DE CONEXÃO ====================
   const [online, setOnline] = useState(true);
@@ -92,6 +93,53 @@ export default function TecnicoOrdensPage() {
       window.removeEventListener('offline', ficarOffline);
     };
   }, []);
+
+  // ==================== RASTREAMENTO GPS AO VIVO ====================
+  // Enquanto o tecnico tiver alguma OS "em_deslocamento", manda a posicao
+  // atual pra /api/tecnicos/localizacao a cada poucos segundos. E essa
+  // tabela (tecnico_localizacoes) que a tela "tecnico a caminho" do
+  // cliente ja escuta via Realtime -- so faltava alguem escrever nela.
+  const watchIdRef = useRef<number | null>(null);
+  const ultimoEnvioRef = useRef<number>(0);
+
+  const enviarLocalizacao = useCallback((lat: number, lng: number) => {
+    fetch('/api/tecnicos/localizacao', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ latitude: lat, longitude: lng }),
+    }).catch((e) => console.error('Erro ao enviar localizacao:', e));
+  }, []);
+
+  useEffect(() => {
+    const emDeslocamento = ordens.some((os) => os.status === 'em_deslocamento');
+
+    if (emDeslocamento && watchIdRef.current === null && navigator.geolocation) {
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          const agora = Date.now();
+          // Throttle: no maximo 1 envio a cada 10s (pedido do usuario, pra
+          // economizar GPS/bateria do tecnico -- nao precisa ser instantaneo)
+          if (agora - ultimoEnvioRef.current < 10000) return;
+          ultimoEnvioRef.current = agora;
+          enviarLocalizacao(pos.coords.latitude, pos.coords.longitude);
+        },
+        (err) => console.error('Erro de geolocalizacao:', err),
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+      );
+    }
+
+    if (!emDeslocamento && watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [ordens, enviarLocalizacao]);
 
   // ==================== RASCUNHO AUTOMÁTICO ====================
   // Salva a observação no localStorage a cada tecla
@@ -207,6 +255,21 @@ export default function TecnicoOrdensPage() {
       setAtualizando(false);
     }
   };
+
+  // Confirma o aviso de compartilhamento de localizacao e so entao inicia
+  // o deslocamento (captura a posicao atual na hora + muda o status)
+  const confirmarIniciarDeslocamento = useCallback(() => {
+    if (!detalhe) return;
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => enviarLocalizacao(pos.coords.latitude, pos.coords.longitude),
+        (err) => console.error('Erro de geolocalizacao:', err),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+    atualizarOS(detalhe.id, { status: 'em_deslocamento' });
+    setShowAvisoDeslocamento(false);
+  }, [detalhe, enviarLocalizacao]);
 
   // Navegação GPS — usa coordenadas quando disponível, senão endereço texto
   const abrirGPS = (os: OS) => {
@@ -454,7 +517,7 @@ export default function TecnicoOrdensPage() {
           {/* PASSO 1: INICIAR DESLOCAMENTO */}
           {(detalhe.status === 'aberta' || detalhe.status === 'agendada') && (
             <button
-              onClick={() => atualizarOS(detalhe.id, { status: 'em_deslocamento' })}
+              onClick={() => setShowAvisoDeslocamento(true)}
               disabled={atualizando || !online}
               className="w-full bg-purple-500 hover:bg-purple-400 text-white font-mono font-bold uppercase text-sm py-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition-transform disabled:opacity-50 min-h-[52px]"
             >
@@ -487,6 +550,36 @@ export default function TecnicoOrdensPage() {
             </button>
           )}
         </div>
+
+        {/* Aviso de compartilhamento de localizacao antes de iniciar deslocamento */}
+        {showAvisoDeslocamento && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 max-w-sm w-full space-y-4">
+              <div className="flex items-center gap-2 text-purple-400">
+                <Navigation className="w-5 h-5" />
+                <h3 className="font-mono font-bold uppercase text-sm">Compartilhar localização</h3>
+              </div>
+              <p className="text-xs font-mono text-zinc-300 leading-relaxed">
+                A partir de agora sua localização será enviada pro cliente a cada 10 segundos, pra ele acompanhar sua chegada no mapa — igual um app de transporte. Isso para automaticamente assim que você apertar "Cheguei" no local.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowAvisoDeslocamento(false)}
+                  className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-mono font-bold uppercase text-xs py-3 rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmarIniciarDeslocamento}
+                  disabled={atualizando}
+                  className="flex-1 bg-purple-500 hover:bg-purple-400 text-white font-mono font-bold uppercase text-xs py-3 rounded-xl disabled:opacity-50 transition-colors"
+                >
+                  Entendi, iniciar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

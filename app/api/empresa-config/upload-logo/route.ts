@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
     if (!file) return NextResponse.json({ error: 'Nenhum arquivo enviado' }, { status: 400 });
     if (!file.type.startsWith('image/')) return NextResponse.json({ error: 'Apenas imagens' }, { status: 400 });
-    if (file.size > 2 * 1024 * 1024) return NextResponse.json({ error: 'Máximo 2MB' }, { status: 400 });
+    if (file.size > 5 * 1024 * 1024) return NextResponse.json({ error: 'Máximo 5MB' }, { status: 400 });
 
     // Nome do arquivo: empresa_id + extensão
     const ext = file.name.split('.').pop() || 'png';
@@ -63,7 +63,9 @@ export async function POST(request: NextRequest) {
       .from('logos')
       .getPublicUrl(fileName);
 
-    const logoUrl = urlData.publicUrl;
+    // Adiciona versao na URL pra evitar cache antigo (CDN/navegador/app do cliente)
+    // sempre que a logo for trocada, mesmo sobrescrevendo o mesmo arquivo.
+    const logoUrl = `${urlData.publicUrl}?v=${Date.now()}`;
 
     // Atualizar a empresa com a URL da logo
     await supabase

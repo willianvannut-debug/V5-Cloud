@@ -137,7 +137,10 @@ export async function GET(req: Request) {
   const pagasNoMes = fat.filter(f => f.pago && (f.pagoEm || '').startsWith(mesAtual));
   const pagasHoje = fat.filter(f => f.pago && f.pagoEm === hoje);
   const abertasEmDia = fat.filter(f => f.aberto && !f.vencido);
-  const vencidasDoMes = doMes.filter(f => f.vencido);
+  // Inadimplência = TODAS as faturas vencidas em aberto, não só as com vencimento neste mês.
+  // Uma dívida de um mês anterior continua em aberto até ser paga, então ela não pode
+  // "sumir" do painel só porque o mês virou.
+  const vencidasTotal = fat.filter(f => f.vencido);
 
   const financeiroRes = {
     faturamentoMes: doMes.reduce((s, f) => s + f.valor, 0),
@@ -146,8 +149,8 @@ export async function GET(req: Request) {
     faturasPagas: pagasNoMes.length,
     pendenteMes: abertasEmDia.reduce((s, f) => s + f.valor, 0),
     faturasPendentes: abertasEmDia.length,
-    inadimplenciaMes: vencidasDoMes.reduce((s, f) => s + f.valor, 0),
-    faturasVencidas: vencidasDoMes.length,
+    inadimplenciaMes: vencidasTotal.reduce((s, f) => s + f.valor, 0),
+    faturasVencidas: vencidasTotal.length,
   };
 
   const recebidoHoje = {

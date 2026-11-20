@@ -300,7 +300,13 @@ export function invoiceRoutes(db: Pool) {
       }
 
       if (!wpData.sucesso) {
-        return res.status(400).json({ error: wpData.erro || 'Erro ao criar cobrança no Wide Pay' });
+        // Montar mensagem detalhada com os campos que falharam
+        let errorMsg = wpData.erro || 'Erro ao criar cobrança no Wide Pay';
+        if (wpData.validacao && typeof wpData.validacao === 'object') {
+          const campos = Object.entries(wpData.validacao).map(([k, v]) => k + ': ' + v).join('; ');
+          if (campos) errorMsg += ' Detalhes: ' + campos;
+        }
+        return res.status(400).json({ error: errorMsg });
       }
 
       gatewayId = wpData.id || '';

@@ -22,6 +22,7 @@ import {
   Loader2,
   BarChart3,
   Headphones,
+  RefreshCw,
 } from 'lucide-react';
 
 // ============================================================
@@ -181,6 +182,8 @@ export default function VisaoGeralPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
 
   useEffect(() => {
     if (empresaId) fetchDashboard();
@@ -217,6 +220,26 @@ export default function VisaoGeralPage() {
       setError(err.message || 'Erro ao carregar dashboard');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function sincronizarWidePay() {
+    if (!empresaId || syncing) return;
+    setSyncing(true);
+    setSyncMsg('');
+    try {
+      const res = await fetch('/api/financial/sync/widepay', {
+        method: 'POST',
+        headers: { 'x-empresa-id': String(empresaId) },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Erro ao sincronizar com a Wide Pay');
+      setSyncMsg(json.message || 'Sincronização concluída.');
+      await fetchDashboard();
+    } catch (err: any) {
+      setSyncMsg(err.message || 'Erro ao sincronizar com a Wide Pay');
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -260,13 +283,29 @@ export default function VisaoGeralPage() {
             Resumo completo do seu provedor
           </p>
         </div>
-        <button
-          onClick={fetchDashboard}
-          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-mono transition-colors"
-        >
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={sincronizarWidePay}
+            disabled={syncing}
+            className="px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 disabled:opacity-50 text-emerald-400 rounded-lg text-sm font-mono transition-colors flex items-center gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Sincronizando...' : 'Sincronizar Wide Pay'}
+          </button>
+          <button
+            onClick={fetchDashboard}
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-mono transition-colors"
+          >
+            Atualizar
+          </button>
+        </div>
       </div>
+
+      {syncMsg && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 text-emerald-400 font-mono text-xs">
+          {syncMsg}
+        </div>
+      )}
 
       {/* ============================================================ */}
       {/* ROW 1 — Financeiro destaque */}

@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
+import RootEmpresasClientesView from '@/components/RootEmpresasClientesView';
 import { useSettings } from '@/context/SettingsContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -457,6 +458,11 @@ export default function ClientesPage() {
       return;
     }
 
+    if (formulario.tipo_pessoa === 'PF' && !formulario.rg.trim()) {
+      setErroFormulario('Preencha o RG do cliente');
+      return;
+    }
+
     if (formulario.tipo_pessoa === 'PJ' && !formulario.cnpj.trim()) {
       setErroFormulario('Preencha o CNPJ da empresa');
       return;
@@ -540,6 +546,14 @@ export default function ClientesPage() {
   const estiloInput = "w-full bg-black/50 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white font-mono placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500 transition-all";
   const estiloLabel = "text-[10px] font-mono uppercase text-zinc-500 mb-1.5 block";
   const estiloSelect = "w-full bg-black/50 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500 transition-all appearance-none";
+
+  // ==========================
+  // ROOT MASTER: se quem está logado é superadmin/root, esta aba mostra
+  // as EMPRESAS que assinam o V5 Cloud, não os clientes finais do tenant.
+  // ==========================
+  if (operador && (operador.role === 'superadmin' || operador.role === 'root')) {
+    return <RootEmpresasClientesView role={operador.role} />;
+  }
 
   // ==========================
   // RENDER
@@ -1001,7 +1015,7 @@ export default function ClientesPage() {
                       />
                     </div>
                     <div>
-                      <label className={estiloLabel}>RG</label>
+                      <label className={estiloLabel}>RG *</label>
                       <input
                         type="text"
                         placeholder="Numero do RG"

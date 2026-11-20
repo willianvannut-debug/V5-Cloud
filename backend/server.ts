@@ -12,6 +12,7 @@ import dotenv from 'dotenv';
 import { createFinancialModule } from './src/routes';
 import cookieParser from 'cookie-parser';
 import { authMiddleware } from './src/middleware/auth';
+import { WidePaySyncJob } from './src/jobs/sync.job';
 
 dotenv.config();
 
@@ -79,6 +80,12 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // ============================================================
+// Jobs em segundo plano
+// ============================================================
+
+const widePaySyncJob = new WidePaySyncJob(db);
+
+// ============================================================
 // Iniciar servidor
 // ============================================================
 
@@ -92,6 +99,9 @@ async function start() {
       console.log(`[V5 Fibra] Health check: http://localhost:${PORT}/api/health`);
       console.log(`[V5 Fibra] API Bills: http://localhost:${PORT}/api/financial/bills`);
       console.log(`[V5 Fibra] API Cashflow: http://localhost:${PORT}/api/financial/cashflow`);
+
+      // Sincronização automática Wide Pay → Faturas (a cada 15 min)
+      widePaySyncJob.start();
     });
   } catch (err) {
     console.error('[V5 Fibra] Falha ao iniciar:', err);
