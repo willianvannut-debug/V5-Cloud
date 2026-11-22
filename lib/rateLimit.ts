@@ -1,6 +1,17 @@
 // lib/rateLimit.ts
 const ipRateLimitMap = new Map<string, { count: number; lastReset: number }>();
 
+// Limpeza automática a cada 10 minutos — evita memory leak em produção
+// (remove entradas de IPs cujo período de bloqueio já expirou)
+setInterval(() => {
+  const agora = Date.now();
+  for (const [ip, reg] of ipRateLimitMap.entries()) {
+    if (agora - reg.lastReset > WINDOW_MS * 2) {
+      ipRateLimitMap.delete(ip);
+    }
+  }
+}, 10 * 60 * 1000);
+
 // Configurações padrão
 const WINDOW_MS = 60 * 1000; // Janela de 1 minuto
 const MAX_TENTATIVAS = 5;      // Máximo de 5 tentativas por minuto por IP

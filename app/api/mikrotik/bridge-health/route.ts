@@ -1,23 +1,18 @@
 // app/api/mikrotik/bridge-health/route.ts
 import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { getEmpresaDaSessao } from '@/lib/auth-server'
 
-export async function GET() {
-  // DEBUG - vamos ver quais env vars existem
-  const envKeys = Object.keys(process.env).filter(k => 
-    k.includes('MIKROTIK') || k.includes('BRIDGE')
-  )
-  
-  console.log('ENV KEYS COM MIKROTIK/BRIDGE:', envKeys)
-  console.log('MIKROTIK_BRIDGE_URL:', process.env.MIKROTIK_BRIDGE_URL)
-  
+export async function GET(req: NextRequest) {
+  // Exige autenticação — evita que externos descubram se o Bridge está online
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) return NextResponse.json({ online: false, error: 'Não autenticado' }, { status: 401 })
+
   const BRIDGE_URL = process.env.MIKROTIK_BRIDGE_URL
 
   if (!BRIDGE_URL) {
-    return NextResponse.json({ 
-      online: false, 
-      error: 'BRIDGE_URL nao configurada',
-      debug_keys: envKeys 
-    })
+    // Nunca expor nomes de variáveis de ambiente na resposta
+    return NextResponse.json({ online: false, error: 'Bridge não configurada' })
   }
 
   try {
@@ -30,6 +25,6 @@ export async function GET() {
     }
     return NextResponse.json({ online: false, error: `Status ${res.status}` })
   } catch {
-    return NextResponse.json({ online: false, error: 'Bridge nao respondeu' })
+    return NextResponse.json({ online: false, error: 'Bridge não respondeu' })
   }
 }

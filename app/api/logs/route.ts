@@ -2,7 +2,9 @@
 // Endpoint que recebe logs e salva no Supabase
 
 import { NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getEmpresaDaSessao } from '@/lib/auth-server';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
@@ -13,21 +15,28 @@ const supabaseAdmin = createClient(
  * POST /api/logs
  * Recebe um log individual e salva no Supabase
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  // Verificar autenticação — evita inserção de logs falsos por externos
+  const sessao = await getEmpresaDaSessao(request)
+  if (!sessao) {
+    return NextResponse.json({ sucesso: false, mensagem: 'Não autenticado' }, { status: 401 })
+  }
+
   try {
     const logData = await request.json();
     const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
     const userAgent = request.headers.get('user-agent') || '';
 
     // Estrutura o log para salvar no Supabase
+    // LGPD: empresa_id e operador_id sempre vêm da sessão autenticada (nunca do body)
     const logFormatado = {
       nivel: logData.nivel,
       acao: logData.acao,
       entidade: logData.entidade,
       mensagem: logData.mensagem,
-      operador_email: logData.operadorEmail || null,
-      operador_id: logData.operadorId || null,
-      empresa_id: logData.empresaId || null,
+      operador_email: sessao.email,
+      operador_id: sessao.operadorId,
+      empresa_id: sessao.empresaId,   // força da sessão — nunca do body
       entidade_id: logData.entidadeId || null,
       ip,
       user_agent: userAgent,

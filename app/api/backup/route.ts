@@ -5,7 +5,9 @@
 // do frontend (que já cria backup real no MikroTik via mk-proxy)
 // ============================================================
 import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getEmpresaDaSessao } from '@/lib/auth-server'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -13,9 +15,15 @@ const supabase = createClient(
 )
 
 // GET - Lista backups + config
-export async function GET(req) {
+export async function GET(req: NextRequest) {
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 })
+  if (!['gerente', 'admin', 'superadmin'].includes(sessao.role)) {
+    return NextResponse.json({ success: false, error: 'Sem permissão — somente gerentes' }, { status: 403 })
+  }
+
   try {
-    const empresaId = req.nextUrl.searchParams.get('empresa_id')
+    const empresaId = sessao.empresaId
     if (!empresaId) {
       return NextResponse.json({ success: false, error: 'empresa_id obrigatório' }, { status: 400 })
     }
@@ -51,9 +59,16 @@ export async function GET(req) {
 }
 
 // POST - Salvar config OU criar registro de backup
-export async function POST(req) {
+export async function POST(req: NextRequest) {
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 })
+  if (!['gerente', 'admin', 'superadmin'].includes(sessao.role)) {
+    return NextResponse.json({ success: false, error: 'Sem permissão — somente gerentes' }, { status: 403 })
+  }
+
   try {
     const body = await req.json()
+    body.empresa_id = sessao.empresaId
 
     // Se tem server_id e tipo, é criação de registro de backup
     if (body.server_id && body.tipo) {
@@ -68,11 +83,25 @@ export async function POST(req) {
 }
 
 // DELETE - Deletar backup
-export async function DELETE(req) {
+export async function DELETE(req: NextRequest) {
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 })
+  if (!['gerente', 'admin', 'superadmin'].includes(sessao.role)) {
+    return NextResponse.json({ success: false, error: 'Sem permissão — somente gerentes' }, { status: 403 })
+  }
+
   try {
     const id = req.nextUrl.searchParams.get('id')
     if (!id) {
       return NextResponse.json({ success: false, error: 'ID obrigatório' }, { status: 400 })
+    }
+    const { data: backupItem } = await supabase
+      .from('backup_items')
+      .select('empresa_id')
+      .eq('id', id)
+      .single()
+    if (!backupItem || backupItem.empresa_id !== sessao.empresaId) {
+      return NextResponse.json({ success: false, error: 'Backup não encontrado ou sem permissão' }, { status: 403 })
     }
     const { error } = await supabase
       .from('backup_items')

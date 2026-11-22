@@ -39,6 +39,9 @@ async function registrarLog(email, acao, nivel, mensagem, request, detalhes) {
         entidade: 'clientes',
         mensagem,
         operador_email: email || 'sistema',
+        // LGPD: rastreabilidade por empresa e operador
+        operador_id: detalhes?.operadorId || null,
+        empresa_id: detalhes?.empresaId || null,
         ip,
         user_agent: userAgent,
         detalhes: detalhes || {},
@@ -66,7 +69,8 @@ async function validarAutorizacao(request) {
       return {
         autorizado: true,
         empresaIdSessao: payload.empresaId,
-        emailOperador: payload.email
+        emailOperador: payload.email,
+        operadorId: payload.operadorId || null,
       };
     } catch (e) {
       console.error('Erro ao verificar JWT na API de clientes:', e);
@@ -381,6 +385,8 @@ export async function POST(request) {
         tipo: tipoPessoa,
         cpf_cnpj: tipoPessoa === 'PF' ? novoCliente.cpf : novoCliente.cnpj,
         pppoe_criado: pppoeCreated,
+        empresaId: auth.empresaIdSessao,
+        operadorId: auth.operadorId,
       }
     );
 
@@ -484,7 +490,10 @@ export async function PUT(request) {
       .single();
 
     await registrarLog(auth.emailOperador || 'sistema', 'CLIENTE_ATUALIZADO', 'INFO',
-      `Cliente atualizado: ${clienteAtualizado?.nome}`, request, { clienteId, alteracoes: dadosAtualizados }
+      `Cliente atualizado: ${clienteAtualizado?.nome}`, request, {
+        clienteId, alteracoes: dadosAtualizados,
+        empresaId: auth.empresaIdSessao, operadorId: auth.operadorId,
+      }
     );
 
     return NextResponse.json({ success: true, cliente: clienteAtualizado }, { status: 200 });
@@ -557,7 +566,10 @@ export async function DELETE(request) {
     }
 
     await registrarLog(auth.emailOperador || 'sistema', 'CLIENTE_EXCLUIDO', 'WARNING',
-      `Cliente excluido: ${cliente.nome}`, request, { clienteId, nome: cliente.nome }
+      `Cliente excluido: ${cliente.nome}`, request, {
+        clienteId, nome: cliente.nome,
+        empresaId: auth.empresaIdSessao, operadorId: auth.operadorId,
+      }
     );
 
     return NextResponse.json({ success: true }, { status: 200 });

@@ -154,6 +154,7 @@ export default function CriarOSPage() {
   // Coordenadas do mapa
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  const [mostrarPin, setMostrarPin] = useState(false);
 
   const toggleTecnico = (id: string) => {
     setTecnicosIds(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
@@ -207,6 +208,14 @@ export default function CriarOSPage() {
   const removerPin = () => {
     setLatitude(null);
     setLongitude(null);
+  };
+
+  const alternarMostrarPin = (marcado: boolean) => {
+    setMostrarPin(marcado);
+    if (!marcado) {
+      setLatitude(null);
+      setLongitude(null);
+    }
   };
 
   const criarOS = async (e: React.FormEvent) => {
@@ -383,40 +392,56 @@ export default function CriarOSPage() {
           )}
 
 
-          {/* ==================== MAPA COM PIN ==================== */}
+          {/* ==================== PIN NO MAPA (OPCIONAL) ==================== */}
           <div className="relative z-0 border border-zinc-900 bg-zinc-900/40 rounded-xl p-5">
-            <label className="text-[10px] font-mono uppercase text-zinc-500 block mb-2 flex items-center gap-1.5">
-              <Crosshair className="w-3 h-3" /> Pin no Mapa (GPS do Técnico)
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={mostrarPin}
+                onChange={(e) => alternarMostrarPin(e.target.checked)}
+                className="w-4 h-4 accent-emerald-500 cursor-pointer"
+              />
+              <span className="text-[10px] font-mono uppercase text-zinc-500 flex items-center gap-1.5">
+                <Crosshair className="w-3 h-3" /> Colocar pin no mapa (opcional)
+              </span>
             </label>
-            <p className="text-[10px] font-mono text-zinc-600 mb-3">
-              Clique no mapa para marcar a localização exata. O técnico usará essas coordenadas para navegar.
+            <p className="text-[10px] font-mono text-zinc-600 mt-1.5 ml-6">
+              Marque esta opção se quiser indicar a localização exata para o técnico navegar via GPS. Se não marcar, a OS é criada normalmente, sem pin.
             </p>
 
-            <MapaPinComponent
-              latitude={latitude}
-              longitude={longitude}
-              onChange={handleMapChange}
-            />
+            {mostrarPin && (
+              <div className="mt-4">
+                <p className="text-[10px] font-mono text-zinc-600 mb-3">
+                  Clique no mapa para marcar a localização exata. O técnico usará essas coordenadas para navegar.
+                </p>
 
-            {latitude && longitude ? (
-              <div className="mt-3 flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-emerald-400" />
-                  <span className="text-[11px] font-mono text-emerald-400 font-bold">
-                    Pin definido: {latitude.toFixed(6)}, {longitude.toFixed(6)}
-                  </span>
-                </div>
-                <button type="button" onClick={removerPin}
-                  className="text-zinc-400 hover:text-red-400 cursor-pointer p-1 transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="mt-3 flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-                <MapPin className="w-4 h-4 text-amber-400" />
-                <span className="text-[11px] font-mono text-amber-400">
-                  Nenhum pin colocado — o técnico não terá navegação GPS
-                </span>
+                <MapaPinComponent
+                  latitude={latitude}
+                  longitude={longitude}
+                  onChange={handleMapChange}
+                />
+
+                {latitude && longitude ? (
+                  <div className="mt-3 flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-emerald-400" />
+                      <span className="text-[11px] font-mono text-emerald-400 font-bold">
+                        Pin definido: {latitude.toFixed(6)}, {longitude.toFixed(6)}
+                      </span>
+                    </div>
+                    <button type="button" onClick={removerPin}
+                      className="text-zinc-400 hover:text-red-400 cursor-pointer p-1 transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                    <MapPin className="w-4 h-4 text-amber-400" />
+                    <span className="text-[11px] font-mono text-amber-400">
+                      Nenhum pin colocado ainda — clique no mapa acima
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>

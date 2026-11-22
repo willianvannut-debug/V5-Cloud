@@ -3,6 +3,36 @@ import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
 import { Resend } from 'resend';
 
+// Rate limiting para registro: máximo 3 registros por hora por IP
+const registroRateLimitMap = new Map<string, { count: number; windowStart: number }>();
+const REGISTRO_MAX = 3;
+const REGISTRO_WINDOW_MS = 60 * 60 * 1000; // 1 hora
+
+// Limpeza automática a cada hora — evita memory leak em produção
+setInterval(() => {
+  const agora = Date.now();
+  for (const [ip, reg] of registroRateLimitMap.entries()) {
+    if (agora - reg.windowStart > REGISTRO_WINDOW_MS * 2) {
+      registroRateLimitMap.delete(ip);
+    }
+  }
+}, REGISTRO_WINDOW_MS);
+
+function checarRateLimitRegistro(ip: string): { bloqueado: boolean; minutosRestantes: number } {
+  const agora = Date.now();
+  const reg = registroRateLimitMap.get(ip);
+  if (!reg || agora - reg.windowStart > REGISTRO_WINDOW_MS) {
+    registroRateLimitMap.set(ip, { count: 1, windowStart: agora });
+    return { bloqueado: false, minutosRestantes: 0 };
+  }
+  if (reg.count >= REGISTRO_MAX) {
+    const minutosRestantes = Math.ceil((REGISTRO_WINDOW_MS - (agora - reg.windowStart)) / 60000);
+    return { bloqueado: true, minutosRestantes };
+  }
+  reg.count++;
+  return { bloqueado: false, minutosRestantes: 0 };
+}
+
 // 🚀 1. Inicializa o Resend com a sua chave
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -12,6 +42,18 @@ const supabaseAdmin = createClient(
 );
 
 export async function POST(request: Request) {
+  // Rate limiting: bloqueia IPs que tentam criar muitas contas em pouco tempo
+  const ipRegistro = request.headers.get('x-forwarded-for')?.split(',')[0].trim()
+    || request.headers.get('x-real-ip')
+    || 'unknown';
+  const rlRegistro = checarRateLimitRegistro(ipRegistro);
+  if (rlRegistro.bloqueado) {
+    return NextResponse.json(
+      { sucesso: false, mensagem: `Muitas tentativas de registro. Tente novamente em ${rlRegistro.minutosRestantes} minuto(s).` },
+      { status: 429 }
+    );
+  }
+
   try {
     const body = await request.json();
     

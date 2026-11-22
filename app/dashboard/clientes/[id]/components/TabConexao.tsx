@@ -69,6 +69,53 @@ interface ConexaoMK {
   encoding: string;
 }
 
+// ==========================
+// CAMPO DE FORMULARIO (componente top-level - identidade estavel entre
+// renders, para o <input> nao perder o foco a cada tecla digitada)
+// ==========================
+function CampoForm({ label, campo, placeholder, copiavel, valor, estaEditando, valorForm, onMudar, onCopiar }: {
+  label: string;
+  campo: string;
+  placeholder?: string;
+  copiavel?: boolean;
+  valor?: string;
+  estaEditando: boolean;
+  valorForm?: string;
+  onMudar: (campo: string, valor: string) => void;
+  onCopiar: (valor: string, label: string) => void;
+}) {
+  const valorExibir = valor ?? '';
+
+  if (estaEditando) {
+    return (
+      <div>
+        <label className={estiloRotulo}>{label}</label>
+        <input
+          type="text"
+          placeholder={placeholder || label}
+          value={valorForm || ''}
+          onChange={(e) => onMudar(campo, e.target.value)}
+          className={estiloInput}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label className={estiloRotulo}>{label}</label>
+      <div className="flex items-center gap-2">
+        <p className={estiloValor}>{valorExibir || <span className="text-zinc-600">-</span>}</p>
+        {copiavel && valorExibir && (
+          <button onClick={() => onCopiar(valorExibir, label)} className="text-zinc-600 hover:text-emerald-400 transition-all cursor-pointer">
+            <Copy className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function TabConexao({ cliente, editando, formEdit, setFormEdit }: TabConexaoProps) {
   const { operador } = useAuth();
 
@@ -238,6 +285,83 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
   };
 
   // ==========================
+  // SYNC DO SECRET PPPOE NO MIKROTIK (via bridge / mk-proxy)
+  // Antes, "Novo Ponto" e a edicao de uma conexao so gravavam no Supabase
+  // -- o roteador nunca ficava sabendo do login/senha, entao o cliente
+  // nunca conseguia conectar de verdade. Mesmo padrao ja usado e validado
+  // em app/dashboard/clientes/acesso-rede/page.tsx.
+  // ==========================
+  const criarSecretMikrotik = async (
+    login: string,
+    senha: string,
+    perfil: string,
+    ipFixo: string,
+    nomeCliente: string
+  ): Promise<{ ok: boolean; erro?: string }> => {
+    if (!operador?.empresaId) return { ok: false, erro: 'Empresa nao identificada' };
+    try {
+      const res = await fetch(`/api/mk-proxy?path=pppoe/secrets/add&empresa_id=${operador.empresaId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_name: login,
+          client_password: senha,
+          profile: perfil || 'default',
+          remote_address: ipFixo || undefined,
+          comment: `V5 Fibra - ${nomeCliente}`,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        // Secret ja existe no router (ex: foi criado por fora) -> atualiza em vez de criar
+        if (data.error && data.error.includes('already')) {
+          return await atualizarSecretMikrotik(login, login, senha, perfil, ipFixo, nomeCliente);
+        }
+        return { ok: false, erro: data.error || 'Erro desconhecido' };
+      }
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, erro: err.message || 'Erro de conexao com o Bridge' };
+    }
+  };
+
+  const atualizarSecretMikrotik = async (
+    loginAnterior: string,
+    loginNovo: string,
+    senha: string,
+    perfil: string,
+    ipFixo: string,
+    nomeCliente: string
+  ): Promise<{ ok: boolean; erro?: string }> => {
+    if (!operador?.empresaId) return { ok: false, erro: 'Empresa nao identificada' };
+    try {
+      const res = await fetch(`/api/mk-proxy?path=pppoe/secrets/set&empresa_id=${operador.empresaId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          original_name: loginAnterior,
+          client_name: loginNovo !== loginAnterior ? loginNovo : undefined,
+          client_password: senha || undefined,
+          profile: perfil || undefined,
+          remote_address: ipFixo || undefined,
+          comment: `V5 Fibra - ${nomeCliente}`,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        // Secret ainda nao existe no router -> cria
+        if (data.error && data.error.includes('nao encontrado')) {
+          return await criarSecretMikrotik(loginNovo, senha, perfil, ipFixo, nomeCliente);
+        }
+        return { ok: false, erro: data.error || 'Erro desconhecido' };
+      }
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, erro: err.message || 'Erro de conexao com o Bridge' };
+    }
+  };
+
+  // ==========================
   // SALVAR CONEXAO (NOVA OU EDICAO)
   // ==========================
   const salvarConexao = async () => {
@@ -248,6 +372,10 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
 
     setExecutando('salvando');
     try {
+      const loginAnterior = editandoConexao
+        ? conexoes.find((c) => c.id === editandoConexao)?.login_pppoe || null
+        : null;
+
       if (editandoConexao) {
         // Atualizar existente
         const { error } = await supabase
@@ -266,7 +394,24 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
           .eq('id', editandoConexao);
 
         if (error) throw error;
-        mostrarSucesso('Conexao atualizada!');
+
+        if (formConexao.login_pppoe && formConexao.senha_pppoe) {
+          const sync = await atualizarSecretMikrotik(
+            loginAnterior || formConexao.login_pppoe,
+            formConexao.login_pppoe,
+            formConexao.senha_pppoe,
+            formConexao.perfil_radius || '',
+            formConexao.ip_fixo || '',
+            cliente.nome
+          );
+          if (sync.ok) {
+            mostrarSucesso('Conexao atualizada e secret sincronizado no MikroTik!');
+          } else {
+            mostrarErro(`Conexao atualizada no sistema, mas falhou ao sincronizar no MikroTik: ${sync.erro || 'erro desconhecido'}`);
+          }
+        } else {
+          mostrarSucesso('Conexao atualizada!');
+        }
       } else {
         // Criar nova
         const { error } = await supabase
@@ -286,7 +431,23 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
           });
 
         if (error) throw error;
-        mostrarSucesso('Nova conexao adicionada!');
+
+        if (formConexao.login_pppoe && formConexao.senha_pppoe) {
+          const sync = await criarSecretMikrotik(
+            formConexao.login_pppoe,
+            formConexao.senha_pppoe,
+            formConexao.perfil_radius || '',
+            formConexao.ip_fixo || '',
+            cliente.nome
+          );
+          if (sync.ok) {
+            mostrarSucesso('Nova conexao criada e PPPoE provisionado no MikroTik!');
+          } else {
+            mostrarErro(`Conexao salva no sistema, mas falhou ao criar o PPPoE no MikroTik: ${sync.erro || 'erro desconhecido'}`);
+          }
+        } else {
+          mostrarSucesso('Nova conexao adicionada! (sem login/senha PPPoE, nao foi provisionada no MikroTik)');
+        }
       }
 
       setEditandoConexao(null);
@@ -326,16 +487,31 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
   // ACOES MIKROTIK
   // ==========================
   const bloquearConexao = async (conexao: ConexaoPPPoE) => {
+    if (!operador?.empresaId || !conexao.login_pppoe) {
+      mostrarErro('Login PPPoE nao configurado nesta conexao');
+      setModalConfirmar(null);
+      return;
+    }
     setExecutando('bloqueando');
     try {
-      const res = await fetch('/api/mikrotik/block', {
+      const res = await fetch(`/api/mk-proxy?path=pppoe/secrets/set&empresa_id=${operador.empresaId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ cliente_id: cliente.id, login_pppoe: conexao.login_pppoe, acao: 'bloquear' }),
+        body: JSON.stringify({ original_name: conexao.login_pppoe, profile: 'BLOQUEADO' }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Erro desconhecido');
+      if (!data.success) throw new Error(data.error || 'Erro desconhecido');
+
+      // Derruba a sessao ativa pra bloqueio ter efeito imediato (troca de
+      // perfil so vale no proximo reconnect, sem isso o cliente continua
+      // conectado no perfil antigo ate cair sozinho).
+      try {
+        await fetch(`/api/mk-proxy?path=pppoe/disconnect&empresa_id=${operador.empresaId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: conexao.login_pppoe }),
+        });
+      } catch {}
 
       // Atualizar status no banco
       await supabase.from('conexoes_pppoe').update({ status: 'bloqueado' }).eq('id', conexao.id);
@@ -352,16 +528,23 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
   };
 
   const desbloquearConexao = async (conexao: ConexaoPPPoE) => {
+    if (!operador?.empresaId || !conexao.login_pppoe) {
+      mostrarErro('Login PPPoE nao configurado nesta conexao');
+      setModalConfirmar(null);
+      return;
+    }
     setExecutando('desbloqueando');
     try {
-      const res = await fetch('/api/mikrotik/block', {
+      const res = await fetch(`/api/mk-proxy?path=pppoe/secrets/set&empresa_id=${operador.empresaId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ cliente_id: cliente.id, login_pppoe: conexao.login_pppoe, acao: 'desbloquear' }),
+        // Restaura o perfil que ja estava salvo nesta conexao (plano do
+        // cliente). Se por algum motivo a conexao nao tiver perfil
+        // salvo, usa "default" em vez de deixar o secret sem perfil.
+        body: JSON.stringify({ original_name: conexao.login_pppoe, profile: conexao.perfil_radius || 'default' }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Erro desconhecido');
+      if (!data.success) throw new Error(data.error || 'Erro desconhecido');
 
       await supabase.from('conexoes_pppoe').update({ status: 'ativo' }).eq('id', conexao.id);
 
@@ -565,47 +748,16 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
   };
 
   // ==========================
-  // CAMPO DE FORMULARIO
+  // CAMPO DE FORMULARIO: handler estavel usado pelo <CampoForm> (ver
+  // definicao top-level acima, fora de TabConexao -- e essa a correcao
+  // do bug de perda de foco a cada tecla digitada).
   // ==========================
-  const CampoForm = ({ label, campo, placeholder, copiavel, valor }: {
-    label: string; campo: string; placeholder?: string; copiavel?: boolean; valor?: string;
-  }) => {
-    const estaEditando = editandoConexao || adicionando;
-    const valorExibir = valor ?? '';
-
-    if (estaEditando) {
-      return (
-        <div>
-          <label className={estiloRotulo}>{label}</label>
-          <input
-            type="text"
-            placeholder={placeholder || label}
-            value={(formConexao as any)[campo] || ''}
-            onChange={(e) => {
-              let v = e.target.value;
-              if (campo === 'mac_address') v = mascaraMAC(v);
-              setFormConexao(prev => ({ ...prev, [campo]: v }));
-            }}
-            className={estiloInput}
-          />
-        </div>
-      );
-    }
-
-    return (
-      <div>
-        <label className={estiloRotulo}>{label}</label>
-        <div className="flex items-center gap-2">
-          <p className={estiloValor}>{valorExibir || <span className="text-zinc-600">-</span>}</p>
-          {copiavel && valorExibir && (
-            <button onClick={() => copiar(valorExibir, label)} className="text-zinc-600 hover:text-emerald-400 transition-all cursor-pointer">
-              <Copy className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-      </div>
-    );
+  const aoMudarCampo = (campo: string, v: string) => {
+    if (campo === 'mac_address') v = mascaraMAC(v);
+    setFormConexao(prev => ({ ...prev, [campo]: v }));
   };
+
+  const estaEditandoForm = Boolean(editandoConexao || adicionando);
 
   // ==========================
   // RENDER
@@ -712,18 +864,18 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <CampoForm label="Login PPPoE" campo="login_pppoe" placeholder="usuario@v5fibra" />
-              <CampoForm label="Senha PPPoE" campo="senha_pppoe" placeholder="senha" />
+              <CampoForm label="Login PPPoE" campo="login_pppoe" placeholder="usuario@v5fibra" estaEditando={estaEditandoForm} valorForm={formConexao.login_pppoe || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+              <CampoForm label="Senha PPPoE" campo="senha_pppoe" placeholder="senha" estaEditando={estaEditandoForm} valorForm={formConexao.senha_pppoe || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
             </div>
 
             <p className="text-[10px] font-mono text-zinc-500 uppercase border-b border-zinc-800 pb-2">Dados de Rede</p>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <CampoForm label="IP Fixo" campo="ip_fixo" placeholder="0.0.0.0" />
-              <CampoForm label="MAC Address" campo="mac_address" placeholder="AA:BB:CC:DD:EE:FF" />
-              <CampoForm label="Perfil RADIUS" campo="perfil_radius" placeholder="plano_100mb" />
-              <CampoForm label="VLAN" campo="vlan" />
-              <CampoForm label="Porta OLT" campo="porta_olt" />
-              <CampoForm label="Serial ONU" campo="onu_serial" />
+              <CampoForm label="IP Fixo" campo="ip_fixo" placeholder="0.0.0.0" estaEditando={estaEditandoForm} valorForm={formConexao.ip_fixo || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+              <CampoForm label="MAC Address" campo="mac_address" placeholder="AA:BB:CC:DD:EE:FF" estaEditando={estaEditandoForm} valorForm={formConexao.mac_address || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+              <CampoForm label="Perfil RADIUS" campo="perfil_radius" placeholder="plano_100mb" estaEditando={estaEditandoForm} valorForm={formConexao.perfil_radius || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+              <CampoForm label="VLAN" campo="vlan" estaEditando={estaEditandoForm} valorForm={formConexao.vlan || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+              <CampoForm label="Porta OLT" campo="porta_olt" estaEditando={estaEditandoForm} valorForm={formConexao.porta_olt || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+              <CampoForm label="Serial ONU" campo="onu_serial" estaEditando={estaEditandoForm} valorForm={formConexao.onu_serial || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
             </div>
 
             <div className="flex gap-3 pt-2">
@@ -851,7 +1003,7 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <CampoForm label="Login PPPoE" campo="login_pppoe" placeholder="usuario@v5fibra" copiavel valor={conexao.login_pppoe || ''} />
+                      <CampoForm label="Login PPPoE" campo="login_pppoe" placeholder="usuario@v5fibra" copiavel valor={conexao.login_pppoe || ''} estaEditando={estaEditandoForm} valorForm={formConexao.login_pppoe || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
                       <div>
                         <label className={estiloRotulo}>Senha PPPoE</label>
                         {isEditando ? (
@@ -893,12 +1045,12 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
                   <div>
                     <p className="text-[10px] font-mono uppercase text-emerald-500 tracking-widest border-b border-zinc-900 pb-2 mb-4">Dados de Rede</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <CampoForm label="IP Fixo" campo="ip_fixo" placeholder="0.0.0.0" copiavel valor={conexao.ip_fixo || ''} />
-                      <CampoForm label="MAC Address" campo="mac_address" placeholder="AA:BB:CC:DD:EE:FF" copiavel valor={conexao.mac_address || ''} />
-                      <CampoForm label="Perfil RADIUS" campo="perfil_radius" placeholder="plano_100mb" copiavel valor={conexao.perfil_radius || ''} />
-                      <CampoForm label="VLAN" campo="vlan" copiavel valor={conexao.vlan || ''} />
-                      <CampoForm label="Porta OLT" campo="porta_olt" copiavel valor={conexao.porta_olt || ''} />
-                      <CampoForm label="Serial ONU" campo="onu_serial" copiavel valor={conexao.onu_serial || ''} />
+                      <CampoForm label="IP Fixo" campo="ip_fixo" placeholder="0.0.0.0" copiavel valor={conexao.ip_fixo || ''} estaEditando={estaEditandoForm} valorForm={formConexao.ip_fixo || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+                      <CampoForm label="MAC Address" campo="mac_address" placeholder="AA:BB:CC:DD:EE:FF" copiavel valor={conexao.mac_address || ''} estaEditando={estaEditandoForm} valorForm={formConexao.mac_address || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+                      <CampoForm label="Perfil RADIUS" campo="perfil_radius" placeholder="plano_100mb" copiavel valor={conexao.perfil_radius || ''} estaEditando={estaEditandoForm} valorForm={formConexao.perfil_radius || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+                      <CampoForm label="VLAN" campo="vlan" copiavel valor={conexao.vlan || ''} estaEditando={estaEditandoForm} valorForm={formConexao.vlan || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+                      <CampoForm label="Porta OLT" campo="porta_olt" copiavel valor={conexao.porta_olt || ''} estaEditando={estaEditandoForm} valorForm={formConexao.porta_olt || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
+                      <CampoForm label="Serial ONU" campo="onu_serial" copiavel valor={conexao.onu_serial || ''} estaEditando={estaEditandoForm} valorForm={formConexao.onu_serial || ''} onMudar={aoMudarCampo} onCopiar={copiar} />
                     </div>
                   </div>
 

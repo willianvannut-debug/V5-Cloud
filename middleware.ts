@@ -32,5 +32,15 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/tecnico/:path*'],
+  matcher: [
+    // Protege o dashboard e área do técnico
+    '/dashboard/:path*',
+    '/tecnico/:path*',
+    // Protege TODAS as rotas de API, exceto as públicas:
+    // - /api/auth/** (login, registro, verificação de código)
+    // - /api/webhook/** (Stripe webhooks - usam assinatura própria)
+    // - /api/empresa-config/por-cpf (app mobile busca empresa pelo CPF do cliente)
+    // - /api/suporte/app/** (caso exista rota pública de suporte do app)
+    '/api/((?!auth/|webhook/|empresa-config/por-cpf).*)',
+  ],
 };

@@ -10,6 +10,7 @@ import {
   Users,
   MapPin,
   ShieldCheck,
+  ShieldAlert,
   BarChart3,
   Settings,
   Radio,
@@ -277,6 +278,11 @@ export function Sidebar() {
 
     // 8. EQUIPE (vendedores, atendentes e técnicos, código de convite, metas)
     { name: 'Equipe', href: '/dashboard/equipe', icon: UsersRound, roles: ['gerente', 'superadmin'] },
+
+    // SEGURANÇA — Monitoramento de acessos e alertas
+    {
+      name: 'Segurança', href: '/dashboard/seguranca', icon: ShieldAlert, roles: ['superadmin'],
+    },
 
     // 9. PERMISSOES E MULTI-USUARIO — ESCONDIDO NO LANÇAMENTO (voltar no futuro)
     // Para reativar: apague o "/*" da linha abaixo e o "*/" do final do bloco.

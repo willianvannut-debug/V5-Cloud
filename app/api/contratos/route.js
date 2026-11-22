@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getEmpresaDaSessao } from '@/lib/auth-server'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -143,6 +145,16 @@ export async function POST(req) {
         .single()
 
       if (error) throw error
+
+      // LGPD: registrar alteração de contrato (dado pessoal)
+      await supabase.from('logs_sistema').insert([{
+        nivel: 'INFO', acao: 'CONTRATO_VINCULADO', entidade: 'contratos',
+        mensagem: `Contrato vinculado ao cliente ${cliente_id}`,
+        empresa_id, entidade_id: String(cliente_id),
+        detalhes: { contrato_id: data?.id, plano_id, fidelidade_meses },
+        timestamp: new Date().toISOString(), criado_em: new Date().toISOString(),
+      }]).catch(() => {});
+
       return NextResponse.json({ success: true, data })
     }
 
@@ -164,6 +176,16 @@ export async function POST(req) {
         .single()
 
       if (error) throw error
+
+      // LGPD: registrar cancelamento de contrato (dado pessoal)
+      await supabase.from('logs_sistema').insert([{
+        nivel: 'WARNING', acao: 'CONTRATO_CANCELADO', entidade: 'contratos',
+        mensagem: `Contrato ${contrato_id} cancelado`,
+        empresa_id, entidade_id: String(contrato_id),
+        detalhes: { contrato_id, cliente_id, observacoes },
+        timestamp: new Date().toISOString(), criado_em: new Date().toISOString(),
+      }]).catch(() => {});
+
       return NextResponse.json({ success: true, data })
     }
 

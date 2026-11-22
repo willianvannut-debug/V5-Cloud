@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getEmpresaDaSessao } from '@/lib/auth-server'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -7,9 +9,12 @@ const supabase = createClient(
 )
 
 // GET - Carrega config + clientes bloqueados
-export async function GET(req) {
+export async function GET(req: NextRequest) {
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 })
+
   try {
-    const empresaId = req.nextUrl.searchParams.get('empresa_id')
+    const empresaId = req.nextUrl.searchParams.get('empresa_id') || sessao.empresaId
     if (!empresaId) {
       return NextResponse.json({ success: false, error: 'empresa_id obrigatório' }, { status: 400 })
     }
@@ -47,12 +52,21 @@ export async function GET(req) {
 }
 
 // POST - Salvar configuração de bloqueio
-export async function POST(req) {
+export async function POST(req: NextRequest) {
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 })
+
   try {
     const body = await req.json()
     const { empresa_id, dias_atraso, tipo_bloqueio, address_list_name, notificar_antes, dias_notificacao, mensagem_bloqueio, ativo } = body
 
-    if (!empresa_id) {
+    // Garantir que operador só altera config da própria empresa
+    const empresaIdFinal = sessao.empresaId
+    if (empresa_id && empresa_id !== empresaIdFinal) {
+      return NextResponse.json({ success: false, error: 'Sem permissão para esta empresa' }, { status: 403 })
+    }
+    const empresa_id_validado = empresaIdFinal
+    if (!empresa_id_validado) {
       return NextResponse.json({ success: false, error: 'empresa_id obrigatório' }, { status: 400 })
     }
 
@@ -60,7 +74,7 @@ export async function POST(req) {
     const { data: existing } = await supabase
       .from('bloqueio_config')
       .select('id')
-      .eq('empresa_id', empresa_id)
+      .eq('empresa_id', empresa_id_validado)
       .single()
 
     let data, error
@@ -89,7 +103,7 @@ export async function POST(req) {
       const result = await supabase
         .from('bloqueio_config')
         .insert({
-          empresa_id,
+          empresa_id: empresa_id_validado,
           dias_atraso: dias_atraso || 5,
           tipo_bloqueio: tipo_bloqueio || 'address-list',
           address_list_name: address_list_name || 'bloqueados',
@@ -105,8 +119,18 @@ export async function POST(req) {
     }
 
     if (error) throw error
+
+    // LGPD: registrar alteração de config de bloqueio (ação sobre dados de clientes)
+    await supabase.from('logs_sistema').insert([{
+      nivel: 'INFO' as const, acao: 'BLOQUEIO_CONFIG_ALTERADA', entidade: 'bloqueio',
+      mensagem: `Configuração de bloqueio automático atualizada`,
+      operador_id: sessao.operadorId, empresa_id: empresa_id_validado,
+      detalhes: { dias_atraso, tipo_bloqueio, ativo },
+      timestamp: new Date().toISOString(), criado_em: new Date().toISOString(),
+    }]).catch(() => {});
+
     return NextResponse.json({ success: true, data })
-  } catch (error) {
+  } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }

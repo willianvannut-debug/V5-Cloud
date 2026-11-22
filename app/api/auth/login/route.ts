@@ -21,6 +21,16 @@ const WINDOW_MS = 60 * 1000; // Janela de 1 minuto para contar tentativas
 const MAX_TENTATIVAS = 5;      // Máximo de 5 tentativas por janela
 const TEMPO_BLOQUEIO_MS = 2 * 60 * 1000; // Bloqueio de 2 minutos se exceder as 5 tentativas
 
+// Limpeza automática a cada 10 minutos — evita memory leak em produção
+setInterval(() => {
+  const agora = Date.now();
+  for (const [ip, reg] of ipRateLimitMap.entries()) {
+    if (reg.blockedUntil < agora && agora - reg.lastReset > WINDOW_MS * 2) {
+      ipRateLimitMap.delete(ip);
+    }
+  }
+}, 10 * 60 * 1000);
+
 /**
  * Função para verificar o Rate Limit e aplicar bloqueios
  */
@@ -84,6 +94,9 @@ async function registrarLog(
         entidade: 'autenticacao',
         mensagem,
         operador_email: email,
+        // LGPD: gravar empresa_id e operador_id para rastreabilidade
+        operador_id: detalhes?.operadorId || null,
+        empresa_id: detalhes?.empresaId || null,
         ip,
         detalhes: detalhes || {},
         timestamp: new Date().toISOString(),
@@ -168,7 +181,7 @@ export async function POST(request: Request) {
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
-      .setExpirationTime('30d')
+      .setExpirationTime('8h')
       .sign(JWT_SECRET);
 
     const cookieStore = await cookies();
@@ -181,7 +194,7 @@ export async function POST(request: Request) {
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
       path: '/',
-      maxAge: 60 * 60 * 24 * 30,
+      maxAge: 60 * 60 * 8, // 8 horas — reduzido por segurança
     });
 
     await registrarLog(operador.email, 'LOGIN_SUCESSO', 'SUCCESS',

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getEmpresaDaSessao } from '@/lib/auth-server'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -7,9 +9,12 @@ const supabase = createClient(
 )
 
 // GET - Carrega config + clientes bloqueados aguardando desbloqueio
-export async function GET(req) {
+export async function GET(req: NextRequest) {
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 })
+
   try {
-    const empresaId = req.nextUrl.searchParams.get('empresa_id')
+    const empresaId = req.nextUrl.searchParams.get('empresa_id') || sessao.empresaId
     if (!empresaId) {
       return NextResponse.json({ success: false, error: 'empresa_id obrigatório' }, { status: 400 })
     }
@@ -46,12 +51,20 @@ export async function GET(req) {
 }
 
 // POST - Salvar configuração de desbloqueio
-export async function POST(req) {
+export async function POST(req: NextRequest) {
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 })
+
   try {
     const body = await req.json()
     const { empresa_id, desbloqueio_automatico, verificar_pagamento, intervalo_verificacao, notificar_desbloqueio, mensagem_desbloqueio, ativo } = body
 
-    if (!empresa_id) {
+    // Garantir que operador só altera config da própria empresa
+    const empresa_id_validado = sessao.empresaId
+    if (empresa_id && empresa_id !== empresa_id_validado) {
+      return NextResponse.json({ success: false, error: 'Sem permissão para esta empresa' }, { status: 403 })
+    }
+    if (!empresa_id_validado) {
       return NextResponse.json({ success: false, error: 'empresa_id obrigatório' }, { status: 400 })
     }
 
@@ -59,7 +72,7 @@ export async function POST(req) {
     const { data: existing } = await supabase
       .from('desbloqueio_config')
       .select('id')
-      .eq('empresa_id', empresa_id)
+      .eq('empresa_id', empresa_id_validado)
       .single()
 
     let data, error
@@ -87,7 +100,7 @@ export async function POST(req) {
       const result = await supabase
         .from('desbloqueio_config')
         .insert({
-          empresa_id,
+          empresa_id: empresa_id_validado,
           desbloqueio_automatico: desbloqueio_automatico !== undefined ? desbloqueio_automatico : false,
           verificar_pagamento: verificar_pagamento !== undefined ? verificar_pagamento : true,
           intervalo_verificacao: intervalo_verificacao || 30,

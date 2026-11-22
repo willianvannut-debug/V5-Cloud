@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getEmpresaDaSessao } from '@/lib/auth-server'
 
 const BRIDGE_URL = process.env.MIKROTIK_BRIDGE_URL || 'http://163.176.39.250:3001'
 const BRIDGE_API_KEY = process.env.MIKROTIK_BRIDGE_API_KEY || ''
@@ -64,6 +65,12 @@ async function buildHeaders(serverId: string, empresaId: string) {
 }
 
 export async function GET(req: NextRequest) {
+  // Verificar autenticação — rota sensível (acessa roteador MikroTik)
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) {
+    return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 })
+  }
+
   try {
     const bridgePath = req.nextUrl.searchParams.get('path') || ''
     const serverId = req.nextUrl.searchParams.get('server_id') || ''
@@ -98,6 +105,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Verificar autenticação — rota sensível (acessa roteador MikroTik)
+  const sessao = await getEmpresaDaSessao(req)
+  if (!sessao) {
+    return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 })
+  }
+
   try {
     const bridgePath = req.nextUrl.searchParams.get('path') || ''
     const serverId = req.nextUrl.searchParams.get('server_id') || ''
@@ -121,13 +134,35 @@ export async function POST(req: NextRequest) {
     const url = `${BRIDGE_URL}/${bridgePath}`
     const headers = await buildHeaders(finalServerId, finalEmpresaId)
 
+    // Rotas de escrita do Bridge (pppoe/secrets/add, /set, /remove, etc)
+    // exigem host/user/password tambem no corpo, alem dos headers x-mk-*.
+    // Sem isso o Bridge recusa com 400 "host, user, password ... obrigatorios"
+    // mesmo com os headers corretos -- confirmado testando direto contra o
+    // Bridge real. O spread de bodyData por ultimo deixa um valor explicito
+    // enviado pelo chamador sobrescrever o resolvido aqui, se precisar.
+    let serverConfig: { ip_address?: string; api_user?: string; api_password?: string } | null = null
+    if (finalServerId) {
+      serverConfig = await getServerConfig(finalServerId)
+    } else if (finalEmpresaId) {
+      serverConfig = await getDefaultServer(finalEmpresaId)
+    }
+
+    const bodyComCredenciais = bodyData
+      ? {
+          host: serverConfig?.ip_address || undefined,
+          user: serverConfig?.api_user || undefined,
+          password: serverConfig?.api_password || undefined,
+          ...bodyData,
+        }
+      : bodyData
+
     const fetchOptions: any = {
       method: 'POST',
       headers,
     }
 
-    if (bodyData) {
-      fetchOptions.body = JSON.stringify(bodyData)
+    if (bodyComCredenciais) {
+      fetchOptions.body = JSON.stringify(bodyComCredenciais)
     }
 
     const response = await fetch(url, fetchOptions)
