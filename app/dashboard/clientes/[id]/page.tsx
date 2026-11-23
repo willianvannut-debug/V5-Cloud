@@ -95,9 +95,9 @@ export default function ClienteDetalhePage({
   // ==========================
   // CARREGAR CLIENTE (via API server-side — seguro)
   // ==========================
-  const carregarCliente = useCallback(async () => {
+  const carregarCliente = useCallback(async (silencioso = false) => {
     if (!clienteId) return;
-    setCarregando(true);
+    if (!silencioso) setCarregando(true);
     try {
       const res = await fetch(`/api/clientes?id=${clienteId}`, {
         credentials: 'include',
@@ -145,7 +145,7 @@ export default function ClienteDetalhePage({
   // Atualiza o cliente a cada 15s (enquanto não está editando o formulário)
   useEffect(() => {
     if (!clienteId || editando) return;
-    const t = setInterval(() => { carregarCliente(); }, 15000);
+    const t = setInterval(() => { carregarCliente(true); }, 15000);
     return () => clearInterval(t);
   }, [clienteId, editando, carregarCliente]);
 

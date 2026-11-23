@@ -175,9 +175,9 @@ export default function TabFinanceiro({ clienteId, empresa, cliente, editando, f
   // ==========================
   // CARREGAR FATURAS DO BACKEND
   // ==========================
-  const carregarFaturas = useCallback(async () => {
+  const carregarFaturas = useCallback(async (silencioso = false) => {
     if (!clienteId) return;
-    setCarregandoFaturas(true);
+    if (!silencioso) setCarregandoFaturas(true);
     try {
       const result = await financialApi('GET', `/invoices?customerId=${clienteId}&limit=100`);
       setFaturas(result.data || []);
