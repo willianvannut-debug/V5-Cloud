@@ -5,7 +5,6 @@
 
 "use client"
 import React, { useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
 import {
   Users, User, Wrench, Clock, CheckCircle2, XCircle, AlertTriangle,
   ChevronRight, ChevronDown, Loader2, MapPin, Phone, Zap, X
@@ -149,14 +148,6 @@ export default function PainelTecnicosPage() {
   }, []);
 
   useEffect(() => { carregarDados(); }, [carregarDados]);
-
-  // Realtime - atualiza quando OS muda
-  useEffect(() => {
-    const ch = supabase.channel('painel-tec-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ordens_servico' }, () => carregarDados())
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [carregarDados]);
 
   // Auto-refresh a cada 30s (para atualizar o "tempo decorrido")
   useEffect(() => {

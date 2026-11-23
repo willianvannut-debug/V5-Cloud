@@ -6,7 +6,7 @@
 
 "use client"
 import React, { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -36,9 +36,6 @@ import {
   Loader2,
 } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 export default function AcessoRedePage() {
   const { operador, empresa } = useAuth();
@@ -69,20 +66,12 @@ export default function AcessoRedePage() {
   });
 
   const carregarClientes = useCallback(async () => {
-    if (!supabase || !empresa?.id) return;
+    if (!empresa?.id) return;
     setCarregando(true);
     try {
-      let query = supabase
-        .from('clientes')
-        .select('id, nome, cpf, cnpj, tipo_pessoa, status, telefone, login_pppoe')
-        .eq('empresa_id', empresa.id)
-        .order('nome');
-
-      if (busca) {
-        query = query.or(`nome.ilike.%${busca}%,login_pppoe.ilike.%${busca}%,cpf.ilike.%${busca}%`);
-      }
-
-      const { data } = await query.limit(50);
+      const params = new URLSearchParams({ view: 'lista', limite: '50' });
+      if (busca) params.set('busca', busca);
+      const { clientes: data } = await painelApi<{ clientes: any[] }>(`clientes?${params.toString()}`);
       if (data) setClientes(data);
     } catch (e) {
       console.error('Erro:', e);
@@ -99,14 +88,8 @@ export default function AcessoRedePage() {
     setSenhaVisivel(false);
     setSyncMsg(null);
 
-    if (!supabase) return;
-
     // Buscar dados completos de acesso
-    const { data } = await supabase
-      .from('clientes')
-      .select('login_pppoe, senha_pppoe, ip_fixo, mac_address, perfil_radius, vlan, porta_olt, cto_id, onu_serial')
-      .eq('id', cliente.id)
-      .single();
+    const { rede: data } = await painelApi<{ rede: any }>(`clientes/${cliente.id}/rede`).catch(() => ({ rede: null }));
 
     if (data) {
       setAcessoRede(data);
@@ -249,17 +232,14 @@ export default function AcessoRedePage() {
   // SALVAR ACESSO (COM SYNC AUTOMATICO AO MIKROTIK)
   // ============================================================
   const salvarAcesso = async () => {
-    if (!clienteSelecionado || !supabase) return;
+    if (!clienteSelecionado) return;
     setSalvando(true);
     setSyncMsg(null);
     try {
-      // 1. Salvar no Supabase
-      const { error } = await supabase
-        .from('clientes')
-        .update(form)
-        .eq('id', clienteSelecionado.id);
-
-      if (error) {
+      // 1. Salvar via API (filtrado pela empresa do operador)
+      try {
+        await painelApi(`clientes/${clienteSelecionado.id}/rede`, { method: 'PATCH', body: form });
+      } catch {
         setSyncMsg({ tipo: 'erro', texto: 'Erro ao salvar no banco de dados' });
         setSalvando(false);
         return;

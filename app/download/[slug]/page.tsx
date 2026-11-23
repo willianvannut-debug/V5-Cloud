@@ -3,7 +3,7 @@ import { Metadata } from 'next';
 import DownloadClient from './DownloadClient';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -11,7 +11,7 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const { data } = await supabase
     .from('empresas')
     .select('nome_empresa')
@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function DownloadPage({ params }: Props) {
   const { slug } = await params;
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   const { data: empresa } = await supabase
     .from('empresas')

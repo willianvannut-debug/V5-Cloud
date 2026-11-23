@@ -5,7 +5,6 @@
 
 "use client"
 import React, { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import RootEmpresasClientesView from '@/components/RootEmpresasClientesView';
@@ -44,9 +43,6 @@ import {
   ChevronRight as ArrowRight,
 } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 // ==========================
 // MASCARAS DE INPUT
@@ -283,24 +279,10 @@ export default function ClientesPage() {
     carregarSemPppoe();
   }, [carregarSemPppoe]);
 
-  // Realtime - escutar mudancas na tabela clientes
+  // Atualiza a lista a cada 25s
   useEffect(() => {
-    if (!supabase) return;
-
-    const canal = supabase
-      .channel('clientes-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'clientes' },
-        () => {
-          carregarClientes();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(canal);
-    };
+    const t = setInterval(() => { carregarClientes(); }, 25000);
+    return () => clearInterval(t);
   }, [carregarClientes]);
 
   // ==========================

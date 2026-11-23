@@ -7,7 +7,6 @@
 "use client"
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import {
   Wrench, ArrowLeft, Clock, Zap, CheckCircle2, MapPin, Phone,
   User, Users, ChevronRight, Loader2, AlertTriangle, MessageCircle,
@@ -186,14 +185,6 @@ export default function TecnicoOrdensPage() {
   }, []);
 
   useEffect(() => { carregarOS(); }, [carregarOS]);
-
-  // Realtime
-  useEffect(() => {
-    const ch = supabase.channel('tec-os-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ordens_servico' }, () => carregarOS())
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [carregarOS]);
 
   // Auto-refresh
   useEffect(() => {

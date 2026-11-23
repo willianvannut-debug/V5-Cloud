@@ -11,6 +11,18 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// Headers CORS para permitir chamadas do app mobile (Expo Web dev)
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+// Responder preflight OPTIONS (CORS)
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders });
+}
+
 // POST /api/empresa-config/por-cpf  body: { cpf: "701.573.921-63" }
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +30,7 @@ export async function POST(request: NextRequest) {
     const cpf = body.cpf?.trim();
 
     if (!cpf) {
-      return NextResponse.json({ error: 'CPF é obrigatório' }, { status: 400 });
+      return NextResponse.json({ error: 'CPF é obrigatório' }, { status: 400, headers: corsHeaders });
     }
 
     // Normalizar CPF - tentar com e sem máscara
@@ -43,7 +55,7 @@ export async function POST(request: NextRequest) {
     if (!cliente) {
       return NextResponse.json(
         { error: 'CPF não encontrado no sistema' },
-        { status: 404 }
+        { status: 404, headers: corsHeaders }
       );
     }
 
@@ -57,7 +69,7 @@ export async function POST(request: NextRequest) {
     if (empresaError || !empresa) {
       return NextResponse.json(
         { error: 'Empresa não encontrada' },
-        { status: 404 }
+        { status: 404, headers: corsHeaders }
       );
     }
 
@@ -68,8 +80,8 @@ export async function POST(request: NextRequest) {
       cor_primaria: empresa.cor_primaria || '#6366F1',
       cor_secundaria: empresa.cor_secundaria || '#818CF8',
       telefone_suporte: empresa.telefone_suporte || null,
-    });
+    }, { headers: corsHeaders });
   } catch (error) {
-    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+    return NextResponse.json({ error: 'Erro interno' }, { status: 500, headers: corsHeaders });
   }
 }

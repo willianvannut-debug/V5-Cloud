@@ -13,15 +13,12 @@ import { useApp, LeadReal } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { PLANOS } from '@/lib/planLimites';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 import { lerOperacional, limparOperacional } from '@/lib/operacional';
 import { playSound } from '@/lib/sound';
 
 import dynamic from 'next/dynamic';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 // 🗺️ Carregamento dinâmico do mapa com tema escuro preservado
 const MapWithNoSSR = dynamic(
@@ -251,23 +248,9 @@ export default function LeadsPage() {
 
   useEffect(() => {
     carregarLeadsDireto();
-
-    if (!supabase) return;
-
-    const canalTempoReal = supabase
-      .channel('tabela-leads-realtime-global')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'leads' },
-        (payload) => {
-          carregarLeadsDireto();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(canalTempoReal);
-    };
+    // Atualiza a lista a cada 15s (o som de novo lead já é tratado em carregarLeadsDireto)
+    const t = setInterval(() => { carregarLeadsDireto(); }, 15000);
+    return () => clearInterval(t);
   }, [carregarLeadsDireto]);
 
   useEffect(() => {
@@ -307,7 +290,6 @@ export default function LeadsPage() {
         return;
       }
 
-      if (!supabase) return;
       try {
         const idDaEmpresa = operador?.empresaId || operador?.empresa_id;
         if (!idDaEmpresa) {
@@ -315,13 +297,9 @@ export default function LeadsPage() {
           return;
         }
 
-        const { data, error } = await supabase
-          .from('empresas')
-          .select('plano')
-          .eq('id', idDaEmpresa)
-          .maybeSingle();
+        const { empresa: data } = await painelApi<{ empresa: any }>('empresa');
 
-        if (!error && data && data.plano) {
+        if (data && data.plano) {
           const planoLimpo = String(data.plano).toLowerCase().trim();
           setPlanoAtual(planoLimpo);
         } else {

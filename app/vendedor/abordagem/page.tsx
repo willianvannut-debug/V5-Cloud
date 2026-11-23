@@ -14,12 +14,7 @@ import {
   Navigation,
   AlertCircle,
 } from 'lucide-react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { painelApi } from '@/lib/painel-api';
 
 export default function NovaAbordagemPage() {
   const router = useRouter();
@@ -82,29 +77,21 @@ export default function NovaAbordagemPage() {
 
     setSalvando(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      const { data, error } = await supabase
-        .from('leads')
-        .insert([
-          {
-            nome: nome.trim(),
-            whatsapp: whatsapp.trim(),
-            cep: cep.trim() || null,
-            numero: numero.trim() || null,
-            status: irParaFechamento ? 'em_fechamento' : statusAbordagem,
-            lat: coords?.lat || null,
-            lon: coords?.lon || null,
-            motivo_perda: statusAbordagem !== 'interessado' ? motivoPerda.trim() || statusAbordagem : null,
-            atendente: user?.email || 'Vendedor PAP',
-          },
-        ])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Erro Supabase:', error);
-        alert(`Erro ao salvar lead: ${error.message}`);
+      let data: any = null;
+      try {
+        const r = await painelApi<{ lead: any }>('leads-abordagem', { body: {
+          nome: nome.trim(),
+          whatsapp: whatsapp.trim(),
+          cep: cep.trim() || null,
+          numero: numero.trim() || null,
+          status: irParaFechamento ? 'em_fechamento' : statusAbordagem,
+          lat: coords?.lat || null,
+          lon: coords?.lon || null,
+          motivo_perda: statusAbordagem !== 'interessado' ? motivoPerda.trim() || statusAbordagem : null,
+        } });
+        data = r.lead;
+      } catch (e: any) {
+        alert(`Erro ao salvar lead: ${e.message}`);
         setSalvando(false);
         return;
       }

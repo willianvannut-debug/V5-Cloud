@@ -31,11 +31,8 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import confetti from 'canvas-confetti';
 import { PLANOS } from '@/lib/planLimites';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 export default function EquipePage() {
   const { funcionarios } = useSettings();
@@ -53,7 +50,6 @@ export default function EquipePage() {
         return;
       }
 
-      if (!supabase) return;
       try {
         const idDaEmpresa = operador?.empresaId || operador?.empresa_id;
         if (!idDaEmpresa) {
@@ -61,13 +57,9 @@ export default function EquipePage() {
           return;
         }
 
-        const { data, error } = await supabase
-          .from('empresas')
-          .select('plano')
-          .eq('id', idDaEmpresa)
-          .maybeSingle();
+        const { empresa: data } = await painelApi<{ empresa: any }>('empresa');
 
-        if (!error && data && data.plano) {
+        if (data && data.plano) {
           const planoLimpo = String(data.plano).toLowerCase().trim();
           setPlanoAtual(planoLimpo);
         } else {

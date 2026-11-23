@@ -14,6 +14,7 @@ const API_PUBLICAS: [string, string[] | '*'][] = [
   ['/api/auth/', '*'],                        // login, registro, códigos
   ['/api/webhook/', '*'],                     // Stripe / MikroTik (assinatura própria)
   ['/api/empresa-config/por-cpf', '*'],       // app do cliente: descobrir o provedor
+  ['/api/empresa-publica', ['GET']],          // páginas públicas: provedor por slug
   ['/api/cliente/', '*'],                     // app do cliente (rotas validam o token do cliente)
   ['/api/viabilidade/', ['POST']],            // página pública de viabilidade
   ['/api/checkout', ['POST']],                // assinatura de novos provedores (/precos, /planos)

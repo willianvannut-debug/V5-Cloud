@@ -5,7 +5,7 @@
 
 "use client"
 import React, { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -25,9 +25,6 @@ import {
   Send,
 } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 export default function ObservacoesPage() {
   const { operador, empresa } = useAuth();
@@ -43,20 +40,12 @@ export default function ObservacoesPage() {
 
   // Carregar clientes
   const carregarClientes = useCallback(async () => {
-    if (!supabase || !empresa?.id) return;
+    if (!empresa?.id) return;
     setCarregando(true);
     try {
-      let query = supabase
-        .from('clientes')
-        .select('id, nome, cpf, cnpj, tipo_pessoa, status, telefone')
-        .eq('empresa_id', empresa.id)
-        .order('nome');
-
-      if (busca) {
-        query = query.or(`nome.ilike.%${busca}%,cpf.ilike.%${busca}%,telefone.ilike.%${busca}%`);
-      }
-
-      const { data } = await query.limit(50);
+      const params = new URLSearchParams({ view: 'observacoes', limite: '50' });
+      if (busca) params.set('busca', busca);
+      const { clientes: data } = await painelApi<{ clientes: any[] }>(`clientes?${params.toString()}`);
       if (data) setClientes(data);
     } catch (e) {
       console.error('Erro:', e);
@@ -69,17 +58,10 @@ export default function ObservacoesPage() {
 
   // Carregar observacoes do cliente selecionado
   const carregarObservacoes = useCallback(async (clienteId: string) => {
-    if (!supabase) return;
     try {
-      const { data } = await supabase
-        .from('cliente_observacoes')
-        .select('*')
-        .eq('cliente_id', clienteId)
-        .order('created_at', { ascending: false });
-
+      const { observacoes: data } = await painelApi<{ observacoes: any[] }>(`cliente-observacoes?cliente_id=${clienteId}`);
       if (data) setObservacoes(data);
     } catch (e) {
-      // Tabela pode nao existir ainda, usar observacoes do campo do cliente
       setObservacoes([]);
     }
   }, []);
@@ -91,33 +73,21 @@ export default function ObservacoesPage() {
 
   // Salvar observacao
   const salvarObservacao = async () => {
-    if (!clienteSelecionado || !novaObs.trim() || !supabase) return;
+    if (!clienteSelecionado || !novaObs.trim()) return;
     setSalvando(true);
 
     try {
-      // Tenta salvar na tabela de observacoes
-      const { error } = await supabase
-        .from('cliente_observacoes')
-        .insert({
-          cliente_id: clienteSelecionado.id,
-          empresa_id: empresa?.id,
-          texto: novaObs.trim(),
-          autor: operador?.nome || 'Sistema',
-          autor_id: operador?.id,
-        });
+      const r = await painelApi<{ sucesso: boolean; semTabela?: boolean }>('cliente-observacoes', {
+        body: { cliente_id: clienteSelecionado.id, texto: novaObs.trim(), autor: operador?.nome || 'Sistema' },
+      });
 
-      if (error) {
-        // Se tabela nao existe, salvar no campo observacoes do cliente
+      if (r.semTabela) {
+        // Sem a tabela de observações: grava no campo observacoes do cliente
         const obsAtual = clienteSelecionado.observacoes || '';
         const dataHora = new Date().toLocaleString('pt-BR');
         const novaObsTexto = `[${dataHora} - ${operador?.nome || 'Sistema'}] ${novaObs.trim()}`;
         const obsAtualizada = obsAtual ? `${novaObsTexto}\n---\n${obsAtual}` : novaObsTexto;
-
-        await supabase
-          .from('clientes')
-          .update({ observacoes: obsAtualizada })
-          .eq('id', clienteSelecionado.id);
-
+        await painelApi(`clientes/${clienteSelecionado.id}/observacao-campo`, { method: 'PATCH', body: { texto: obsAtualizada } });
         setClienteSelecionado({ ...clienteSelecionado, observacoes: obsAtualizada });
       } else {
         carregarObservacoes(clienteSelecionado.id);

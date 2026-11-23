@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
 import {
   Ticket,
   Plus,
@@ -28,9 +27,6 @@ import {
 } from "lucide-react";
 
 // ── Supabase client (frontend, para Realtime) ──────────
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabaseRealtime = createClient(supabaseUrl, supabaseAnonKey);
 
 // ── Tipos ──────────────────────────────────────────────
 interface Cliente {
@@ -396,16 +392,10 @@ export default function TicketsPage() {
 
   useEffect(() => { fetchChamados(); fetchCategorias(); fetchTecnicos(); }, [fetchChamados, fetchCategorias, fetchTecnicos]);
 
-  // ── Realtime: novos chamados ─────────────────────────
+  // ── Atualiza a lista de chamados a cada 15s ──────────
   useEffect(() => {
-    const channel = supabaseRealtime
-      .channel("chamados-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "chamados" }, () => {
-        fetchChamados();
-      })
-      .subscribe();
-
-    return () => { supabaseRealtime.removeChannel(channel); };
+    const t = setInterval(() => { fetchChamados(); }, 15000);
+    return () => clearInterval(t);
   }, [fetchChamados]);
 
   // ── Selecionar chamado ───────────────────────────────
@@ -423,20 +413,16 @@ export default function TicketsPage() {
     finally { setLoadingMsgs(false); }
   }
 
-  // ── Realtime: novas mensagens ────────────────────────
+  // ── Atualiza as mensagens do chamado aberto a cada 5s ──
   useEffect(() => {
     if (!selectedId) return;
-    const channel = supabaseRealtime
-      .channel(`msgs-${selectedId}`)
-      .on("postgres_changes", {
-        event: "INSERT", schema: "public", table: "chamado_mensagens",
-        filter: `chamado_id=eq.${selectedId}`,
-      }, (payload) => {
-        setMensagens((prev) => [...prev, payload.new as Mensagem]);
-      })
-      .subscribe();
-
-    return () => { supabaseRealtime.removeChannel(channel); };
+    const t = setInterval(async () => {
+      try {
+        const msgs = await apiFetch(`/api/suporte/mensagens?chamado_id=${selectedId}`);
+        setMensagens(msgs);
+      } catch { /* silencioso */ }
+    }, 5000);
+    return () => clearInterval(t);
   }, [selectedId]);
 
   // ── Scroll chat ──────────────────────────────────────

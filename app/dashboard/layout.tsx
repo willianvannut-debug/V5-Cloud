@@ -9,35 +9,30 @@ import { Sidebar } from "@/components/Sidebar";
 import { AppProvider } from "@/context/AppContext";
 import { SettingsProvider } from "@/context/SettingsContext";
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
 import { playSound } from '@/lib/sound';
+import { painelApi } from '@/lib/painel-api';
 import { ThemeProvider } from '@/context/ThemeContext';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 // Hook para escutar novos leads em tempo real de forma global em qualquer página
 function useGlobalLeadListener() {
   useEffect(() => {
-    if (!supabase) return;
-
-    // Escuta globalmente qualquer novo registo (INSERT) na tabela leads
-    const canalGlobal = supabase
-      .channel('global-leads-notification-layout')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'leads' },
-        (payload) => {
-          // Toca o som de celular independentemente da página onde o atendente estiver!
+    let ultimo: string | null = null;
+    let primeira = true;
+    const checar = async () => {
+      try {
+        const r = await painelApi<{ ultimo_created_at: string | null }>('leads-resumo');
+        // Toca o som quando chega um lead novo (não na primeira checagem)
+        if (!primeira && r.ultimo_created_at && r.ultimo_created_at !== ultimo) {
           playSound('celular', 0.25);
         }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(canalGlobal);
+        ultimo = r.ultimo_created_at;
+        primeira = false;
+      } catch { /* silencioso */ }
     };
+    checar();
+    const t = setInterval(checar, 25000);
+    return () => clearInterval(t);
   }, []);
 }
 

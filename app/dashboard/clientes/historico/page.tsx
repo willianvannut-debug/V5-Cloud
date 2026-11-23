@@ -5,7 +5,7 @@
 
 "use client"
 import React, { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -34,9 +34,6 @@ import {
   Mail,
 } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 const TIPOS_EVENTO: Record<string, { label: string; cor: string; icone: any }> = {
   cadastro: { label: 'Cadastro', cor: 'text-emerald-400', icone: UserPlus },
@@ -64,25 +61,13 @@ export default function HistoricoPage() {
 
   // Carregar historico
   const carregarHistorico = useCallback(async () => {
-    if (!supabase || !empresa?.id) return;
+    if (!empresa?.id) return;
     setCarregando(true);
     try {
-      let query = supabase
-        .from('cliente_historico')
-        .select('*, clientes(nome)')
-        .eq('empresa_id', empresa.id)
-        .order('created_at', { ascending: false })
-        .range(pagina * porPagina, (pagina + 1) * porPagina - 1);
-
-      if (filtroTipo !== 'todos') {
-        query = query.eq('tipo', filtroTipo);
-      }
-
-      if (busca) {
-        query = query.or(`descricao.ilike.%${busca}%,autor.ilike.%${busca}%`);
-      }
-
-      const { data } = await query;
+      const params = new URLSearchParams({ pagina: String(pagina), porPagina: String(porPagina) });
+      if (filtroTipo !== 'todos') params.set('tipo', filtroTipo);
+      if (busca) params.set('busca', busca);
+      const { historico: data } = await painelApi<{ historico: any[] }>(`cliente-historico?${params.toString()}`);
       if (data) setRegistros(data);
     } catch (e) {
       // Tabela pode nao existir ainda

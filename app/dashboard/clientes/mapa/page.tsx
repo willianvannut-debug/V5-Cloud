@@ -5,7 +5,7 @@
 
 "use client"
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 import { useAuth } from '@/context/AuthContext';
 import RootEmpresasMapaView from '@/components/RootEmpresasMapaView';
 import { useSettings } from '@/context/SettingsContext';
@@ -30,9 +30,6 @@ import {
   ZoomOut,
 } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 type ClienteMapa = {
   id: string;
@@ -207,21 +204,11 @@ export default function MapaClientesPage() {
 
   // Carregar clientes com coordenadas
   const carregarClientes = useCallback(async () => {
-    if (!supabase || !empresa?.id) return;
+    if (!empresa?.id) return;
     setCarregando(true);
 
     try {
-      const { data, error } = await supabase
-        .from('clientes')
-        .select('id, nome, cpf, cnpj, telefone, cidade, status, latitude, longitude, login_pppoe')
-        .eq('empresa_id', empresa.id)
-        .order('nome', { ascending: true });
-
-      if (error) {
-        console.error('Erro ao buscar clientes:', error);
-        return;
-      }
-
+      const { clientes: data } = await painelApi<{ clientes: any[] }>('clientes?view=mapa');
       setClientes(data || []);
     } catch (err) {
       console.error('Erro:', err);

@@ -34,12 +34,9 @@ import {
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { PLANOS } from '@/lib/planLimites';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 import JSZip from 'jszip';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 export interface CtoItemSupabase {
   id: string;
@@ -308,9 +305,9 @@ export default function CaixaCtoPage() {
       const planoDoContexto = empresa?.plano || operador?.empresa?.plano;
       const idDaEmpresa = operador?.empresaId || operador?.empresa_id || empresa?.id;
       if (planoDoContexto) setPlanoAtual(String(planoDoContexto).toLowerCase().trim());
-      if (!supabase || !idDaEmpresa) return;
+      if (!idDaEmpresa) return;
       try {
-        const { data } = await supabase.from('empresas').select('plano, limite_customizado_ctos').eq('id', idDaEmpresa).maybeSingle();
+        const { empresa: data } = await painelApi<{ empresa: any }>('empresa');
         if (data) {
           if (data.plano) setPlanoAtual(String(data.plano).toLowerCase().trim());
           if (data.limite_customizado_ctos !== null) setLimiteCustomizado(Number(data.limite_customizado_ctos));
@@ -738,16 +735,9 @@ export default function CaixaCtoPage() {
     setDeletandoAcao(true);
     const id = idParaDeletar;
 
-    if (!id.startsWith('temp-') && supabase) {
+    if (!id.startsWith('temp-')) {
       try {
-        const { error } = await supabase.from('ctos').delete().eq('id', id);
-        if (error) { 
-          tocarEfeitoSonoro('erro'); 
-          alert("Erro ao apagar: " + error.message); 
-          setDeletandoAcao(false);
-          setModalDeletarAberto(false);
-          return; 
-        }
+        await painelApi(`ctos/${id}`, { method: 'DELETE' });
       } catch (err: any) {
         tocarEfeitoSonoro('erro'); 
         alert("Erro ao apagar: " + err.message); 
@@ -806,15 +796,11 @@ export default function CaixaCtoPage() {
     tocarEfeitoSonoro('pop');
 
     const idsParaDeletarServidor = idsSelecionados.filter(id => !id.startsWith('temp-'));
-    if (idsParaDeletarServidor.length > 0 && supabase) {
+    if (idsParaDeletarServidor.length > 0) {
       try {
-        for (let i = 0; i < idsParaDeletarServidor.length; i += 100) {
-          const lote = idsParaDeletarServidor.slice(i, i + 100);
-          const { error } = await supabase.from('ctos').delete().in('id', lote);
-          if (error) throw error;
-        }
+        await painelApi('ctos', { method: 'DELETE', body: { ids: idsParaDeletarServidor } });
       } catch (err: any) {
-        tocarEfeitoSonoro('erro'); alert("Erro ao apagar no Supabase: " + err.message); return;
+        tocarEfeitoSonoro('erro'); alert("Erro ao apagar: " + err.message); return;
       }
     }
 
@@ -860,7 +846,7 @@ export default function CaixaCtoPage() {
 
   const handleSalvarTudoEmLote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!temAlteracoes || !supabase) return;
+    if (!temAlteracoes) return;
 
     tocarEfeitoSonoro('clique');
     setSalvando(true);
@@ -872,16 +858,10 @@ export default function CaixaCtoPage() {
       const atualizadas = listaCtos.filter(c => !c.id.startsWith('temp-'));
 
       if (novas.length > 0) {
-        for (let i = 0; i < novas.length; i += 500) {
-          const { error } = await supabase.from('ctos').insert(novas.slice(i, i + 500));
-          if (error) throw error;
-        }
+        await painelApi('ctos', { method: 'POST', body: { novas } });
       }
       if (atualizadas.length > 0) {
-        for (let i = 0; i < atualizadas.length; i += 500) {
-          const { error } = await supabase.from('ctos').upsert(atualizadas.slice(i, i + 500));
-          if (error) throw error;
-        }
+        await painelApi('ctos', { method: 'PATCH', body: { atualizadas } });
       }
 
       tocarEfeitoSonoro('sucesso');

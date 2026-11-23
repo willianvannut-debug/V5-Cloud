@@ -29,7 +29,8 @@ import {
   MessageCircle,
   RefreshCw,
 } from 'lucide-react';
-import { supabase, corStatus, labelStatus } from './shared';
+import { corStatus, labelStatus } from './shared';
+import { painelApi } from '@/lib/painel-api';
 
 // Tabs (components/)
 import TabDados from './components/TabDados';
@@ -125,42 +126,28 @@ export default function ClienteDetalhePage({
 
   // Carregar plano atual para compartilhar com Financeiro
   useEffect(() => {
-    if (!clienteId || !supabase || !empresa) return;
+    if (!clienteId) return;
     (async () => {
       try {
-        const { data: contratoData } = await supabase
-          .from('contratos')
-          .select('*')
-          .eq('cliente_id', clienteId)
-          .eq('status', 'ativo')
-          .single();
+        const { contratos } = await painelApi<{ contratos: any[] }>(`clientes/${clienteId}/contratos`);
+        const contratoData = contratos?.[0];
         if (contratoData?.plano_id) {
-          const { data: planosData } = await supabase
-            .from('planos')
-            .select('*')
-            .eq('empresa_id', empresa.id)
-            .order('nome');
-          const plano = (planosData || []).find((p: any) => p.id === contratoData.plano_id);
+          const { planos } = await painelApi<{ planos: any[] }>('planos');
+          const plano = (planos || []).find((p: any) => p.id === contratoData.plano_id);
           setPlanoAtual(plano || null);
         } else {
           setPlanoAtual(null);
         }
       } catch { /* silencioso */ }
     })();
-  }, [clienteId, empresa]);
+  }, [clienteId]);
 
-  // Realtime
+  // Atualiza o cliente a cada 15s (enquanto não está editando o formulário)
   useEffect(() => {
-    if (!supabase || !clienteId) return;
-    const canal = supabase
-      .channel(`cliente-${clienteId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'clientes', filter: `id=eq.${clienteId}` }, (payload) => {
-        setCliente(payload.new);
-        if (!editando) setFormEdit({ ...payload.new });
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(canal); };
-  }, [clienteId, editando]);
+    if (!clienteId || editando) return;
+    const t = setInterval(() => { carregarCliente(); }, 15000);
+    return () => clearInterval(t);
+  }, [clienteId, editando, carregarCliente]);
 
   // ==========================
   // SALVAR EDICAO

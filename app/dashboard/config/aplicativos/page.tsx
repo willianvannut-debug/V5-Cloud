@@ -3,11 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Smartphone, Download, Users, Wrench, Share2, Copy, Check, ExternalLink, CheckCircle2, Save, Link } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 export default function AplicativosPage() {
   const { operador, carregando: carregandoAuth } = useAuth();
@@ -30,13 +27,9 @@ export default function AplicativosPage() {
   }, [carregandoAuth, operador]);
 
   async function carregarDados() {
-    if (!supabase || !operador) { setLoading(false); return; }
+    if (!operador) { setLoading(false); return; }
     try {
-      const { data: empresa } = await supabase
-        .from('empresas')
-        .select('nome_empresa, apk_cliente_url, apk_tecnico_url')
-        .eq('id', operador.empresa_id)
-        .single();
+      const { empresa } = await painelApi<{ empresa: any }>('empresa');
 
       if (empresa) {
         setEmpresaNome(empresa.nome_empresa);
@@ -53,18 +46,13 @@ export default function AplicativosPage() {
   }
 
   async function salvarLinks() {
-    if (!supabase || !operador) return;
+    if (!operador) return;
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('empresas')
-        .update({
-          apk_cliente_url: editCliente || null,
-          apk_tecnico_url: editTecnico || null
-        })
-        .eq('id', operador.empresa_id);
-
-      if (error) throw error;
+      await painelApi('empresa', { method: 'PATCH', body: {
+        apk_cliente_url: editCliente || null,
+        apk_tecnico_url: editTecnico || null,
+      } });
 
       setApkCliente(editCliente);
       setApkTecnico(editTecnico);

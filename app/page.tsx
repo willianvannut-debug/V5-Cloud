@@ -10,6 +10,7 @@ import MovingGrid from '@/components/ui/hyper-grid';
 import SiteNav from '@/components/site/SiteNav';
 import SiteFooter from '@/components/site/SiteFooter';
 import { WHATSAPP_DEMO } from '@/components/site/links';
+import HeroDemo from '@/components/site/HeroDemo';
 
 /* =========================================================
    MINI TELAS (ilustrações do sistema dentro dos cards)
@@ -311,77 +312,9 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* MAPA INTERATIVO (mantido igual) */}
+        {/* DEMO AO VIVO DO SISTEMA (estilo "produto trabalhando sozinho") */}
         <section className="px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto relative z-20">
-          <div className="bg-[#121418]/90 backdrop-blur-xl border border-gray-800/80 rounded-xl overflow-hidden shadow-2xl relative">
-            <div className="bg-[#181b20] px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-red-500/80" />
-                <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
-              </div>
-              <div className="bg-[#121418] px-4 py-1 rounded-md text-[11px] text-gray-400 border border-gray-800 font-mono tracking-wide flex items-center gap-2">
-                <Map className="w-3.5 h-3.5 text-emerald-500" />
-                seu-site.com.br/viabilidade
-              </div>
-              <div className="hidden sm:block text-[10px] text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 px-2.5 py-1 rounded font-semibold uppercase tracking-wider">
-                Plano Escolhido
-              </div>
-            </div>
-
-            <div className="relative h-[480px] w-full bg-[#0e1013]/90 overflow-hidden flex items-center justify-center">
-              <div className="absolute inset-0 opacity-15" style={{ backgroundImage: 'linear-gradient(#252a32 1px, transparent 1px), linear-gradient(90deg, #252a32 1px, transparent 1px)', backgroundSize: '100px 100px' }} />
-              <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" preserveAspectRatio="none">
-                <path d="M 0 100 L 1000 100" stroke="#1c2128" strokeWidth="16" />
-                <path d="M 0 250 L 1000 250" stroke="#1c2128" strokeWidth="16" />
-                <path d="M 0 400 L 1000 400" stroke="#1c2128" strokeWidth="16" />
-                <path d="M 200 0 L 200 500" stroke="#1c2128" strokeWidth="16" />
-                <path d="M 500 0 L 500 500" stroke="#1c2128" strokeWidth="16" />
-                <path d="M 800 0 L 800 500" stroke="#1c2128" strokeWidth="16" />
-                <path d="M 500 250 L 800 250" fill="none" stroke="#3b82f6" strokeWidth="3.5" strokeDasharray="6,4" className="animate-pulse" />
-                <path d="M 500 250 L 500 100 L 200 100" fill="none" stroke="#10b981" strokeWidth="3.5" strokeDasharray="6,4" />
-                <path d="M 500 250 L 500 400 L 800 400" fill="none" stroke="#f59e0b" strokeWidth="3.5" strokeDasharray="6,4" />
-                <path d="M 500 250 L 500 100 L 800 100" fill="none" stroke="#a855f7" strokeWidth="3.5" strokeDasharray="6,4" />
-              </svg>
-
-              <div className="absolute" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}>
-                <div className="relative group cursor-pointer bg-[#161920] border-2 border-blue-600 rounded-lg px-3 py-2.5 shadow-2xl flex items-center gap-2">
-                  <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-blue-500 border border-white rounded-sm" />
-                  <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-blue-500 border border-white rounded-sm" />
-                  <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-blue-500 border border-white rounded-sm" />
-                  <div className="absolute -right-1.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-blue-500 border border-white rounded-sm" />
-                  <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center text-[9px] font-bold text-white">CTO</div>
-                  <div className="text-left"><div className="text-[11px] font-semibold text-white tracking-wide">Caixa CTO-04</div></div>
-                </div>
-              </div>
-
-              {[
-                { top: '50%', left: '80%', nome: 'João Silva', dist: '95m', ping: true },
-                { top: '20%', left: '20%', nome: 'Maria Oliveira', dist: '140m' },
-                { top: '80%', left: '80%', nome: 'Carlos Souza', dist: '180m' },
-                { top: '20%', left: '80%', nome: 'Ana Paula', dist: '110m' },
-              ].map((l) => (
-                <div key={l.nome} className="absolute" style={{ top: l.top, left: l.left, transform: 'translate(-50%, -50%)' }}>
-                  <div className="relative group cursor-pointer bg-[#161920] border border-emerald-500/60 rounded-lg px-3 py-1.5 shadow-xl flex items-center gap-2">
-                    {l.ping && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping absolute -left-1" />}
-                    <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full relative" />
-                    <div>
-                      <div className="text-[10px] font-semibold text-white">{l.nome}</div>
-                      <div className="text-[9px] text-emerald-400 font-mono">{l.dist} • Viável</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              <div className="absolute top-4 right-4 bg-[#161920]/90 backdrop-blur border border-gray-700/60 px-3.5 py-1.5 rounded-lg flex items-center gap-2 shadow-lg text-[10px] text-gray-300 font-mono">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Motor Vetorial Ativo</span>
-              </div>
-              <div className="absolute bottom-4 left-4 bg-[#161920]/90 backdrop-blur border border-gray-700/60 px-3.5 py-2 rounded-lg shadow-lg text-[10px] text-cyan-400 font-mono tracking-wide">
-                ⚡ Mapa com todos os leads
-              </div>
-            </div>
-          </div>
+          <HeroDemo />
         </section>
       </MovingGrid>
 

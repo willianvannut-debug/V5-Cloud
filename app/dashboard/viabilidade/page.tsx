@@ -11,13 +11,10 @@ import { useApp } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { logger } from '@/lib/logger';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 
 import dynamic from 'next/dynamic';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 const MapContainer = dynamic(() => import('react-leaflet').then((mod) => mod.MapContainer), { ssr: false });
 const TileLayer = dynamic(() => import('react-leaflet').then((mod) => mod.TileLayer), { ssr: false });
@@ -215,17 +212,11 @@ export default function ViabilidadePage() {
 
   useEffect(() => {
     async function carregarEmpresaLogada() {
-      if (!supabase) return;
       try {
         const empresaId = operador?.empresaId || operador?.empresa_id;
         if (empresaId) {
-          const { data, error } = await supabase
-            .from('empresas')
-            .select('*')
-            .eq('id', empresaId)
-            .maybeSingle();
-
-          if (!error && data) {
+          const { empresa: data } = await painelApi<{ empresa: any }>('empresa');
+          if (data) {
             setEmpresaDados(data);
           }
         }

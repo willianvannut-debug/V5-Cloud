@@ -7,20 +7,7 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
 import { Search, CheckCircle2, XCircle, Loader2, Phone, User, Navigation, Building2, Home, Store, Warehouse, ArrowRight, ArrowLeft, Users, Gamepad2, Briefcase } from 'lucide-react';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-// 🚀 FORÇA O NEXT.JS A NÃO FAZER CACHE DAS REQUISIÇÕES DO SUPABASE
-const supabase = createClient(supabaseUrl, supabaseKey, {
-  global: {
-    fetch: (url, options) => {
-      return fetch(url, { ...options, cache: 'no-store' });
-    }
-  }
-});
 
 const MapWithNoSSR = dynamic(
   async () => {
@@ -111,16 +98,20 @@ export default function ViabilidadeDinamicaPage() {
     async function validarAcessoEmpresa() {
       if (!slugUrl) return; 
 
-      // 🚀 TROCADO .single() POR .maybeSingle() PARA EVITAR CRASH E LER ERRO REAL
-      const { data: dadosEmpresa, error } = await supabase
-        .from('empresas')
-        .select('id, nome_empresa, slug, plano, logo_url, cor_primaria, cor_secundaria, telefone, telefone_suporte')
-        .eq('slug', slugUrl)
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        setErroAcesso(`Erro na Busca: ${error.message || error.code}`);
+      // Busca os dados públicos do provedor pela rota do servidor
+      let dadosEmpresa: any = null;
+      try {
+        const resEmp = await fetch(`/api/empresa-publica?slug=${encodeURIComponent(slugUrl)}`, { cache: 'no-store' });
+        if (resEmp.ok) {
+          dadosEmpresa = (await resEmp.json()).empresa;
+        } else if (resEmp.status !== 404) {
+          const j = await resEmp.json().catch(() => ({}));
+          setErroAcesso(`Erro na Busca: ${j?.erro || resEmp.status}`);
+          setCarregandoEmpresa(false);
+          return;
+        }
+      } catch (e: any) {
+        setErroAcesso(`Erro na Busca: ${e?.message || 'conexão'}`);
         setCarregandoEmpresa(false);
         return;
       }

@@ -5,7 +5,6 @@
 
 "use client"
 import React, { useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
 import {
   Wrench, Plus, X, Search, Loader2, User, MapPin, Phone,
   CheckCircle2, XCircle, ChevronRight, FileText, Clock, Download
@@ -247,12 +246,10 @@ export default function StatusOSPage() {
 
   useEffect(() => { carregarOS(); carregarTecnicos(); }, [carregarOS]);
 
-  // Realtime
+  // Atualiza as ordens a cada 20s
   useEffect(() => {
-    const ch = supabase.channel('os-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ordens_servico' }, () => carregarOS())
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const t = setInterval(() => { carregarOS(); }, 20000);
+    return () => clearInterval(t);
   }, [carregarOS]);
 
   const atualizarOS = async (id: string, campos: any) => {

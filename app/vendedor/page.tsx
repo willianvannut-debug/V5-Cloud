@@ -11,12 +11,7 @@ import {
   MapPin,
   ArrowRight,
 } from 'lucide-react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { painelApi } from '@/lib/painel-api';
 
 interface CtoLocal {
   id: string;
@@ -39,29 +34,16 @@ export default function VendedorHomePage() {
     setCarregandoCtos(true);
     try {
       // 1. Puxa as CTOs reais da sua tabela
-      const { data: ctosData, error: ctoError } = await supabase
-        .from('ctos')
-        .select('*')
-        .limit(5);
+      const resCtos = await fetch('/api/ctos', { credentials: 'same-origin' });
+      const ctosJson = await resCtos.json().catch(() => ({}));
+      if (ctosJson?.ctos) setCtos((ctosJson.ctos as any[]).slice(0, 5));
 
-      if (!ctoError && ctosData) {
-        setCtos(ctosData);
-      }
-
-      // 2. Puxa os leads/vendas reais do banco para as estatísticas do topo
-      const { count: totalLeads } = await supabase
-        .from('leads')
-        .select('*', { count: 'exact', head: true });
-
-      const { count: totalVendas } = await supabase
-        .from('leads')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'convertido');
-
+      // 2. Estatísticas de leads (filtradas pela empresa do operador)
+      const resumo = await painelApi<{ total: number; convertidos: number }>('leads-resumo');
       setEstatisticas({
-        abordagens: totalLeads || 0,
-        fechadas: totalVendas || 0,
-        comissao: (totalVendas || 0) * 60,
+        abordagens: resumo.total || 0,
+        fechadas: resumo.convertidos || 0,
+        comissao: (resumo.convertidos || 0) * 60,
       });
     } catch (err) {
       console.error('Erro ao buscar dados do Supabase:', err);

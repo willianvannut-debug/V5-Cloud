@@ -33,7 +33,8 @@ import {
   Download,
   UserCheck,
 } from 'lucide-react';
-import { supabase, estiloInput, estiloRotulo, estiloValor } from '../shared';
+import { estiloInput, estiloRotulo, estiloValor } from '../shared';
+import { painelApi } from '@/lib/painel-api';
 
 interface TabConexaoProps {
   cliente: any;
@@ -162,13 +163,7 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
     if (!cliente?.id) return;
     setCarregando(true);
     try {
-      const { data, error } = await supabase
-        .from('conexoes_pppoe')
-        .select('*')
-        .eq('cliente_id', cliente.id)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
+      const { conexoes: data } = await painelApi<{ conexoes: any[] }>(`conexoes?cliente_id=${cliente.id}`);
       setConexoes(data || []);
       // Expandir a primeira automaticamente
       if (data && data.length > 0 && !expandida) {
@@ -378,22 +373,17 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
 
       if (editandoConexao) {
         // Atualizar existente
-        const { error } = await supabase
-          .from('conexoes_pppoe')
-          .update({
-            descricao: formConexao.descricao,
-            login_pppoe: formConexao.login_pppoe || null,
-            senha_pppoe: formConexao.senha_pppoe || null,
-            mac_address: formConexao.mac_address || null,
-            perfil_radius: formConexao.perfil_radius || null,
-            ip_fixo: formConexao.ip_fixo || null,
-            vlan: formConexao.vlan || null,
-            porta_olt: formConexao.porta_olt || null,
-            onu_serial: formConexao.onu_serial || null,
-          })
-          .eq('id', editandoConexao);
-
-        if (error) throw error;
+        await painelApi(`conexoes/${editandoConexao}`, { method: 'PATCH', body: {
+          descricao: formConexao.descricao,
+          login_pppoe: formConexao.login_pppoe || null,
+          senha_pppoe: formConexao.senha_pppoe || null,
+          mac_address: formConexao.mac_address || null,
+          perfil_radius: formConexao.perfil_radius || null,
+          ip_fixo: formConexao.ip_fixo || null,
+          vlan: formConexao.vlan || null,
+          porta_olt: formConexao.porta_olt || null,
+          onu_serial: formConexao.onu_serial || null,
+        } });
 
         if (formConexao.login_pppoe && formConexao.senha_pppoe) {
           const sync = await atualizarSecretMikrotik(
@@ -414,23 +404,18 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
         }
       } else {
         // Criar nova
-        const { error } = await supabase
-          .from('conexoes_pppoe')
-          .insert({
-            cliente_id: cliente.id,
-            empresa_id: cliente.empresa_id,
-            descricao: formConexao.descricao,
-            login_pppoe: formConexao.login_pppoe || null,
-            senha_pppoe: formConexao.senha_pppoe || null,
-            mac_address: formConexao.mac_address || null,
-            perfil_radius: formConexao.perfil_radius || null,
-            ip_fixo: formConexao.ip_fixo || null,
-            vlan: formConexao.vlan || null,
-            porta_olt: formConexao.porta_olt || null,
-            onu_serial: formConexao.onu_serial || null,
-          });
-
-        if (error) throw error;
+        await painelApi('conexoes', { body: {
+          cliente_id: cliente.id,
+          descricao: formConexao.descricao,
+          login_pppoe: formConexao.login_pppoe || null,
+          senha_pppoe: formConexao.senha_pppoe || null,
+          mac_address: formConexao.mac_address || null,
+          perfil_radius: formConexao.perfil_radius || null,
+          ip_fixo: formConexao.ip_fixo || null,
+          vlan: formConexao.vlan || null,
+          porta_olt: formConexao.porta_olt || null,
+          onu_serial: formConexao.onu_serial || null,
+        } });
 
         if (formConexao.login_pppoe && formConexao.senha_pppoe) {
           const sync = await criarSecretMikrotik(
@@ -467,12 +452,7 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
   const excluirConexao = async (id: string) => {
     setExecutando('excluindo');
     try {
-      const { error } = await supabase
-        .from('conexoes_pppoe')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      await painelApi(`conexoes/${id}`, { method: 'DELETE' });
       mostrarSucesso('Conexao removida!');
       setModalConfirmar(null);
       await carregarConexoes();
@@ -514,7 +494,7 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
       } catch {}
 
       // Atualizar status no banco
-      await supabase.from('conexoes_pppoe').update({ status: 'bloqueado' }).eq('id', conexao.id);
+      await painelApi(`conexoes/${conexao.id}`, { method: 'PATCH', body: { status: 'bloqueado' } });
 
       mostrarSucesso('Conexao bloqueada no MikroTik');
       await carregarConexoes();
@@ -546,7 +526,7 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Erro desconhecido');
 
-      await supabase.from('conexoes_pppoe').update({ status: 'ativo' }).eq('id', conexao.id);
+      await painelApi(`conexoes/${conexao.id}`, { method: 'PATCH', body: { status: 'ativo' } });
 
       mostrarSucesso('Conexao desbloqueada no MikroTik');
       await carregarConexoes();
@@ -643,16 +623,9 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
     try {
       const termo = buscaImportar.trim();
       // Busca por nome ou CPF (diferente do cliente atual)
-      const { data, error } = await supabase
-        .from('clientes')
-        .select('id, nome, cpf, login_pppoe, empresa_id')
-        .eq('empresa_id', cliente.empresa_id)
-        .neq('id', cliente.id)
-        .or(`nome.ilike.%${termo}%,cpf.ilike.%${termo}%,login_pppoe.ilike.%${termo}%`)
-        .limit(10);
-
-      if (error) throw error;
-      setResultadosBusca(data || []);
+      const { clientes } = await painelApi<{ clientes: any[] }>(`clientes?view=migrar&limite=10&busca=${encodeURIComponent(termo)}`);
+      const data = (clientes || []).filter((c) => c.id !== cliente.id);
+      setResultadosBusca(data);
       if (data?.length === 0) {
         mostrarErro('Nenhum cliente encontrado');
       }
@@ -668,10 +641,7 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
     setCarregandoConexoes(true);
     try {
       // Buscar conexoes desse cliente na tabela conexoes_pppoe
-      const { data: conexoesDB } = await supabase
-        .from('conexoes_pppoe')
-        .select('*')
-        .eq('cliente_id', cli.id);
+      const { conexoes: conexoesDB } = await painelApi<{ conexoes: any[] }>(`conexoes?cliente_id=${cli.id}`);
 
       if (conexoesDB && conexoesDB.length > 0) {
         setConexoesSelecionado(conexoesDB);
@@ -709,27 +679,22 @@ export default function TabConexao({ cliente, editando, formEdit, setFormEdit }:
     setExecutando('importando');
     try {
       // Inserir como nova conexao do cliente atual
-      const { error } = await supabase
-        .from('conexoes_pppoe')
-        .insert({
-          cliente_id: cliente.id,
-          empresa_id: cliente.empresa_id,
-          descricao: descricaoImport.trim(),
-          login_pppoe: con.login_pppoe || null,
-          senha_pppoe: con.senha_pppoe || null,
-          mac_address: con.mac_address || null,
-          perfil_radius: con.perfil_radius || null,
-          ip_fixo: con.ip_fixo || null,
-          vlan: con.vlan || null,
-          porta_olt: con.porta_olt || null,
-          onu_serial: con.onu_serial || null,
-        });
-
-      if (error) throw error;
+      await painelApi('conexoes', { body: {
+        cliente_id: cliente.id,
+        descricao: descricaoImport.trim(),
+        login_pppoe: con.login_pppoe || null,
+        senha_pppoe: con.senha_pppoe || null,
+        mac_address: con.mac_address || null,
+        perfil_radius: con.perfil_radius || null,
+        ip_fixo: con.ip_fixo || null,
+        vlan: con.vlan || null,
+        porta_olt: con.porta_olt || null,
+        onu_serial: con.onu_serial || null,
+      } });
 
       // Se veio da tabela conexoes_pppoe, remover do cliente original
       if (con.id && con.id !== 'from_cliente') {
-        await supabase.from('conexoes_pppoe').delete().eq('id', con.id);
+        await painelApi(`conexoes/${con.id}`, { method: 'DELETE' });
       }
 
       mostrarSucesso(`Conexao "${descricaoImport}" importada com sucesso!`);

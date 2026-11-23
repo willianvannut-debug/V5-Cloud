@@ -1,6 +1,6 @@
 "use client"
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { painelApi } from '@/lib/painel-api';
 
 interface TecnicoWelcomeProps {
   operador: any;
@@ -26,12 +26,7 @@ export default function TecnicoWelcome({ operador, onStart }: TecnicoWelcomeProp
       const fimHoje = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 23, 59, 59).toISOString();
 
       // Buscar ordens do técnico para hoje
-      const { data: ordens } = await supabase
-        .from('ordens_servico')
-        .select('id, tipo, status, status_instalacao, created_at')
-        .eq('tecnico_id', operador?.id)
-        .gte('created_at', inicioHoje)
-        .lte('created_at', fimHoje);
+      const { ordens } = await painelApi<{ ordens: any[] }>('ordens/minhas-hoje');
 
       if (ordens) {
         const instalacoes = ordens.filter((o: any) => 

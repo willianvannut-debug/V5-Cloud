@@ -5,7 +5,7 @@
 
 "use client"
 import React, { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -27,9 +27,6 @@ import {
   Building2,
 } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 // Mascaras
 function mascaraCPF(valor: string): string {
@@ -79,24 +76,11 @@ export default function ConverterLeadPage() {
 
   // Carregar leads aprovados (que podem virar clientes)
   const carregarLeads = useCallback(async () => {
-    if (!supabase || !empresa?.id) return;
+    if (!empresa?.id) return;
     setCarregando(true);
     try {
-      let query = supabase
-        .from('leads')
-        .select('*')
-        .eq('empresa_id', empresa.id)
-        .in('status', ['aprovado', 'qualificado', 'novo'])
-        .order('created_at', { ascending: false });
-
-      if (busca) {
-        query = query.or(`nome.ilike.%${busca}%,telefone.ilike.%${busca}%,email.ilike.%${busca}%`);
-      }
-
-      const { data, error } = await query.limit(50);
-      if (!error && data) {
-        setLeads(data);
-      }
+      const { leads: data } = await painelApi<{ leads: any[] }>(`leads-converter${busca ? `?busca=${encodeURIComponent(busca)}` : ''}`);
+      if (data) setLeads(data);
     } catch (e) {
       console.error('Erro ao carregar leads:', e);
     } finally {
@@ -216,12 +200,9 @@ export default function ConverterLeadPage() {
 
       if (res.ok && data.success) {
         // Atualizar status do lead para "convertido"
-        if (supabase) {
-          await supabase
-            .from('leads')
-            .update({ status: 'convertido' })
-            .eq('id', leadSelecionado.id);
-        }
+        try {
+          await painelApi(`leads/${leadSelecionado.id}`, { method: 'PATCH', body: { status: 'convertido' } });
+        } catch { /* cliente já foi criado; status é secundário */ }
 
         setSucesso(`Cliente "${leadSelecionado.nome}" cadastrado com sucesso!`);
         setTimeout(() => {

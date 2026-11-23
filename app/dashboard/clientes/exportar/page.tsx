@@ -5,7 +5,7 @@
 
 "use client"
 import React, { useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { painelApi } from '@/lib/painel-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -22,9 +22,6 @@ import {
   Users,
 } from 'lucide-react';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 export default function ExportarClientesPage() {
   const { empresa } = useAuth();
@@ -36,24 +33,16 @@ export default function ExportarClientesPage() {
   const [resultado, setResultado] = useState('');
 
   const exportarClientes = async () => {
-    if (!supabase || !empresa?.id) return;
+    if (!empresa?.id) return;
     setExportando(true);
     setResultado('');
 
     try {
-      let query = supabase
-        .from('clientes')
-        .select('nome, cpf, cnpj, tipo_pessoa, email, telefone, whatsapp, cep, logradouro, numero, complemento, bairro, cidade, uf, status, dia_vencimento, forma_pagamento, observacoes, created_at')
-        .eq('empresa_id', empresa.id)
-        .order('nome');
-
-      if (filtroStatus !== 'todos') {
-        query = query.eq('status', filtroStatus);
-      }
-
-      const { data, error } = await query;
-
-      if (error || !data) {
+      let data: any[] | null = null;
+      try {
+        const q = filtroStatus !== 'todos' ? `?view=exportar&status=${encodeURIComponent(filtroStatus)}` : '?view=exportar';
+        data = (await painelApi<{ clientes: any[] }>(`clientes${q}`)).clientes;
+      } catch {
         setResultado('Erro ao buscar clientes');
         return;
       }
