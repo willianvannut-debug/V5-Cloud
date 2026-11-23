@@ -169,7 +169,7 @@ export default function FuncionalidadesPage() {
         </p>
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <Link href="/cadastro" className="inline-flex px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-bold rounded-xl items-center justify-center gap-2 transition-colors shadow-[0_0_20px_rgba(16,185,129,0.15)]">
-            Começar grátis <ArrowRight className="w-5 h-5" />
+            Começar Agora <ArrowRight className="w-5 h-5" />
           </Link>
           <a href={WHATSAPP_DEMO} target="_blank" rel="noreferrer" className="inline-flex px-8 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-semibold rounded-xl items-center justify-center transition-colors">
             Ver demonstração
