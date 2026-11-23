@@ -114,7 +114,7 @@ export default function ViabilidadeDinamicaPage() {
       // 🚀 TROCADO .single() POR .maybeSingle() PARA EVITAR CRASH E LER ERRO REAL
       const { data: dadosEmpresa, error } = await supabase
         .from('empresas')
-        .select('*')
+        .select('id, nome_empresa, slug, plano, logo_url, cor_primaria, cor_secundaria, telefone, telefone_suporte')
         .eq('slug', slugUrl)
         .limit(1)
         .maybeSingle();
@@ -217,90 +217,27 @@ export default function ViabilidadeDinamicaPage() {
     }, 1000);
 
     try {
-      // 🔄 VERIFICAR DUPLICADOS RECENTES NO SUPABASE
-      const { data: leadExistente } = await supabase
-        .from('leads')
-        .select('id, created_at, perfil')
-        .eq('empresa_id', empresa.id)
-        .eq('telefone', telefone)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (leadExistente && leadExistente.length > 0) {
-        const tempoCriacao = new Date(leadExistente[0].created_at).getTime();
-        const minutosPassados = (Date.now() - tempoCriacao) / (1000 * 60);
-
-        if (minutosPassados < 5) {
-          console.log('🔄 Lead duplicado evitado. A aproveitar consulta recente.');
-          clearInterval(loaderInterval);
-          
-          const temCoberturaDuplicada = leadExistente[0].perfil === 'COM COBERTURA';
-          setTimeout(() => {
-            if (temCoberturaDuplicada) { setTelaAtiva('SUCCESS'); startTimer(15); } 
-            else { setTelaAtiva('EXPANSION'); }
-          }, 2000);
-          return;
-        }
-      }
-
-      // 🚀 Busca CTOs filtradas para a empresa atual
-      const resCtos = await fetch(`/api/ctos?empresa_id=${empresa.id}`);
-      if (!resCtos.ok) throw new Error("Erro de API.");
-      
-      const dadosBrutos = await resCtos.json();
-      const ctosLista = Array.isArray(dadosBrutos) ? dadosBrutos : (dadosBrutos?.ctos || dadosBrutos?.data || []);
-      const limiteEmpresa = Number(dadosBrutos?.limiteMetros || 250);
-
-      let menorDistancia = Infinity;
-      let ctoEleita = null;
-      const R = 6371e3; const rad = Math.PI / 180; const lat1 = posicaoPin[0] * rad;
-
-      ctosLista.forEach((cto: any) => {
-        const latCto = Number(cto.lat ?? cto.latitude ?? cto.Y);
-        const lonCto = Number(cto.lon ?? cto.longitude ?? cto.X);
-        if (!isNaN(latCto) && !isNaN(lonCto)) {
-          const lat2 = latCto * rad; const dLat = (latCto - posicaoPin[0]) * rad; const dLon = (lonCto - posicaoPin[1]) * rad;
-          const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-          const distMetros = R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-          if (distMetros < menorDistancia) { menorDistancia = distMetros; ctoEleita = cto; }
-        }
-      });
-
-      const temCobertura = menorDistancia <= limiteEmpresa;
-      const statusCalculado = temCobertura ? 'COM COBERTURA' : 'SEM COBERTURA';
-      const nomeCtoVinculada = ctoEleita ? (ctoEleita.identificacao || ctoEleita.nome || ctoEleita.codigo || 'CTO-01') : 'Sem CTO';
-
-      // Cálculo do Score Dinâmico
-      let pontuacaoLead = 0;
-      if (temCobertura) {
-        const prop = menorDistancia / limiteEmpresa; 
-        if (prop <= 0.33) pontuacaoLead += 50; else if (prop <= 0.66) pontuacaoLead += 30; else pontuacaoLead += 15; 
-      }
-      if (perfilUso === 'GAMER') pontuacaoLead += 30; else if (perfilUso === 'TRABALHO') pontuacaoLead += 25; else if (perfilUso === 'FAMILIA') pontuacaoLead += 15; else if (perfilUso === 'SOLO') pontuacaoLead += 10;
-      if (tipoImovel === 'COMERCIO') pontuacaoLead += 20; else if (tipoImovel === 'PREDIO') pontuacaoLead += 15; else if (tipoImovel === 'CASA') pontuacaoLead += 10; else if (tipoImovel === 'GALPAO') pontuacaoLead += 5;
-
-      // 🚀 Envia Lead, associando ao ID da empresa
-      await fetch('/api/leads', {
+      // 🚀 O servidor calcula a cobertura, o lead score e salva o lead (CTOs não saem do servidor)
+      const res = await fetch('/api/viabilidade/verificar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          nome, telefone, cep,
-          endereco: `${numero} [${tipoImovel} / ${perfilUso}]`,
-          perfil: statusCalculado, 
-          cto: nomeCtoVinculada, 
-          lat: posicaoPin[0], 
-          lon: posicaoPin[1], 
-          origem: 'cliente_publico', 
-          score: pontuacaoLead,
-          empresa_id: empresa.id 
-        })
+          empresa_id: empresa.id,
+          nome, telefone, cep, numero,
+          tipoImovel, perfilUso,
+          lat: posicaoPin[0],
+          lon: posicaoPin[1],
+        }),
       });
+      const resultado = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(resultado?.erro || 'Erro de API.');
+      const temCobertura = !!resultado.temCobertura;
 
       setTimeout(() => {
         clearInterval(loaderInterval);
         if (temCobertura) { setTelaAtiva('SUCCESS'); startTimer(15); } 
         else { setTelaAtiva('EXPANSION'); }
-      }, 4500);
+      }, resultado.repetida ? 2000 : 4500);
 
     } catch (err: any) {
       console.error(err);
