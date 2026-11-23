@@ -181,7 +181,7 @@ async function conexaoPorId(req: Request, s: SessaoOperador, id: string) {
 
 async function minhaEmpresa(req: Request, s: SessaoOperador) {
   if (req.method === 'PATCH') {
-    const campos = apenas(['apk_cliente_url', 'apk_tecnico_url'], await corpo(req));
+    const campos = apenas(['apk_cliente_url', 'apk_tecnico_url', 'msg_whatsapp_fatura'], await corpo(req));
     if (Object.keys(campos).length === 0) return erro('Nada para salvar');
     const { error } = await db.from('empresas').update(campos).eq('id', s.empresaId);
     if (error) return erro('Erro ao salvar', 500);

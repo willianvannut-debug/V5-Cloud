@@ -389,16 +389,24 @@ export default function TabFinanceiro({ clienteId, empresa, cliente, editando, f
     }
 
     const desc = fatura.description || '';
-    const msg = encodeURIComponent(
-      `Olá ${cliente.nome}!\n\n` +
-      `Segue sua fatura:\n\n` +
-      `📋 ${desc}\n` +
-      `💰 Valor: *${valor}*\n` +
-      `📅 Vencimento: ${venc}\n` +
-      `💳 Forma: ${tipo}` +
-      linkPagamento +
-      `\n\nEm caso de duvidas, entre em contato.\nObrigado! 🙏`
-    );
+    const appLink = empresa?.codigo_slug
+      ? `https://v5-cloud.vercel.app/download/${empresa.codigo_slug}`
+      : '';
+
+    const templatePadrao =
+      `Olá {nome}!\n\nSegue sua fatura:\n\n📋 {descricao}\n💰 Valor: *{valor}*\n📅 Vencimento: {vencimento}\n💳 Forma: {tipo}{link_pagamento}\n\n📱 Baixe nosso app: {app}\n\nEm caso de duvidas, entre em contato.\nObrigado! 🙏`;
+    const template = empresa?.msg_whatsapp_fatura || templatePadrao;
+
+    const textoFinal = template
+      .replace(/{nome}/g, cliente.nome || '')
+      .replace(/{valor}/g, valor)
+      .replace(/{vencimento}/g, venc)
+      .replace(/{tipo}/g, tipo)
+      .replace(/{descricao}/g, desc)
+      .replace(/{link_pagamento}/g, linkPagamento)
+      .replace(/{app}/g, appLink);
+
+    const msg = encodeURIComponent(textoFinal);
     window.open(`https://wa.me/55${tel}?text=${msg}`, '_blank');
   };
 
