@@ -18,11 +18,24 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
   const cor = empresa.cor_primaria || '#10b981';
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
+    <div className="min-h-screen text-white relative">
+      {/* Imagem de fundo */}
       <div
-        className="relative overflow-hidden"
+        className="fixed inset-0 z-0"
         style={{
-          background: `linear-gradient(135deg, ${cor}22 0%, ${cor}08 50%, transparent 100%)`
+          backgroundImage: "url('/bg-download.jpg')",
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+        }}
+      />
+      {/* Overlay escuro para legibilidade */}
+      <div className="fixed inset-0 z-0 bg-black/60 backdrop-blur-sm" />
+
+      <div
+        className="relative overflow-hidden z-10"
+        style={{
+          background: `linear-gradient(135deg, ${cor}15 0%, transparent 60%)`
         }}
       >
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white/5 via-transparent to-transparent" />
