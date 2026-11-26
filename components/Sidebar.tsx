@@ -223,7 +223,6 @@ export function Sidebar() {
     {
       name: 'MikroTik', href: '/dashboard/mikrotik', icon: Server, roles: ['gerente', 'superadmin'],
       subMenu: [
-        { name: 'Painel MikroTik', href: '/dashboard/mikrotik', icon: Server, cor: 'text-emerald-400' },
         { name: 'Servidores', href: '/dashboard/mikrotik/servidores', icon: Server, cor: 'text-blue-400' },
         { name: 'Planos PPPoE', href: '/dashboard/mikrotik/planos', icon: Gauge, cor: 'text-cyan-400' },
         { name: 'Pools de IP', href: '/dashboard/mikrotik/pools', icon: Globe, cor: 'text-teal-400' },
