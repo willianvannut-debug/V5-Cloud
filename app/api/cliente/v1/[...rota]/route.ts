@@ -4,7 +4,7 @@
 //
 //  POST  login                      { cpf, senha, empresa_id? }
 //  POST  primeiro-acesso/verificar  { cpf }
-//  POST  primeiro-acesso/ativar     { cpf, senha }
+//  POST  primeiro-acesso/ativar     { cpf, senha, email }
 //  GET   me                         | PATCH me { latitude, longitude, ponto_referencia }
 //  GET   faturas                    (?abertas=1 → só pendentes/vencidas)
 //  GET   contrato
@@ -65,11 +65,12 @@ async function primeiroAcessoVerificar(req: Request) {
 
 async function primeiroAcessoAtivar(req: Request) {
   if (excedeuTentativas(`pa:${ipDe(req)}`, 15)) return erro('Muitas tentativas. Aguarde alguns minutos.', 429);
-  const { cpf, senha } = await corpo(req);
+  const { cpf, senha, email } = await corpo(req);
   if (soDigitos(cpf).length !== 11 || String(senha || '').length < 6) return erro('Dados inválidos');
+  const emailLimpo = typeof email === 'string' ? email.trim().toLowerCase() : null;
   const { data: c } = await db.from('clientes').select('cpf').in('cpf', variacoesCpf(cpf)).limit(1).maybeSingle();
   if (!c) return ok({ resultado: 'cpf_nao_encontrado' });
-  const { data: resultado, error } = await db.rpc('ativar_conta_cliente', { p_cpf: c.cpf, p_senha: String(senha) });
+  const { data: resultado, error } = await db.rpc('ativar_conta_cliente', { p_cpf: c.cpf, p_senha: String(senha), p_email: emailLimpo });
   if (error) return erro('Não foi possível criar sua conta', 500);
   return ok({ resultado });
 }
