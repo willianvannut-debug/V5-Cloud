@@ -16,6 +16,8 @@ import {
   Clock,
   ArrowUpCircle,
   ArrowDownCircle,
+  Loader2,
+  ExternalLink,
 } from 'lucide-react';
 import { estiloInput, estiloLabel, estiloSelect, estiloRotulo } from '../shared';
 
@@ -38,6 +40,13 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
   const [historicContratos, setHistoricContratos] = useState<any[]>([]);
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
+
+  // Modal Gerar Contrato
+  const [modalGerarContrato, setModalGerarContrato] = useState(false);
+  const [modelos, setModelos] = useState<any[]>([]);
+  const [carregandoModelos, setCarregandoModelos] = useState(false);
+  const [modeloSelecionado, setModeloSelecionado] = useState<string>('');
+  const [gerandoContrato, setGerandoContrato] = useState(false);
 
   // ==========================
   // CARREGAR TUDO VIA API
@@ -152,6 +161,55 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
       alert('Erro ao cancelar: ' + (e.message || 'Erro desconhecido'));
     } finally {
       setCancelando(false);
+    }
+  };
+
+  // ==========================
+  // GERAR CONTRATO
+  // ==========================
+  const abrirModalGerarContrato = async () => {
+    setModalGerarContrato(true);
+    setModeloSelecionado('');
+    setCarregandoModelos(true);
+    try {
+      const res = await fetch('/api/contratos/modelos', { credentials: 'include' });
+      const data = await res.json();
+      setModelos(Array.isArray(data) ? data.filter((m: any) => m.ativo !== false) : []);
+    } catch {
+      setModelos([]);
+    } finally {
+      setCarregandoModelos(false);
+    }
+  };
+
+  const gerarDocumentoContrato = async () => {
+    if (!modeloSelecionado) return;
+    setGerandoContrato(true);
+    try {
+      const modelo = modelos.find(m => m.id === modeloSelecionado);
+      if (!modelo) throw new Error('Modelo não encontrado');
+
+      const res = await fetch('/api/contratos/documentos', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cliente_id: clienteId,
+          modelo_id: modelo.id,
+          titulo: `${modelo.nome} — ${new Date().toLocaleDateString('pt-BR')}`,
+          status: 'rascunho',
+          tipo: 'gerado',
+        }),
+      });
+      const doc = await res.json();
+      if (!res.ok) throw new Error(doc.error || 'Erro ao gerar contrato');
+
+      setModalGerarContrato(false);
+      window.open(`/dashboard/contratos/novo?id=${doc.id}`, '_blank');
+    } catch (e: any) {
+      alert('Erro: ' + (e.message || 'Erro desconhecido'));
+    } finally {
+      setGerandoContrato(false);
     }
   };
 
@@ -299,7 +357,7 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
           >
             <ArrowDownCircle className="w-4 h-4" /> DOWNGRADE
           </button>
-          <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono font-bold uppercase hover:bg-blue-500/20 transition-all cursor-pointer">
+          <button onClick={abrirModalGerarContrato} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono font-bold uppercase hover:bg-blue-500/20 transition-all cursor-pointer">
             <FileText className="w-4 h-4" /> GERAR CONTRATO
           </button>
           <button
@@ -472,6 +530,73 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
           </div>
         )}
       </div>
+    </div>
+
+      {/* ===================== MODAL GERAR CONTRATO ===================== */}
+      {modalGerarContrato && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setModalGerarContrato(false)}>
+          <div className="bg-[#111] border border-zinc-800 rounded-2xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold font-mono text-white uppercase flex items-center gap-2">
+                <FileText className="w-4 h-4 text-blue-400" /> Gerar Contrato
+              </h3>
+              <button onClick={() => setModalGerarContrato(false)} className="text-zinc-500 hover:text-white transition-colors cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400 font-mono">Selecione um modelo para gerar o documento de contrato deste cliente.</p>
+
+            {carregandoModelos ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                <span className="ml-2 text-xs text-zinc-500 font-mono">Carregando modelos...</span>
+              </div>
+            ) : modelos.length === 0 ? (
+              <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 text-center">
+                <FileText className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
+                <p className="text-xs text-zinc-500 font-mono">Nenhum modelo disponível.</p>
+                <a href="/dashboard/contratos/modelos" target="_blank" className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 font-mono mt-2 transition-colors">
+                  Criar modelo <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {modelos.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => setModeloSelecionado(m.id)}
+                    className={`w-full text-left px-4 py-3 rounded-xl border transition-all cursor-pointer ${
+                      modeloSelecionado === m.id
+                        ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                        : 'bg-zinc-900/40 border-zinc-800 text-zinc-300 hover:border-zinc-700'
+                    }`}
+                  >
+                    <p className="text-xs font-bold font-mono">{m.nome}</p>
+                    {m.descricao && <p className="text-[10px] text-zinc-500 font-mono mt-0.5">{m.descricao}</p>}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {modelos.length > 0 && (
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setModalGerarContrato(false)} className="flex-1 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 text-xs font-mono font-bold uppercase hover:bg-zinc-800 transition-all cursor-pointer">
+                  Cancelar
+                </button>
+                <button
+                  onClick={gerarDocumentoContrato}
+                  disabled={!modeloSelecionado || gerandoContrato}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500/20 border border-blue-500/30 text-blue-400 text-xs font-mono font-bold uppercase hover:bg-blue-500/30 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {gerandoContrato ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+                  {gerandoContrato ? 'Gerando...' : 'Gerar Contrato'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
