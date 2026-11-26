@@ -279,7 +279,7 @@ export default function VisaoGeralPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white font-mono">Visão Geral</h1>
-          <p className="text-zinc-500 text-sm font-mono mt-1">
+          <p className="text-white text-sm font-mono mt-1">
             Resumo completo do seu provedor
           </p>
         </div>
@@ -316,7 +316,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Recebido Hoje
                 </p>
                 <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">
@@ -338,7 +338,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Faturamento Mês
                 </p>
                 <p className="text-2xl font-bold text-white font-mono mt-1">
@@ -360,7 +360,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Recebido no Mês
                 </p>
                 <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">
@@ -382,7 +382,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Inadimplência
                 </p>
                 <p className="text-2xl font-bold text-red-400 font-mono mt-1">
@@ -409,7 +409,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Clientes Ativos
                 </p>
                 <p className="text-2xl font-bold text-white font-mono mt-1">
@@ -431,7 +431,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Bloqueados
                 </p>
                 <p className="text-2xl font-bold text-yellow-400 font-mono mt-1">
@@ -453,7 +453,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Leads do Mês
                 </p>
                 <p className="text-2xl font-bold text-white font-mono mt-1">
@@ -475,7 +475,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Leads Convertidos
                 </p>
                 <p className="text-2xl font-bold text-emerald-400 font-mono mt-1">
@@ -502,7 +502,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Contratos Ativos
                 </p>
                 <p className="text-2xl font-bold text-white font-mono mt-1">
@@ -524,7 +524,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Faturas Pendentes
                 </p>
                 <p className="text-2xl font-bold text-yellow-400 font-mono mt-1">
@@ -546,7 +546,7 @@ export default function VisaoGeralPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                <p className="text-xs font-mono text-emerald-500 uppercase tracking-wider">
                   Tickets Abertos
                 </p>
                 <p className="text-2xl font-bold text-white font-mono mt-1">

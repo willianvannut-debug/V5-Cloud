@@ -49,7 +49,7 @@
 }
 
 :root {
-  --card: oklch(1 0 0);
+  --card: oklch(90.365% 0.0001 271.152);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -61,7 +61,7 @@
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --destructive: oklch(63.268% 0.25269 27.576);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -147,13 +147,13 @@
 .v5-dashboard-root:not(.dark) .bg-\[\#0a0a0a\],
 .v5-dashboard-root:not(.dark) .bg-\[\#0A0A0F\],
 .v5-dashboard-root:not(.dark) .bg-\[\#0A0A0A\] {
-  background-color: #ffffff !important;
+  background-color: #888888 !important;
 }
 
 /* -------- SIDEBAR (levemente off-white, como no Notion) -------- */
 .v5-dashboard-root:not(.dark) .bg-\[\#111113\],
 .v5-dashboard-root:not(.dark) aside {
-  background-color: #fbfbfa !important;
+  background-color: #80807e !important;
   border-color: #e9e9e7 !important;
 }
 

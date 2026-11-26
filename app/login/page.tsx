@@ -175,7 +175,7 @@ export default function LoginPage() {
       {/* Background Image */}
       <div className="absolute inset-0 z-0">
         <Image src="/bg-login.webp" alt="" fill className="object-cover" priority />
-        <div className="absolute inset-0 bg-[#021708]/80 backdrop-blur-[2px]" />
+        <div className="absolute inset-0 bg-black/60" />
       </div>
       <div className="w-full max-w-md space-y-6 relative z-10">
 

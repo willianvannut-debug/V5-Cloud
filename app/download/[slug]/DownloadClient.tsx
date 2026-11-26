@@ -47,7 +47,7 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
               <img
                 src={empresa.logo_url}
                 alt={empresa.nome_empresa}
-                className="w-20 h-20 rounded-2xl mx-auto mb-4 object-contain bg-white/10 p-2"
+                className="w-24 h-24 rounded-2xl mx-auto mb-5 object-contain bg-white/10 p-2 shadow-2xl"
               />
             ) : (
               <div
@@ -57,15 +57,15 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
                 {empresa.nome_empresa.charAt(0).toUpperCase()}
               </div>
             )}
-            <h1 className="text-2xl font-bold tracking-tight">{empresa.nome_empresa}</h1>
-            <p className="text-zinc-400 text-sm mt-1">Baixe nossos aplicativos</p>
+            <h1 className="text-3xl font-extrabold tracking-tight drop-shadow-lg">{empresa.nome_empresa}</h1>
+            <p className="text-white/70 text-base mt-2 font-medium">Baixe nossos aplicativos</p>
           </div>
 
           {/* Tabs Cliente / Técnico */}
           <div className="flex gap-2 mb-6 bg-zinc-900/60 rounded-xl p-1 border border-zinc-800">
             <button
               onClick={() => setTab('cliente')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+              className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
                 tab === 'cliente'
                   ? 'bg-emerald-600 text-white shadow-lg'
                   : 'text-zinc-400 hover:text-zinc-300'
@@ -76,7 +76,7 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
             </button>
             <button
               onClick={() => setTab('tecnico')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+              className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
                 tab === 'tecnico'
                   ? 'bg-blue-600 text-white shadow-lg'
                   : 'text-zinc-400 hover:text-zinc-300'
@@ -98,8 +98,8 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
                   <Smartphone className="w-7 h-7" style={{ color: cor }} />
                 </div>
                 <div>
-                  <h2 className="font-semibold text-lg">V5 Fibra</h2>
-                  <p className="text-zinc-500 text-xs">Gerencie sua internet pelo celular</p>
+                  <h2 className="font-bold text-xl leading-tight">V5 Fibra</h2>
+                  <p className="text-zinc-300 text-sm mt-0.5">Gerencie sua internet pelo celular</p>
                 </div>
               </div>
 
@@ -111,7 +111,7 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
                 ].map((item) => (
                   <div key={item.label} className="flex flex-col items-center gap-1.5 py-3 rounded-xl bg-zinc-800/50 border border-zinc-800">
                     <item.icon className="w-5 h-5 text-zinc-400" />
-                    <span className="text-[11px] text-zinc-500">{item.label}</span>
+                    <span className="text-xs text-zinc-300 font-medium">{item.label}</span>
                   </div>
                 ))}
               </div>
@@ -121,7 +121,7 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
                   href={empresa.apk_cliente_url || '/apks/cliente.apk'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full flex items-center justify-center gap-2.5 text-white py-3.5 px-6 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg bg-emerald-600 hover:bg-emerald-500"
+                  className="w-full flex items-center justify-center gap-2.5 text-white py-4 px-6 rounded-xl text-base font-bold transition-all duration-200 shadow-lg bg-emerald-600 hover:bg-emerald-500"
                   style={{ boxShadow: '0 10px 25px -5px rgba(16, 185, 129, 0.3)' }}
                 >
                   <Download className="w-5 h-5" />
@@ -143,8 +143,8 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
                   <Wrench className="w-7 h-7 text-blue-400" />
                 </div>
                 <div>
-                  <h2 className="font-semibold text-lg">V5 Cloud Técnico</h2>
-                  <p className="text-zinc-500 text-xs">App para técnicos de campo</p>
+                  <h2 className="font-bold text-xl leading-tight">V5 Cloud Técnico</h2>
+                  <p className="text-zinc-300 text-sm mt-0.5">App para técnicos de campo</p>
                 </div>
               </div>
 
@@ -156,7 +156,7 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
                 ].map((item) => (
                   <div key={item.label} className="flex flex-col items-center gap-1.5 py-3 rounded-xl bg-zinc-800/50 border border-zinc-800">
                     <item.icon className="w-5 h-5 text-zinc-400" />
-                    <span className="text-[11px] text-zinc-500">{item.label}</span>
+                    <span className="text-xs text-zinc-300 font-medium">{item.label}</span>
                   </div>
                 ))}
               </div>
@@ -166,7 +166,7 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
                   href={empresa.apk_tecnico_url || '/apks/tecnico.apk'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full flex items-center justify-center gap-2.5 text-white py-3.5 px-6 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg bg-blue-600 hover:bg-blue-500"
+                  className="w-full flex items-center justify-center gap-2.5 text-white py-4 px-6 rounded-xl text-base font-bold transition-all duration-200 shadow-lg bg-blue-600 hover:bg-blue-500"
                   style={{ boxShadow: '0 10px 25px -5px rgba(59, 130, 246, 0.3)' }}
                 >
                   <Download className="w-5 h-5" />
@@ -184,7 +184,7 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
           <div className="bg-zinc-900/60 backdrop-blur border border-zinc-800 rounded-2xl overflow-hidden mb-6">
             <button
               onClick={() => setShowInstrucoes(!showInstrucoes)}
-              className="w-full flex items-center justify-between p-4 text-sm text-zinc-300 hover:bg-zinc-800/30 transition-colors"
+              className="w-full flex items-center justify-between p-5 text-base font-semibold text-white hover:bg-zinc-800/30 transition-colors"
             >
               <span className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-amber-400" />
@@ -208,7 +208,7 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
                     >
                       {step.n}
                     </span>
-                    <p className="text-zinc-400 text-xs leading-relaxed">{step.text}</p>
+                    <p className="text-white/80 text-sm leading-relaxed">{step.text}</p>
                   </div>
                 ))}
               </div>
@@ -218,12 +218,12 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
           {/* Suporte */}
           {empresa.telefone_suporte && (
             <div className="text-center">
-              <p className="text-zinc-600 text-xs mb-1">Precisa de ajuda?</p>
+              <p className="text-white/60 text-sm mb-2">Precisa de ajuda?</p>
               <a
                 href={`https://wa.me/55${empresa.telefone_suporte.replace(/\D/g, '')}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-green-400 text-sm hover:text-green-300 transition-colors"
+                className="inline-flex items-center gap-2 text-green-300 text-base font-semibold hover:text-green-300 transition-colors"
               >
                 <Share2 className="w-3.5 h-3.5" />
                 Falar com suporte
@@ -233,7 +233,7 @@ export default function DownloadClient({ empresa }: { empresa: Empresa }) {
 
           {/* Footer */}
           <div className="text-center mt-8 pb-6">
-            <p className="text-zinc-700 text-[10px]">Powered by V5 Cloud</p>
+            <p className="text-white/70 text-xs font-medium tracking-wide">Powered by V5 Cloud &#10084;</p>
           </div>
         </div>
       </div>
