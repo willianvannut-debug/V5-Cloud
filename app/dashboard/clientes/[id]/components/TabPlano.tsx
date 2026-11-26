@@ -530,7 +530,6 @@ export default function TabPlano({ clienteId, empresa }: TabPlanoProps) {
           </div>
         )}
       </div>
-    </div>
 
       {/* ===================== MODAL GERAR CONTRATO ===================== */}
       {modalGerarContrato && (
