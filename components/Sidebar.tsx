@@ -305,16 +305,7 @@ export function Sidebar() {
     {
       name: 'Relatorios', href: '/dashboard/relatorios', icon: BarChart3, roles: ['gerente', 'superadmin'],
       subMenu: [
-        { name: 'Dashboard Geral', href: '/dashboard/relatorios/dashboard', icon: LayoutGrid, cor: 'text-emerald-400' },
-        { name: 'Por Status', href: '/dashboard/relatorios/status', icon: PieChart, cor: 'text-blue-400' },
-        { name: 'Inadimplencia', href: '/dashboard/relatorios/inadimplencia', icon: AlertTriangle, cor: 'text-red-400' },
-        { name: 'Churn', href: '/dashboard/relatorios/churn', icon: TrendingUp, cor: 'text-orange-400' },
-        { name: 'Receita', href: '/dashboard/relatorios/receita', icon: DollarSign, cor: 'text-green-400' },
-        { name: 'Mapa de Calor', href: '/dashboard/relatorios/mapa-calor', icon: Thermometer, cor: 'text-yellow-400' },
-        { name: 'Comparativo', href: '/dashboard/relatorios/comparativo', icon: GitCompare, cor: 'text-cyan-400' },
-        { name: 'SICI / Anatel', href: '/dashboard/relatorios/sici', icon: FileSpreadsheet, cor: 'text-purple-400' },
-        { name: 'Agendar Envio', href: '/dashboard/relatorios/agendar', icon: MailPlus, cor: 'text-pink-400' },
-        { name: 'BI Custom', href: '/dashboard/relatorios/bi', icon: Puzzle, cor: 'text-teal-400' },
+        { name: 'Dashboard Geral', href: '/dashboard/relatorios', icon: LayoutGrid, cor: 'text-emerald-400' },
       ],
     },
 

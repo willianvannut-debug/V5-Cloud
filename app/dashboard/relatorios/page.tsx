@@ -1,357 +1,302 @@
 // ================================================================================
-// 📋 RELATÓRIOS E DESEMPENHO - V5 CLOUD
+// 📊 RELATÓRIOS - DASHBOARD GERAL - V5 CLOUD
 // app/dashboard/relatorios/page.tsx
 // ================================================================================
 
 "use client"
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { 
-  BarChart3, 
-  DollarSign, 
-  Users, 
-  TrendingUp, 
-  Download, 
-  Calendar,
-  RefreshCw,
-  Tag,
-  Lock
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  BarChart3, DollarSign, Users, TrendingUp,
+  MapPin, AlertTriangle, RefreshCw,
+  WifiOff, UserCheck, UserX, Package
 } from 'lucide-react';
-import { useApp } from '@/context/AppContext';
-import { useSettings } from '@/context/SettingsContext';
-import { useAuth } from '@/context/AuthContext';
 
-// Função global para vasculhar qualquer canto do objeto do lead atrás do nome do plano
-const caçarPlanoOculto = (leadObj: any): string | null => {
-  if (!leadObj) return null;
+const moeda = (v: number) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 
-  // 1. Tenta as chaves mais comuns, incluindo sub-objetos (viabilidade, funil, etc)
-  const chaves = [
-    leadObj.plano, leadObj.planoSelecionado, leadObj.planoPretendido, 
-    leadObj.plano_escolhido, leadObj.plano_instalacao, leadObj.plano_nome,
-    leadObj.viabilidade?.plano, leadObj.dados?.plano, leadObj.funil?.plano,
-    leadObj.instalacao?.plano
-  ];
+const pct = (a: number, b: number) =>
+  b === 0 ? 0 : Math.round((a / b) * 100);
 
-  for (const val of chaves) {
-    if (typeof val === 'string' && val.trim() !== '' && !val.toUpperCase().includes('ESCOLHER')) {
-      return val;
-    } else if (typeof val === 'object' && val !== null && val.nome) {
-      return val.nome;
-    }
-  }
-
-  // 2. BUSCA PROFUNDA (RAIO-X): Se não achou, transforma o lead inteiro em texto e procura o padrão
-  try {
-    const jsonStr = JSON.stringify(leadObj);
-    const matchRegex = jsonStr.match(/"([^"]*?(?:MEGA|GIGA|PLANO).*?R\$.*?)"/i);
-    if (matchRegex && !matchRegex[1].toUpperCase().includes('ESCOLHER')) {
-      return matchRegex[1];
-    }
-  } catch (e) {
-    // Ignora erros de conversão circular
-  }
-
-  return null;
-};
-
-export default function RelatoriosPage() {
-  const { leads: leadsContexto } = useApp();
-  const { planos, planoAtivo: planoAtivoSettings } = useSettings();
-  const { operador, empresa } = useAuth();
-
-  const [leads, setLeads] = useState<any[]>([]);
-  const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
-
-  // Sincroniza com o localStorage operacional do técnico e o contexto de leads
-  useEffect(() => {
-    const carregarLeads = () => {
-      if (typeof window !== 'undefined') {
-        const salvos = localStorage.getItem('v5_leads_operacional');
-        let parsedStorage = [];
-        if (salvos) {
-          try {
-            parsedStorage = JSON.parse(salvos);
-          } catch (e) {
-            console.error("Erro ao carregar leads:", e);
-          }
-        }
-
-        const atualizados = leadsContexto.map((l: any) => {
-          const encontrado = parsedStorage.find((p: any) => p.id === l.id);
-          return encontrado ? { ...l, ...encontrado } : l;
-        });
-        setLeads(atualizados);
-      } else {
-        setLeads(leadsContexto);
-      }
-    };
-
-    carregarLeads();
-    window.addEventListener('storage', carregarLeads);
-    return () => window.removeEventListener('storage', carregarLeads);
-  }, [leadsContexto]);
-
-  const planoDoContexto = empresa?.plano || operador?.empresa?.plano || planoAtivoSettings || 'essencial';
-  const planoAtualFormatado = String(planoDoContexto).toLowerCase().trim();
-
-  const isSuperAdmin = typeof window !== 'undefined' && localStorage.getItem('v5_role') === 'superadmin';
-  const temAcessoRelatorios = isSuperAdmin || (planoAtualFormatado !== 'essencial');
-
-  if (!temAcessoRelatorios) {
-    return (
-      <div className="p-6 md:p-10 min-h-screen bg-[#0a0a0a] flex items-center justify-center font-sans w-full">
-        <div className="max-w-md w-full border border-zinc-800 bg-zinc-900/60 p-8 rounded-2xl backdrop-blur text-center shadow-2xl space-y-4">
-          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto border border-red-500/20">
-            <Lock className="w-8 h-8 text-red-400" />
-          </div>
-          <h2 className="text-2xl font-black font-mono text-white uppercase tracking-tight">Recurso Indisponível no Plano Essencial</h2>
-          <p className="text-zinc-400 text-sm leading-relaxed">
-            Os relatórios de conversão e métricas avançadas estão disponíveis a partir do plano <strong className="text-emerald-400">PRO</strong>. 
-          </p>
-        </div>
+function KpiCard({ icon: Icon, label, value, sub, color = 'emerald' }: {
+  icon: any; label: string; value: string | number; sub?: string; color?: string;
+}) {
+  const cores: Record<string, string> = {
+    emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    blue:    'text-blue-400 bg-blue-500/10 border-blue-500/20',
+    red:     'text-red-400 bg-red-500/10 border-red-500/20',
+    amber:   'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    purple:  'text-purple-400 bg-purple-500/10 border-purple-500/20',
+    cyan:    'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+  };
+  return (
+    <div className={`rounded-xl border p-4 space-y-2 ${cores[color] || cores.emerald}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-mono uppercase tracking-widest opacity-70">{label}</span>
+        <Icon className="w-4 h-4 opacity-60" />
       </div>
-    );
-  }
+      <div className="text-2xl font-black font-mono">{value}</div>
+      {sub && <div className="text-[11px] opacity-60 font-mono">{sub}</div>}
+    </div>
+  );
+}
 
-  const relatorioItens = leads.filter(item => {
-    const etapa = String(item.etapa_funil || item.perfil || '').toUpperCase();
-    return (
-      item.statusOperacional === 'CONCLUIDA' || 
-      item.statusOperacional === 'NAO_FEITA' || 
-      item.status === 'SEM COBERTURA' ||
-      etapa === 'NAO CONVERTIDO' ||
-      etapa === 'NÃO CONVERTIDO'
-    );
-  });
+function BarraPct({ label, valor, total, color = 'emerald' }: {
+  label: string; valor: number; total: number; color?: string;
+}) {
+  const p = pct(valor, total);
+  const cores: Record<string, string> = {
+    emerald: 'bg-emerald-500', blue: 'bg-blue-500',
+    red: 'bg-red-500', amber: 'bg-amber-500',
+  };
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs font-mono">
+        <span className="text-zinc-400">{label}</span>
+        <span className="text-white font-bold">{valor} <span className="text-zinc-500">({p}%)</span></span>
+      </div>
+      <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+        <div className={`h-full ${cores[color] || cores.emerald} rounded-full transition-all`}
+          style={{ width: `${p}%` }} />
+      </div>
+    </div>
+  );
+}
 
-  // ============================================================================
-  // CÁLCULO DE FATURAMENTO COM RAIO-X
-  // ============================================================================
-  const extrairValorPlano = (lead: any) => {
-    const rawValue = lead.valorPlano || lead.valor || lead.preco || lead.viabilidade?.valor;
-    if (rawValue !== undefined && rawValue !== null) {
-      if (typeof rawValue === 'number') return rawValue;
-      const parsed = parseFloat(String(rawValue).replace(/[^\d,.-]/g, '').replace(',', '.'));
-      if (!isNaN(parsed) && parsed > 0) return parsed;
-    }
+export default function RelatoriosDashboard() {
+  const [clientes, setClientes]   = useState<any[]>([]);
+  const [contratos, setContratos] = useState<any[]>([]);
+  const [leads, setLeads]         = useState<any[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [atualizadoEm, setAtualizadoEm] = useState(new Date());
+  const [abaSemCob, setAbaSemCob] = useState<'lista' | 'bairros'>('lista');
 
-    const textoPlano = caçarPlanoOculto(lead);
+  const carregar = async () => {
+    setCarregando(true);
+    try {
+      const [resC, resCt, resL] = await Promise.all([
+        fetch('/api/clientes', { credentials: 'include', cache: 'no-store' }),
+        fetch('/api/contratos', { credentials: 'include', cache: 'no-store' }),
+        fetch('/api/leads',    { credentials: 'include', cache: 'no-store' }),
+      ]);
 
-    if (typeof textoPlano === 'string') {
-      const match = textoPlano.match(/R\$\s*([\d.,]+)/);
-      if (match) {
-        const numeroLimpo = match[1].replace(/\./g, '').replace(',', '.');
-        const parsed = parseFloat(numeroLimpo);
-        if (!isNaN(parsed) && parsed > 0) return parsed;
+      if (resC.ok) {
+        const d = await resC.json();
+        setClientes(Array.isArray(d) ? d : d.clientes || d.data || []);
       }
-    }
-
-    if (typeof textoPlano === 'string' && planos && planos.length > 0) {
-      const planoMatch = planos.find((p: any) => textoPlano.includes(p.nome) || p.nome === textoPlano);
-      if (planoMatch && planoMatch.preco) {
-        const parsed = parseFloat(String(planoMatch.preco).replace(/[^\d,.-]/g, '').replace(',', '.'));
-        if (!isNaN(parsed) && parsed > 0) return parsed;
+      if (resCt.ok) {
+        const d = await resCt.json();
+        setContratos(Array.isArray(d) ? d : d.contratos || d.data || []);
       }
+      if (resL.ok) {
+        const d = await resL.json();
+        setLeads(Array.isArray(d) ? d : d.leads || d.data || []);
+      }
+    } catch (e) {
+      console.error('Erro ao carregar dados do relatório:', e);
+    } finally {
+      setCarregando(false);
+      setAtualizadoEm(new Date());
     }
-
-    return 0;
   };
 
-  const vendasConcluidas = leads.filter(l => l.statusOperacional === 'CONCLUIDA');
-  const totalVendas = vendasConcluidas.length;
+  useEffect(() => { carregar(); }, []);
 
-  const faturamentoGerado = vendasConcluidas.reduce((acc, lead) => acc + extrairValorPlano(lead), 0);
-  const ticketMedio = totalVendas > 0 ? faturamentoGerado / totalVendas : 0;
-  // ============================================================================
+  // ── Métricas clientes ──────────────────────────────────────────────────────
+  const totalClientes        = clientes.length;
+  const clientesAtivos       = clientes.filter(c => ['ativo','active','ativa'].includes((c.status||'').toLowerCase())).length;
+  const clientesInadimpl     = clientes.filter(c => ['inadimplente','bloqueado','suspenso'].includes((c.status||'').toLowerCase())).length;
+  const clientesCancelados   = clientes.filter(c => ['cancelado','inativo'].includes((c.status||'').toLowerCase())).length;
+
+  // ── Métricas contratos / receita ───────────────────────────────────────────
+  const totalContratos = contratos.length;
+  const receitaMensal  = contratos.reduce((acc, c) => {
+    const v = parseFloat(c.valor || c.planoValor || c.mensalidade || 0);
+    return acc + (isNaN(v) ? 0 : v);
+  }, 0);
+
+  // ── Métricas leads ─────────────────────────────────────────────────────────
+  const totalLeads        = leads.length;
+  const leadsConvertidos  = leads.filter(l => ['convertido','cliente','instalado','INSTALAÇÃO FEITA','INSTALACAO_FEITA'].includes((l.status || l.etapa_funil || ''))).length;
+  const leadsEmNegoc      = leads.filter(l => ['EM CONTATO','AGENDADO','negociacao','proposta'].includes((l.status || l.etapa_funil || ''))).length;
+  const leadsPerdidos     = leads.filter(l => ['NAO CONVERTIDO','perdido','sem interesse'].includes((l.status || l.etapa_funil || ''))).length;
+  const taxaConversao     = pct(leadsConvertidos, totalLeads);
+
+  // ── Viabilidade dos leads ──────────────────────────────────────────────────
+  const leadsComViabilidade = leads.filter(l =>
+    (l.status || '').toUpperCase() === 'COM COBERTURA' ||
+    l.temCobertura === true || l.cobertura === true ||
+    l.semCobertura === false || l.viabilidade?.temCobertura === true
+  ).length;
+  const leadsSemViabilidade = leads.filter(l =>
+    (l.status || '').toUpperCase() === 'SEM COBERTURA' ||
+    l.temCobertura === false || l.cobertura === false ||
+    l.semCobertura === true || l.viabilidade?.temCobertura === false
+  ).length;
+  const leadsSemInfo = Math.max(0, totalLeads - leadsComViabilidade - leadsSemViabilidade);
+
+  // ── Leads sem cobertura ────────────────────────────────────────────────────
+  const leadsSemCob = useMemo(() => leads.filter(l =>
+    l.semCobertura === true ||
+    l.cobertura === false ||
+    l.temCobertura === false ||
+    (l.status || '').toUpperCase() === 'SEM COBERTURA' ||
+    l.viabilidade?.temCobertura === false
+  ), [leads]);
+
+  const porBairro = useMemo(() => {
+    const m: Record<string, number> = {};
+    leadsSemCob.forEach(l => {
+      const b = l.bairro || l.viabilidade?.bairro || l.endereco?.bairro || 'Não informado';
+      m[b] = (m[b] || 0) + 1;
+    });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  }, [leadsSemCob]);
+
+  if (carregando) return (
+    <div className="flex items-center justify-center min-h-[60vh] font-mono">
+      <div className="text-center space-y-3">
+        <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin mx-auto" />
+        <p className="text-zinc-500 text-sm">Carregando relatório...</p>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="p-8 space-y-6 bg-[#0a0a0a] min-h-screen text-zinc-50 font-sans w-full">
+    <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto font-mono">
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      {/* Cabeçalho */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-black uppercase tracking-tight font-mono text-white flex items-center gap-2">
-            <BarChart3 className="w-6 h-6 text-emerald-400" /> Relatórios & Desempenho
+          <h1 className="text-xl font-black uppercase tracking-widest text-white flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-emerald-400" /> Dashboard Geral
           </h1>
-          <p className="text-zinc-400 text-sm mt-0.5">Análise financeira avançada, histórico consolidado e eficiência da rede.</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Atualizado às {atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        </div>
+        <button onClick={carregar}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors">
+          <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+        </button>
+      </div>
+
+      {/* KPIs principais */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard icon={Users}      label="Clientes Ativos"  value={clientesAtivos}       sub={`de ${totalClientes} total`}         color="emerald" />
+        <KpiCard icon={DollarSign} label="Receita Mensal"   value={moeda(receitaMensal)} sub={`${totalContratos} contratos`}       color="blue"    />
+        <KpiCard icon={AlertTriangle} label="Inadimplentes" value={clientesInadimpl}     sub={`${pct(clientesInadimpl,totalClientes)}% da base`} color="red" />
+        <KpiCard icon={TrendingUp} label="Conversão Leads"  value={`${taxaConversao}%`}  sub={`${leadsConvertidos} de ${totalLeads}`} color="purple" />
+      </div>
+
+      {/* Grid status clientes + funil leads */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 space-y-4">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-emerald-500">Viabilidade dos Leads</h2>
+          <div className="space-y-3">
+            <BarraPct label="Com Cobertura"  valor={leadsComViabilidade} total={totalLeads} color="emerald" />
+            <BarraPct label="Sem Cobertura"  valor={leadsSemViabilidade} total={totalLeads} color="red"     />
+            <BarraPct label="Não Verificado" valor={Math.max(0, leadsSemInfo)} total={totalLeads} color="amber" />
+          </div>
+          <div className="pt-2 border-t border-zinc-800 grid grid-cols-3 gap-2 text-center">
+            {[['Com Cob.', leadsComViabilidade, 'text-emerald-400'],['Sem Cob.', leadsSemViabilidade, 'text-red-400'],['Sem Info', Math.max(0,leadsSemInfo), 'text-amber-400']].map(([l,v,cl]) => (
+              <div key={String(l)}><div className={`text-lg font-black ${cl}`}>{v}</div><div className="text-[10px] text-zinc-500">{l}</div></div>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="px-3.5 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-mono text-emerald-400 font-bold uppercase flex items-center gap-2">
-            <Tag className="w-3.5 h-3.5" /> Plano {planoAtualFormatado.toUpperCase()} Ativo
-          </span>
-          <button className="p-2.5 rounded-xl border bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer">
-            <RefreshCw className="w-4 h-4" />
-          </button>
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 space-y-4">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-emerald-500">Funil de Leads</h2>
+          <div className="space-y-3">
+            <BarraPct label="Em Negociação" valor={leadsEmNegoc}     total={totalLeads} color="blue"    />
+            <BarraPct label="Convertidos"   valor={leadsConvertidos} total={totalLeads} color="emerald" />
+            <BarraPct label="Perdidos"      valor={leadsPerdidos}    total={totalLeads} color="red"     />
+          </div>
+          <div className="pt-2 border-t border-zinc-800 grid grid-cols-3 gap-2 text-center">
+            {[['Total', totalLeads, 'text-white'],['Convertidos', leadsConvertidos, 'text-emerald-400'],['Perdidos', leadsPerdidos, 'text-red-400']].map(([l,v,cl]) => (
+              <div key={String(l)}><div className={`text-lg font-black ${cl}`}>{v}</div><div className="text-[10px] text-zinc-500">{l}</div></div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-          <CardContent className="p-5 flex flex-col justify-between h-32">
-            <div className="flex justify-between items-center text-zinc-400">
-              <span className="text-xs font-mono uppercase tracking-wider">Faturamento Gerado</span>
-              <DollarSign className="w-4 h-4 text-emerald-400" />
-            </div>
-            <div>
-              <h3 className="text-2xl font-black font-mono text-white">
-                R$ {faturamentoGerado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </h3>
-              <span className="text-[11px] text-zinc-500 font-mono">Baseado em instalações concluídas</span>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Leads sem cobertura */}
+      <div className="bg-zinc-900/60 border border-amber-500/30 rounded-xl p-4 space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <MapPin className="w-4 h-4 text-amber-400" />
+            <h2 className="text-xs font-bold uppercase tracking-widest text-amber-400">Leads Sem Cobertura</h2>
+            <span className="bg-amber-500/20 text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full">{leadsSemCob.length}</span>
+          </div>
+          <div className="flex gap-1">
+            {(['lista','bairros'] as const).map(t => (
+              <button key={t} onClick={() => setAbaSemCob(t)}
+                className={`px-3 py-1 rounded-lg text-[11px] font-bold uppercase transition-colors ${abaSemCob===t ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                {t === 'lista' ? 'Lista' : 'Por Bairro'}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-          <CardContent className="p-5 flex flex-col justify-between h-32">
-            <div className="flex justify-between items-center text-zinc-400">
-              <span className="text-xs font-mono uppercase tracking-wider">Total de Vendas</span>
-              <Users className="w-4 h-4 text-emerald-400" />
-            </div>
-            <div>
-              <h3 className="text-2xl font-black font-mono text-white">{totalVendas} clientes</h3>
-              <span className="text-[11px] text-emerald-400 font-mono font-bold">Instalações efetivadas em campo</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-          <CardContent className="p-5 flex flex-col justify-between h-32">
-            <div className="flex justify-between items-center text-zinc-400">
-              <span className="text-xs font-mono uppercase tracking-wider">Eficiência & Ticket Médio</span>
-              <TrendingUp className="w-4 h-4 text-emerald-400" />
-            </div>
-            <div>
-              <h3 className="text-2xl font-black font-mono text-white">
-                R$ {ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </h3>
-              <span className="text-[11px] text-zinc-500 font-mono">Média por instalação realizada</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-        <CardHeader className="border-b border-zinc-900/85 pb-4">
-          <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-emerald-400" /> Preferência de Planos na Rede
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-8 text-center">
-          {(!planos || planos.length === 0) ? (
-            <p className="text-xs font-mono text-zinc-500">Nenhum plano cadastrado nas configurações.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
-              {planos.map((p: any) => (
-                <div key={p.id} className="p-4 bg-black/40 border border-zinc-900 rounded-xl space-y-1">
-                  <span className="text-[10px] font-mono text-zinc-500 uppercase">{p.velocidade}</span>
-                  <div className="font-bold font-sans text-sm text-white">{p.nome}</div>
-                  <div className="text-xs font-mono text-emerald-400">{p.preco}</div>
+        {leadsSemCob.length === 0 ? (
+          <div className="text-center py-8 text-zinc-500 text-sm">
+            <WifiOff className="w-8 h-8 mx-auto mb-2 opacity-30" />
+            Nenhum lead sem cobertura registrado
+          </div>
+        ) : abaSemCob === 'lista' ? (
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {leadsSemCob.slice(0, 50).map((l: any, i: number) => (
+              <div key={l.id || i} className="flex items-center justify-between bg-zinc-800/60 rounded-lg px-3 py-2 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-white font-bold truncate">{l.nome || l.name || 'Sem nome'}</div>
+                    <div className="text-zinc-500 truncate">
+                      {[l.endereco?.rua || l.rua, l.bairro || l.endereco?.bairro, l.cidade || l.endereco?.cidade].filter(Boolean).join(', ') || 'Endereço não informado'}
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="border border-zinc-900 bg-zinc-900/40 backdrop-blur">
-        <CardHeader className="border-b border-zinc-900/85 pb-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <CardTitle className="text-xs uppercase font-mono tracking-wide text-zinc-400 flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-emerald-400" /> Relatório Consolidado (Instalações & Ocorrências)
-          </CardTitle>
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 bg-black/40 border border-zinc-800 rounded-xl px-3 py-1.5">
-              <span>Período:</span>
-              <input 
-                type="date" 
-                value={dataInicio}
-                onChange={(e) => setDataInicio(e.target.value)}
-                className="bg-transparent text-white focus:outline-none text-xs" 
-              />
-              <span>até</span>
-              <input 
-                type="date" 
-                value={dataFim}
-                onChange={(e) => setDataFim(e.target.value)}
-                className="bg-transparent text-white focus:outline-none text-xs" 
-              />
-            </div>
-
-            <button className="px-4 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-200 hover:bg-zinc-800 text-xs font-mono uppercase font-bold flex items-center gap-1.5 cursor-pointer">
-              <Download className="w-3.5 h-3.5 text-emerald-400" /> Baixar
-            </button>
+                <div className="text-zinc-500 shrink-0 ml-2">{l.telefone || l.whatsapp || '—'}</div>
+              </div>
+            ))}
+            {leadsSemCob.length > 50 && <div className="text-center text-xs text-zinc-500 py-2">+{leadsSemCob.length - 50} leads não exibidos</div>}
           </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-zinc-900 text-[11px] font-mono uppercase tracking-wider text-zinc-500 bg-black/20">
-                  <th className="p-4">Cliente</th>
-                  <th className="p-4">Plano Escolhido</th>
-                  <th className="p-4">Status Operacional</th>
-                  <th className="p-4 text-right">Equipe (Atend. / Téc.)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-900/50 text-xs font-mono">
-                {relatorioItens.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="p-12 text-center text-zinc-500">
-                      Nenhum registro consolidado no momento.
-                    </td>
-                  </tr>
-                ) : (
-                  relatorioItens.map((item) => {
-                    const etapaUpper = String(item.etapa_funil || item.perfil || '').toUpperCase();
-                    let statusLabel = 'Novo';
-                    let statusStyle = 'bg-zinc-800 text-zinc-300 border-zinc-700';
-
-                    if (item.statusOperacional === 'CONCLUIDA') {
-                      statusLabel = 'Instalação Feita';
-                      statusStyle = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
-                    } else if (item.statusOperacional === 'NAO_FEITA' || etapaUpper === 'NAO CONVERTIDO' || etapaUpper === 'NÃO CONVERTIDO') {
-                      statusLabel = 'NÃO CONVERTIDO';
-                      statusStyle = 'bg-amber-500/10 text-amber-400 border-amber-500/30';
-                    } else if (item.status === 'SEM COBERTURA') {
-                      statusLabel = 'Sem Cobertura';
-                      statusStyle = 'bg-red-500/10 text-red-400 border-red-500/30';
-                    }
-
-                    const planoTexto = caçarPlanoOculto(item) || 'Plano não selecionado';
-
-                    return (
-                      <tr key={item.id} className="hover:bg-zinc-900/30 transition-colors">
-                        <td className="p-4">
-                          <div className="font-bold font-sans text-sm text-white">{item.nome}</div>
-                          <div className="text-[11px] text-zinc-500">
-                            {item.endereco ? `${item.endereco}${item.cep ? ` • CEP ${item.cep}` : ''}` : (item.cep ? `CEP ${item.cep}` : 'Endereço não informado')}
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 text-[11px]">
-                            {planoTexto}
-                          </span>
-                        </td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-1 rounded-lg text-[10px] uppercase font-bold border ${statusStyle}`}>
-                            {statusLabel}
-                          </span>
-                        </td>
-                        <td className="p-4 text-right">
-                          <div className="text-[11px] font-bold text-emerald-400">Atend: {item.atendente || 'Não informado'}</div>
-                          <div className="text-[10px] text-zinc-500">Téc: {item.tecnico || 'Não informado'}</div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-zinc-500">Regiões com maior demanda reprimida — oportunidades de expansão:</p>
+            {porBairro.length === 0
+              ? <div className="text-zinc-600 text-xs text-center py-4">Sem dados de bairro disponíveis</div>
+              : porBairro.map(([bairro, qtd]) => (
+                <div key={bairro}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-zinc-300 flex items-center gap-1"><MapPin className="w-3 h-3 text-amber-400" />{bairro}</span>
+                    <span className="text-amber-400 font-bold">{qtd} leads</span>
+                  </div>
+                  <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-500 rounded-full" style={{ width: `${pct(qtd, leadsSemCob.length)}%` }} />
+                  </div>
+                </div>
+              ))
+            }
           </div>
-        </CardContent>
-      </Card>
+        )}
+
+        {leadsSemCob.length > 0 && (
+          <div className="pt-3 border-t border-zinc-800 bg-amber-500/5 rounded-lg p-3">
+            <p className="text-[11px] text-amber-300">
+              💡 <strong>{leadsSemCob.length} leads</strong> aguardam expansão da rede.
+              {porBairro[0] && ` O bairro "${porBairro[0][0]}" tem a maior demanda (${porBairro[0][1]} leads).`}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* KPIs secundários */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard icon={Package}  label="Total Contratos"    value={totalContratos}                          color="cyan"    />
+        <KpiCard icon={UserCheck} label="Taxa Ativação"     value={`${pct(clientesAtivos,totalClientes)}%`} color="emerald" />
+        <KpiCard icon={UserX}    label="Taxa Cancelamento"  value={`${pct(clientesCancelados,totalClientes)}%`} color="red" />
+        <KpiCard icon={WifiOff}  label="Sem Cobertura"      value={leadsSemCob.length} sub="oportunidades"  color="amber"   />
+      </div>
 
     </div>
   );
