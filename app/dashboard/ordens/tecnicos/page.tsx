@@ -4,11 +4,17 @@
 // ================================================================================
 
 "use client"
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Users, User, Wrench, Clock, CheckCircle2, XCircle, AlertTriangle,
-  ChevronRight, ChevronDown, Loader2, MapPin, Phone, Zap, X
+  ChevronRight, ChevronDown, Loader2, MapPin, Phone, Zap, X, Map
 } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 interface Tecnico {
   id: string;
@@ -31,6 +37,13 @@ interface OS {
   created_at: string;
   cliente_nome: string | null;
   cliente_bairro: string | null;
+}
+
+interface TecnicoLocalizacao {
+  tecnico_id: string;
+  latitude: number;
+  longitude: number;
+  updated_at: string;
 }
 
 interface TecnicoComOS extends Tecnico {
@@ -73,11 +86,131 @@ function tempoDecorrido(iso: string) {
   return `${h}h${m > 0 ? `${m}min` : ''}`;
 }
 
+// Componente de mapa carregado dinamicamente (SSR off)
+function MapaTecnicos({ tecnicos, localizacoes }: { tecnicos: TecnicoComOS[], localizacoes: TecnicoLocalizacao[] }) {
+  const mapRef = useRef<any>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<Map<string, any>>(new Map());
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !mapRef.current) return;
+    if (mapInstanceRef.current) return; // já iniciou
+
+    import('leaflet').then(L => {
+      // Fix ícone padrão do Leaflet no Next.js
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      });
+
+      const map = L.map(mapRef.current!, { zoomControl: true, scrollWheelZoom: true });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19,
+      }).addTo(map);
+
+      map.setView([-15.78, -47.93], 5); // Brasil centralizado
+      mapInstanceRef.current = map;
+    });
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
+
+  // Atualiza marcadores quando localizações mudam
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    import('leaflet').then(L => {
+      const map = mapInstanceRef.current;
+      const bounds: [number, number][] = [];
+
+      localizacoes.forEach(loc => {
+        const tec = tecnicos.find(t => t.id === loc.tecnico_id);
+        if (!tec) return;
+
+        const isEmCampo = !!tec.os_atual;
+        const cor = isEmCampo ? '#f59e0b' : '#09A05C';
+        const label = tec.nome.charAt(0).toUpperCase();
+
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="
+            width:36px;height:36px;border-radius:50%;
+            background:${cor};border:3px solid white;
+            display:flex;align-items:center;justify-content:center;
+            font-weight:900;font-size:14px;color:white;
+            font-family:monospace;box-shadow:0 2px 8px rgba(0,0,0,0.5);
+            ${isEmCampo ? 'animation:pulse 2s infinite;' : ''}
+          ">${label}</div>`,
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
+        });
+
+        const popupHtml = `
+          <div style="font-family:monospace;min-width:160px;">
+            <strong style="font-size:12px;">${tec.nome}</strong><br/>
+            <span style="font-size:10px;color:${cor};">● ${isEmCampo ? 'Em campo' : 'Disponível'}</span><br/>
+            ${tec.os_atual ? `<span style="font-size:10px;color:#aaa;">OS: ${tec.os_atual.numero}</span><br/>` : ''}
+            ${tec.os_atual?.cliente_nome ? `<span style="font-size:10px;color:#aaa;">${tec.os_atual.cliente_nome}</span><br/>` : ''}
+            <span style="font-size:9px;color:#666;">Atualizado: ${new Date(loc.updated_at).toLocaleTimeString('pt-BR')}</span>
+          </div>`;
+
+        if (markersRef.current.has(loc.tecnico_id)) {
+          const m = markersRef.current.get(loc.tecnico_id);
+          m.setLatLng([loc.latitude, loc.longitude]);
+          m.setIcon(icon);
+          m.getPopup()?.setContent(popupHtml);
+        } else {
+          const marker = L.marker([loc.latitude, loc.longitude], { icon })
+            .addTo(map)
+            .bindPopup(popupHtml);
+          markersRef.current.set(loc.tecnico_id, marker);
+        }
+
+        bounds.push([loc.latitude, loc.longitude]);
+      });
+
+      // Remove marcadores de técnicos sem localização
+      markersRef.current.forEach((marker, id) => {
+        if (!localizacoes.find(l => l.tecnico_id === id)) {
+          marker.remove();
+          markersRef.current.delete(id);
+        }
+      });
+
+      if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+      }
+    });
+  }, [localizacoes, tecnicos]);
+
+  return (
+    <>
+      <style>{`
+        @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,0.5)} 50%{box-shadow:0 0 0 8px rgba(245,158,11,0)} }
+        .leaflet-popup-content-wrapper { background:#111; color:#fff; border:1px solid #333; border-radius:10px; }
+        .leaflet-popup-tip { background:#111; }
+        .leaflet-popup-close-button { color:#666 !important; }
+      `}</style>
+      <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: '12px', zIndex: 0 }} />
+    </>
+  );
+}
+
 export default function PainelTecnicosPage() {
   const [tecnicos, setTecnicos] = useState<TecnicoComOS[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [expandido, setExpandido] = useState<string | null>(null);
   const [detalheOS, setDetalheOS] = useState<OS | null>(null);
+  const [localizacoes, setLocalizacoes] = useState<TecnicoLocalizacao[]>([]);
+  const [mostrarMapa, setMostrarMapa] = useState(true);
+  const [leafletCSS, setLeafletCSS] = useState(false);
 
   const carregarDados = useCallback(async () => {
     try {
@@ -149,11 +282,52 @@ export default function PainelTecnicosPage() {
 
   useEffect(() => { carregarDados(); }, [carregarDados]);
 
-  // Auto-refresh a cada 30s (para atualizar o "tempo decorrido")
+  // Auto-refresh a cada 30s
   useEffect(() => {
     const interval = setInterval(() => carregarDados(), 30000);
     return () => clearInterval(interval);
   }, [carregarDados]);
+
+  // Carrega CSS do Leaflet e localizações iniciais
+  useEffect(() => {
+    if (!leafletCSS) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+      setLeafletCSS(true);
+    }
+
+    // Busca localizações iniciais
+    supabaseClient
+      .from('tecnico_localizacoes')
+      .select('*')
+      .then(({ data }) => { if (data) setLocalizacoes(data); });
+
+    // Realtime — atualiza pin do técnico em tempo real
+    const channel = supabaseClient
+      .channel('tecnico_localizacoes_realtime')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'tecnico_localizacoes',
+      }, (payload) => {
+        setLocalizacoes(prev => {
+          const novo = payload.new as TecnicoLocalizacao;
+          const idx = prev.findIndex(l => l.tecnico_id === novo.tecnico_id);
+          if (idx >= 0) {
+            const arr = [...prev];
+            arr[idx] = novo;
+            return arr;
+          }
+          return [...prev, novo];
+        });
+      })
+      .subscribe();
+
+    return () => { supabaseClient.removeChannel(channel); };
+  }, [leafletCSS]);
+
 
   const emCampo = tecnicos.filter(t => t.os_atual !== null).length;
   const totalAgendadas = tecnicos.reduce((acc, t) => acc + t.os_agendadas.length, 0);
@@ -192,6 +366,39 @@ export default function PainelTecnicosPage() {
             <span className="text-[10px] font-mono uppercase text-zinc-500">Total Concluidas</span>
             <p className="text-2xl font-black font-mono text-emerald-400 mt-1">{totalConcluidas}</p>
           </div>
+        </div>
+
+        {/* MAPA EM TEMPO REAL */}
+        <div className="border border-zinc-800 bg-zinc-900/40 rounded-xl overflow-hidden">
+          <div
+            className="flex items-center justify-between p-3 cursor-pointer hover:bg-zinc-800/30 transition-colors"
+            onClick={() => setMostrarMapa(m => !m)}
+          >
+            <div className="flex items-center gap-2">
+              <Map className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-mono font-bold uppercase text-white">Mapa em Tempo Real</span>
+              {localizacoes.length > 0 && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">
+                  {localizacoes.length} técnico{localizacoes.length > 1 ? 's' : ''} visível{localizacoes.length > 1 ? 'is' : ''}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform ${mostrarMapa ? 'rotate-180' : ''}`} />
+          </div>
+
+          {mostrarMapa && (
+            <div className="border-t border-zinc-800/50" style={{ height: '420px', position: 'relative' }}>
+              {localizacoes.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-6">
+                  <MapPin className="w-10 h-10 text-zinc-700" />
+                  <p className="text-sm text-zinc-500 font-mono">Nenhum técnico com localização ativa</p>
+                  <p className="text-[10px] text-zinc-600 font-mono">O pin aparece aqui quando o técnico inicia o deslocamento no app</p>
+                </div>
+              ) : (
+                <MapaTecnicos tecnicos={tecnicos} localizacoes={localizacoes} />
+              )}
+            </div>
+          )}
         </div>
 
         {/* LISTA DE TÉCNICOS */}
