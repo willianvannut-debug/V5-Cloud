@@ -60,6 +60,8 @@ export default function BloqueioMikroTikPage() {
   const [ipManual, setIpManual] = useState('')
   const [commentManual, setCommentManual] = useState('')
   const [bloqueandoManual, setBloqueandoManual] = useState(false)
+  const [testando, setTestando] = useState(false)
+  const [dryRunResult, setDryRunResult] = useState<{resumo: any, clientes: any[]} | null>(null)
 
   const [config, setConfig] = useState<ConfigBloqueio>({
     dias_atraso: 5,
@@ -294,6 +296,28 @@ export default function BloqueioMikroTikPage() {
   }
 
   // ============================================================
+  // TESTAR BLOQUEIO (DRY RUN)
+  // ============================================================
+  const testarBloqueio = async () => {
+    setTestando(true)
+    setDryRunResult(null)
+    try {
+      const res = await fetch('/api/cron/bloqueio-automatico?dry_run=true')
+      const data = await res.json()
+      if (data.ok) {
+        setDryRunResult(data)
+        toast.success('Simulação concluída!')
+      } else {
+        toast.error(data.error || 'Erro na simulação')
+      }
+    } catch {
+      toast.error('Erro ao simular bloqueio')
+    } finally {
+      setTestando(false)
+    }
+  }
+
+  // ============================================================
   // FILTRO
   // ============================================================
   const bloqueadosFiltrados = bloqueados.filter(b => {
@@ -354,58 +378,138 @@ export default function BloqueioMikroTikPage() {
         </div>
       </div>
 
-      {/* CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center">
-              <ShieldBan className="w-5 h-5 text-red-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-mono font-black text-white">{bloqueados.length}</p>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Bloqueados</p>
-            </div>
+      {/* CARDS + CONFIG EM DESTAQUE */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        {/* STATS */}
+        <div className="grid grid-cols-3 gap-3 lg:col-span-1">
+          <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4 flex flex-col items-center justify-center gap-1">
+            <ShieldBan className="w-5 h-5 text-red-400 mb-1" />
+            <p className="text-2xl font-mono font-black text-white">{bloqueados.length}</p>
+            <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider text-center">Bloqueados</p>
+          </div>
+          <div className={`border rounded-2xl p-4 flex flex-col items-center justify-center gap-1 ${config.bloqueio_automatico ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-zinc-900/40 border-zinc-800/60'}`}>
+            {config.bloqueio_automatico ? <Wifi className="w-5 h-5 text-emerald-400 mb-1" /> : <WifiOff className="w-5 h-5 text-zinc-500 mb-1" />}
+            <p className="text-lg font-mono font-black text-white">{config.bloqueio_automatico ? 'ON' : 'OFF'}</p>
+            <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider text-center">Auto</p>
+          </div>
+          <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4 flex flex-col items-center justify-center gap-1">
+            <Shield className="w-5 h-5 text-blue-400 mb-1" />
+            <p className="text-xs font-mono font-black text-white break-all text-center">{config.address_list_name}</p>
+            <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider text-center">Lista MK</p>
           </div>
         </div>
 
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center">
-              <AlertTriangle className="w-5 h-5 text-yellow-400" />
+        {/* CONFIG DE DIAS EM DESTAQUE */}
+        <div className="lg:col-span-2 bg-zinc-900/40 border border-emerald-500/20 rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Settings className="w-4 h-4 text-emerald-400" />
+              <p className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider">Regra de Bloqueio Automático</p>
             </div>
-            <div>
-              <p className="text-2xl font-mono font-black text-white">
-                {bloqueados.filter(b => b.disabled === 'true').length}
-              </p>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Desativados</p>
-            </div>
+            <button
+              onClick={testarBloqueio}
+              disabled={testando}
+              className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/15 hover:bg-yellow-500/25 text-yellow-400 border border-yellow-500/30 rounded-lg text-xs font-mono font-bold uppercase transition-all cursor-pointer disabled:opacity-50"
+            >
+              {testando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+              Simular
+            </button>
           </div>
-        </div>
 
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-blue-400" />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+            {/* Toggle ativo */}
+            <div className="flex items-center justify-between bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3 sm:col-span-1">
+              <div>
+                <p className="text-xs font-mono font-bold text-white">Ativo</p>
+                <p className="text-[10px] text-zinc-500 font-mono">Bloquear automaticamente</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfig({ ...config, bloqueio_automatico: !config.bloqueio_automatico })}
+                className={`w-11 h-6 rounded-full transition-all cursor-pointer flex-shrink-0 ml-3 ${config.bloqueio_automatico ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+              >
+                <div className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform mt-0.5 ${config.bloqueio_automatico ? 'translate-x-5.5' : 'translate-x-0.5'}`} />
+              </button>
             </div>
-            <div>
-              <p className="text-2xl font-mono font-black text-white">{config.address_list_name}</p>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Address-List</p>
-            </div>
-          </div>
-        </div>
 
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl ${config.bloqueio_automatico ? 'bg-emerald-500/15 border-emerald-500/30' : 'bg-zinc-800/60 border-zinc-700/60'} border flex items-center justify-center`}>
-              {config.bloqueio_automatico ? <Wifi className="w-5 h-5 text-emerald-400" /> : <WifiOff className="w-5 h-5 text-zinc-500" />}
+            {/* Dias de atraso — destaque */}
+            <div className="sm:col-span-1">
+              <label className="block text-xs font-mono font-bold text-emerald-400 uppercase mb-1.5 tracking-wider">
+                ⏱ Bloquear após quantos dias?
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={config.dias_atraso}
+                  onChange={e => setConfig({ ...config, dias_atraso: Number(e.target.value) })}
+                  className="w-24 px-4 py-2.5 bg-zinc-900/60 border border-emerald-500/30 rounded-xl text-xl text-white font-mono font-black focus:outline-none focus:border-emerald-500 text-center"
+                />
+                <span className="text-sm font-mono text-zinc-400">dias após vencimento</span>
+              </div>
+              <p className="text-[10px] text-zinc-600 font-mono mt-1">Ex: 3 = bloquear 3 dias após vencer</p>
             </div>
-            <div>
-              <p className="text-lg font-mono font-black text-white">{config.bloqueio_automatico ? 'ON' : 'OFF'}</p>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Automatico</p>
+
+            {/* Botão salvar */}
+            <div className="sm:col-span-1 flex flex-col gap-2">
+              <button
+                onClick={salvarConfig}
+                disabled={salvandoConfig}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-mono font-bold uppercase transition-all cursor-pointer disabled:opacity-50 w-full"
+              >
+                {salvandoConfig ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                Salvar configuração
+              </button>
+              <p className="text-[10px] text-zinc-600 font-mono text-center">Roda diariamente às 08h00</p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* RESULTADO DO DRY RUN */}
+      {dryRunResult && (
+        <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-2xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-yellow-400" />
+              <p className="text-xs font-mono font-bold text-yellow-400 uppercase">Simulação — nenhum cliente foi bloqueado</p>
+            </div>
+            <button onClick={() => setDryRunResult(null)} className="text-zinc-500 hover:text-white text-xs font-mono cursor-pointer">✕ fechar</button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: 'Seriam bloqueados', value: dryRunResult.resumo.seriam_bloqueados, color: 'text-red-400' },
+              { label: 'Já bloqueados', value: dryRunResult.resumo.ja_bloqueados, color: 'text-zinc-400' },
+              { label: 'Sem IP', value: dryRunResult.resumo.sem_ip, color: 'text-yellow-400' },
+              { label: 'Empresas', value: dryRunResult.resumo.total_empresas, color: 'text-blue-400' },
+            ].map(item => (
+              <div key={item.label} className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3 text-center">
+                <p className={`text-2xl font-mono font-black ${item.color}`}>{item.value}</p>
+                <p className="text-[9px] font-mono text-zinc-500 uppercase mt-1">{item.label}</p>
+              </div>
+            ))}
+          </div>
+          {dryRunResult.clientes.length > 0 && (
+            <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
+              {dryRunResult.clientes.map((c: any, i: number) => (
+                <div key={i} className="flex items-center justify-between bg-zinc-900/40 border border-zinc-800/40 rounded-xl px-4 py-2">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${c.acao === 'dry_run' ? 'bg-red-400' : c.acao === 'ja_bloqueado' ? 'bg-zinc-500' : 'bg-yellow-400'}`} />
+                    <span className="text-sm font-mono text-white">{c.nome}</span>
+                    <span className="text-xs font-mono text-zinc-500">{c.ip || '-'}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-mono text-red-400 font-bold">{c.dias_atraso}d atraso</span>
+                    <p className="text-[9px] font-mono text-zinc-600">{c.detalhe}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* BARRA DE BUSCA */}
       <div className="flex items-center gap-4">
