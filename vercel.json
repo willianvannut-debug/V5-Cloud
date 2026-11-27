@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/bloqueio-automatico",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/desbloqueio-automatico",
+      "schedule": "0 */2 * * *"
     }
   ]
 }

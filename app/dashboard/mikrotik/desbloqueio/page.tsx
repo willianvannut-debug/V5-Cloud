@@ -43,6 +43,8 @@ export default function DesbloqueioMikroTikPage() {
   const [busca, setBusca] = useState('')
   const [configAberta, setConfigAberta] = useState(false)
   const [salvandoConfig, setSalvandoConfig] = useState(false)
+  const [testando, setTestando] = useState(false)
+  const [dryRunResult, setDryRunResult] = useState<{resumo: any, clientes: any[]} | null>(null)
 
   const [config, setConfig] = useState<ConfigDesbloqueio>({
     desbloqueio_automatico: false,
@@ -196,6 +198,28 @@ export default function DesbloqueioMikroTikPage() {
   }
 
   // ============================================================
+  // SIMULAR DESBLOQUEIO (DRY RUN)
+  // ============================================================
+  const simularDesbloqueio = async () => {
+    setTestando(true)
+    setDryRunResult(null)
+    try {
+      const res = await fetch('/api/cron/desbloqueio-automatico?dry_run=true')
+      const data = await res.json()
+      if (data.ok) {
+        setDryRunResult(data)
+        toast.success('Simulação concluída!')
+      } else {
+        toast.error(data.error || 'Erro na simulação')
+      }
+    } catch {
+      toast.error('Erro ao simular')
+    } finally {
+      setTestando(false)
+    }
+  }
+
+  // ============================================================
   // FILTRO
   // ============================================================
   const bloqueadosFiltrados = bloqueados.filter(b => {
@@ -246,60 +270,124 @@ export default function DesbloqueioMikroTikPage() {
         </div>
       </div>
 
-      {/* CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-red-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-mono font-black text-white">{bloqueados.length}</p>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Aguardando</p>
-            </div>
+      {/* CARDS + CONFIG EM DESTAQUE */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        {/* STATS */}
+        <div className="grid grid-cols-3 gap-3 lg:col-span-1">
+          <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4 flex flex-col items-center justify-center gap-1">
+            <Shield className="w-5 h-5 text-red-400 mb-1" />
+            <p className="text-2xl font-mono font-black text-white">{bloqueados.length}</p>
+            <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider text-center">Bloqueados</p>
+          </div>
+          <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4 flex flex-col items-center justify-center gap-1">
+            <CheckCircle className="w-5 h-5 text-emerald-400 mb-1" />
+            <p className="text-2xl font-mono font-black text-white">{bloqueados.filter(b => b.disabled !== 'true').length}</p>
+            <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider text-center">Ativos</p>
+          </div>
+          <div className={`border rounded-2xl p-4 flex flex-col items-center justify-center gap-1 ${config.desbloqueio_automatico ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-zinc-900/40 border-zinc-800/60'}`}>
+            {config.desbloqueio_automatico ? <Wifi className="w-5 h-5 text-emerald-400 mb-1" /> : <WifiOff className="w-5 h-5 text-zinc-500 mb-1" />}
+            <p className="text-lg font-mono font-black text-white">{config.desbloqueio_automatico ? 'ON' : 'OFF'}</p>
+            <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider text-center">Auto</p>
           </div>
         </div>
 
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
-              <CheckCircle className="w-5 h-5 text-emerald-400" />
+        {/* CONFIG DE DESBLOQUEIO EM DESTAQUE */}
+        <div className="lg:col-span-2 bg-zinc-900/40 border border-emerald-500/20 rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Settings className="w-4 h-4 text-emerald-400" />
+              <p className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider">Regra de Desbloqueio Automático</p>
             </div>
-            <div>
-              <p className="text-2xl font-mono font-black text-white">
-                {bloqueados.filter(b => b.disabled === 'true').length}
+            <button
+              onClick={simularDesbloqueio}
+              disabled={testando}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 border border-blue-500/30 rounded-lg text-xs font-mono font-bold uppercase transition-all cursor-pointer disabled:opacity-50"
+            >
+              {testando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+              Simular
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+            {/* Toggle ativo */}
+            <div className="flex items-center justify-between bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3">
+              <div>
+                <p className="text-xs font-mono font-bold text-white">Ativo</p>
+                <p className="text-[10px] text-zinc-500 font-mono">Desbloquear ao pagar</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfig({ ...config, desbloqueio_automatico: !config.desbloqueio_automatico })}
+                className={`w-11 h-6 rounded-full transition-all cursor-pointer flex-shrink-0 ml-3 ${config.desbloqueio_automatico ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+              >
+                <div className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform mt-0.5 ${config.desbloqueio_automatico ? 'translate-x-5.5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+
+            {/* Como funciona */}
+            <div className="sm:col-span-1 bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3">
+              <p className="text-xs font-mono font-bold text-white mb-1">Como funciona</p>
+              <p className="text-[10px] text-zinc-500 font-mono leading-relaxed">
+                Quando o cliente paga a fatura, o sistema detecta o pagamento e remove automaticamente o IP da address-list <span className="text-emerald-400">bloqueados</span>.
               </p>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Desativados</p>
             </div>
-          </div>
-        </div>
 
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center">
-              <Users className="w-5 h-5 text-blue-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-mono font-black text-white">
-                {bloqueados.filter(b => b.disabled !== 'true').length}
-              </p>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Ativos na Lista</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-2xl p-4">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl ${config.desbloqueio_automatico ? 'bg-emerald-500/15 border-emerald-500/30' : 'bg-zinc-800/60 border-zinc-700/60'} border flex items-center justify-center`}>
-              {config.desbloqueio_automatico ? <Wifi className="w-5 h-5 text-emerald-400" /> : <WifiOff className="w-5 h-5 text-zinc-500" />}
-            </div>
-            <div>
-              <p className="text-lg font-mono font-black text-white">{config.desbloqueio_automatico ? 'ON' : 'OFF'}</p>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Automatico</p>
+            {/* Botão salvar */}
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={salvarConfig}
+                disabled={salvandoConfig}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-mono font-bold uppercase transition-all cursor-pointer disabled:opacity-50 w-full"
+              >
+                {salvandoConfig ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                Salvar configuração
+              </button>
+              <p className="text-[10px] text-zinc-600 font-mono text-center">Roda a cada pagamento confirmado</p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* RESULTADO DO DRY RUN */}
+      {dryRunResult && (
+        <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-blue-400" />
+              <p className="text-xs font-mono font-bold text-blue-400 uppercase">Simulação — nenhum cliente foi desbloqueado</p>
+            </div>
+            <button onClick={() => setDryRunResult(null)} className="text-zinc-500 hover:text-white text-xs font-mono cursor-pointer">✕ fechar</button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: 'Seriam desbloqueados', value: dryRunResult.resumo.seriam_desbloqueados, color: 'text-emerald-400' },
+              { label: 'Fatura pendente', value: dryRunResult.resumo.fatura_pendente, color: 'text-red-400' },
+              { label: 'Sem IP', value: dryRunResult.resumo.sem_ip, color: 'text-yellow-400' },
+              { label: 'Total analisados', value: dryRunResult.resumo.total_analisados, color: 'text-blue-400' },
+            ].map(item => (
+              <div key={item.label} className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-3 text-center">
+                <p className={`text-2xl font-mono font-black ${item.color}`}>{item.value}</p>
+                <p className="text-[9px] font-mono text-zinc-500 uppercase mt-1">{item.label}</p>
+              </div>
+            ))}
+          </div>
+          {dryRunResult.clientes.length > 0 && (
+            <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
+              {dryRunResult.clientes.map((c: any, i: number) => (
+                <div key={i} className="flex items-center justify-between bg-zinc-900/40 border border-zinc-800/40 rounded-xl px-4 py-2">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${c.acao === 'dry_run' ? 'bg-emerald-400' : c.acao === 'fatura_pendente' ? 'bg-red-400' : 'bg-yellow-400'}`} />
+                    <span className="text-sm font-mono text-white">{c.nome}</span>
+                    <span className="text-xs font-mono text-zinc-500">{c.ip || '-'}</span>
+                  </div>
+                  <p className="text-[9px] font-mono text-zinc-500 text-right max-w-48">{c.detalhe}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* BARRA DE BUSCA */}
       <div className="flex items-center gap-4">
