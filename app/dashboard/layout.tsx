@@ -12,6 +12,8 @@ import { useRouter } from 'next/navigation';
 import { playSound } from '@/lib/sound';
 import { painelApi } from '@/lib/painel-api';
 import { ThemeProvider } from '@/context/ThemeContext';
+import { ToleranciaPlano } from '@/components/ToleranciaPlano';
+import { useAuth } from '@/context/AuthContext';
 
 
 // Hook para escutar novos leads em tempo real de forma global em qualquer página
@@ -41,6 +43,26 @@ function GlobalListenerWrapper({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function DashboardContent({ children }: { children: React.ReactNode }) {
+  const { empresa } = useAuth();
+
+  return (
+    <div className="min-h-screen flex font-sans text-zinc-50">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto flex flex-col">
+        {/* Banner de tolerância de plano (aparece no topo quando necessário) */}
+        <ToleranciaPlano
+          tolerancia={empresa?.tolerancia ?? null}
+          plano={empresa?.plano ?? 'essencial'}
+        />
+        <div className="flex-1">
+          {children}
+        </div>
+      </main>
+    </div>
+  );
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -50,10 +72,6 @@ export default function DashboardLayout({
 
   useEffect(() => {
     // DESABILITADO PERMANENTEMENTE PARA ACESSO DIRETO NO CELULAR
-    // const s = localStorage.getItem('v5_auth_session');
-    // if (s !== 'true') {
-    //   router.push('/login');
-    // }
   }, [router]);
 
   return (
@@ -61,12 +79,9 @@ export default function DashboardLayout({
     <SettingsProvider>
       <AppProvider>
         <GlobalListenerWrapper>
-          <div className="min-h-screen flex font-sans text-zinc-50">
-            <Sidebar />
-            <main className="flex-1 overflow-y-auto">
-              {children}
-            </main>
-          </div>
+          <DashboardContent>
+            {children}
+          </DashboardContent>
         </GlobalListenerWrapper>
       </AppProvider>
     </SettingsProvider>

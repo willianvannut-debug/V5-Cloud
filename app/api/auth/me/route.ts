@@ -41,7 +41,7 @@ export async function GET() {
     if (operador.empresa_id) {
       const { data: empresa, error: errEmp } = await supabaseAdmin
         .from('empresas')
-        .select('*')
+        .select('*, tolerancia_inicio, tolerancia_expira_em')
         .eq('id', operador.empresa_id)
         .single();
 
@@ -50,8 +50,22 @@ export async function GET() {
       }
     }
 
-    // 🚀 O pulo do gato: forçamos o browser a NUNCA fazer cache desta rota. 
-    // Assim, se você mudar o banco, a tela atualiza na hora.
+    // Calcula status de tolerância de plano
+    let tolerancia = null;
+    if (empresaData?.tolerancia_expira_em) {
+      const agora = new Date();
+      const expira = new Date(empresaData.tolerancia_expira_em);
+      const msRestantes = expira.getTime() - agora.getTime();
+      const diasRestantes = Math.max(0, Math.ceil(msRestantes / (1000 * 60 * 60 * 24)));
+      tolerancia = {
+        ativa: msRestantes > 0,
+        expirada: msRestantes <= 0,
+        diasRestantes,
+        expiraEm: empresaData.tolerancia_expira_em,
+      };
+    }
+
+    // Forcamos o browser a NUNCA fazer cache desta rota.
     const headers = {
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
       'Pragma': 'no-cache',
@@ -72,7 +86,8 @@ export async function GET() {
           codigo_convite: empresaData.codigo_convite,
           endereco: empresaData.endereco,
           plano: String(empresaData.plano || 'essencial').toLowerCase().trim(),
-          addon_iframe: empresaData.addon_iframe || false // Adicionado!
+          addon_iframe: empresaData.addon_iframe || false,
+          tolerancia,
         } : null
       },
       empresa: empresaData ? {
@@ -81,7 +96,8 @@ export async function GET() {
         codigoConvite: empresaData.codigo_convite,
         endereco: empresaData.endereco,
         plano: String(empresaData.plano || 'essencial').toLowerCase().trim(),
-        addon_iframe: empresaData.addon_iframe || false // Adicionado!
+        addon_iframe: empresaData.addon_iframe || false,
+        tolerancia,
       } : null
     }, { headers });
 

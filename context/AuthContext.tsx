@@ -10,12 +10,20 @@ interface OperadorInfo {
   empresaId: string;
 }
 
+interface ToleranciaInfo {
+  ativa: boolean;
+  expirada: boolean;
+  diasRestantes: number;
+  expiraEm: string;
+}
+
 interface EmpresaInfo {
   id: string;
   nomeEmpresa: string;
   codigoConvite: string;
   endereco: string;
   plano: string;
+  tolerancia: ToleranciaInfo | null;
 }
 
 interface AuthContextType {
